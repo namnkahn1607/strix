@@ -187,7 +187,6 @@ func runServe(_ *cobra.Command, _ []string) error {
 	// 8. Initialize HTTP Server.
 	fatalErrChan := make(chan error, 1)
 	pool := proxy.NewWorkerPool(clientStub)
-	defer pool.Stop()
 	sv := server.NewServer(clientStub, l0Cache, fatalErrChan, pool)
 
 	// 9. Create OS Signal listener.
@@ -195,17 +194,21 @@ func runServe(_ *cobra.Command, _ []string) error {
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
 	serverErrChan := sv.Start()
+	var runErr error
 
 	select {
 	case serverErr := <-serverErrChan:
-		return fmt.Errorf("gateway crashed: %w", serverErr)
+		runErr = serverErr
+		log.Printf("[strix serve] Gateway server crashed due to: %v\n", runErr)
+
 	case fatalErr := <-fatalErrChan:
 		log.Printf(
 			"[strix serve] Fatal error from handler: %v - Initiating shutdown...\n",
 			fatalErr,
 		)
+
 	case sysSig := <-sigChan:
-		log.Printf("[strix serve] Received signal %v. Initiating shutdown...\n",
+		log.Printf("[strix serve] Received SIGTERM %v. Initiating shutdown...\n",
 			sysSig,
 		)
 	}
@@ -214,8 +217,20 @@ func runServe(_ *cobra.Command, _ []string) error {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer shutdownCancel()
 
+	defer func() {
+		if poolErr := pool.Stop(shutdownCtx); poolErr != nil {
+			log.Printf("[strix serve] Worker Pool stop error: %v\n", poolErr)
+		} else {
+			log.Println("[strix server] Worker Pool stopped")
+		}
+	}()
+
 	log.Println("[strix serve] Stopping HTTP Server...")
-	return sv.Stop(shutdownCtx)
+	if stopErr := sv.Stop(shutdownCtx); stopErr != nil {
+		log.Printf("[strix serve] HTTP Server stop error: %v\n", stopErr)
+	}
+
+	return runErr
 }
 
 func openMoreFD() error {

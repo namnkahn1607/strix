@@ -4,6 +4,7 @@ import (
 	"context"
 	pb "gateway/pb/proto"
 	"log"
+	"sync"
 	"time"
 )
 
@@ -20,6 +21,7 @@ type Job struct {
 
 type WorkerPool struct {
 	queue chan Job
+	wg    sync.WaitGroup
 }
 
 func NewWorkerPool(stub pb.SemanticServiceClient) *WorkerPool {
@@ -27,6 +29,7 @@ func NewWorkerPool(stub pb.SemanticServiceClient) *WorkerPool {
 		queue: make(chan Job, jobQueueCap),
 	}
 
+	wp.wg.Add(numWorkers)
 	for range numWorkers {
 		go wp.runWorker(stub)
 	}
@@ -41,8 +44,26 @@ func (wp *WorkerPool) TryEnqueue(nodeID int32, payload []byte) {
 	}
 }
 
-func (wp *WorkerPool) Stop() {
+func (wp *WorkerPool) Stop(ctx context.Context) error {
 	close(wp.queue)
+
+	drained := make(chan struct{})
+	go func() {
+		wp.wg.Wait()
+		close(drained)
+	}()
+
+	select {
+	case <-drained:
+		return nil
+	case <-ctx.Done():
+		log.Printf(
+			"[WorkerPool] Stop deadline exceeded (%v): abandoning remaining jobs in queue\n",
+			ctx.Err(),
+		)
+
+		return ctx.Err()
+	}
 }
 
 func (wp *WorkerPool) runWorker(stub pb.SemanticServiceClient) {
@@ -57,7 +78,7 @@ func (wp *WorkerPool) runWorker(stub pb.SemanticServiceClient) {
 		cancel()
 
 		if rpcErr != nil {
-			log.Printf("[Worker Pool] RPC Write failed for nodeID = %d: %v\n",
+			log.Printf("[WorkerPool] RPC Write failed for nodeID = %d: %v\n",
 				job.NodeID, rpcErr,
 			)
 		}
