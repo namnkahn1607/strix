@@ -9,6 +9,8 @@
 #include "embedder.hh"
 #include "service.hh"
 
+constexpr int32_t PIPE_READER_FD = 3;
+
 std::atomic g_shutdown_requested{false};
 
 void SignalHandler([[maybe_unused]] const int sig) {
@@ -62,12 +64,14 @@ void RunServer(MemoryArena& arena) {
     // Call Wait() on another thread to avoid blocking Main Thread.
     std::thread grpc_thread([&]() { server->Wait(); });
 
-    // Main Thread will be blocked after an amount of time, enabling
-    // the spawned thread calling Wait() to be executed.
-    while (!g_shutdown_requested.load(std::memory_order_relaxed)) {
-        std::this_thread::sleep_for(
-            std::chrono::milliseconds(engine::MAIN_THREAD_BLOCKED_ROUTINE));
+    char buffer;
+    if (const size_t bytes_read = read(PIPE_READER_FD, &buffer, 1); bytes_read == 0) {
+        std::cout << "[Engine] HTTP Gateway detached (EOF). Initiating Shutdown..." << std::endl;
+    } else {
+        std::cout << "[Engine] POSIX pipe error/Interrupt. Initiating Shutdown..." << std::endl;
     }
+
+    g_shutdown_requested.store(true, std::memory_order_release);
 
     const auto deadline = std::chrono::system_clock::now() +
                           std::chrono::seconds(engine::G_SHUTDOWN_TIMEOUT);
