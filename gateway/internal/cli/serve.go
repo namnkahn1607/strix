@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"gateway/internal/proxy"
 	"gateway/internal/server"
@@ -12,6 +13,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -50,10 +52,11 @@ var serveCmd = &cobra.Command{
 // ├── bin/
 // │   ├── strix_gateway  <- os.Executable()
 // │   └── strix_engine
-// └── engine/
-//	   └── model/
-//	       ├── strix-minilm-with-tokenizer.onnx
-//	       └── libortextensions.so
+// ├── engine/
+// │   └── model/
+// │       ├── strix-minilm-with-tokenizer.onnx
+// │	   └── libortextensions.so
+// └── gateway/           <- Go Gateway source code
 
 type projectPaths struct {
 	engineBinary string // strix/bin/strix_engine
@@ -65,6 +68,12 @@ func runServe(_ *cobra.Command, _ []string) error {
 	// 1. Permission & RAM checks and FD expansion.
 	if permErr := AssertEnvPermissions(); permErr != nil {
 		return permErr
+	}
+
+	if pid, running, pidErr := IsInstanceRunning(); pidErr != nil {
+		return fmt.Errorf("cannot check for existing instance: %w", pidErr)
+	} else if running {
+		return fmt.Errorf("another Strix instance is already running (PID: %d)", pid)
 	}
 
 	if ramErr := system.CheckRAM(); ramErr != nil {
@@ -183,6 +192,27 @@ func runServe(_ *cobra.Command, _ []string) error {
 	if pollErr := waitForEngine(context.Background(), clientStub); pollErr != nil {
 		return pollErr
 	}
+
+	pidPath, pidPathErr := PIDFilePath()
+	if pidPathErr != nil {
+		return pidPathErr
+	}
+
+	pidContent := strconv.Itoa(os.Getpid())
+	if writeErr := os.WriteFile(pidPath, []byte(pidContent), 0600); writeErr != nil {
+		return fmt.Errorf("cannot write PID file %s: %w", pidPath, writeErr)
+	}
+
+	defer func() {
+		if rmErr := os.Remove(pidPath); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
+			log.Printf(
+				"[strix serve] WARNING: cannot remove PID file %s: %v\n",
+				pidPath, rmErr,
+			)
+		}
+	}()
+
+	log.Printf("[strix serve] PID file written: %s (PID %d)\n", pidPath, os.Getpid())
 
 	// 8. Initialize HTTP Server.
 	fatalErrChan := make(chan error, 1)
