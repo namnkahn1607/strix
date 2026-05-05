@@ -25,7 +25,7 @@ var configSetCmd = &cobra.Command{
 	must have permission 0600.
  
 	The API key is NEVER passed via command-line arguments that would be
-	visible in process listings — it is written directly to the secured
+	visible in process listings - it is written directly to the secured
 	.env file only.`,
 	RunE: runConfigSet,
 }
@@ -40,6 +40,16 @@ func init() {
 }
 
 func runConfigSet(_ *cobra.Command, _ []string) error {
+	if pid, running, checkErr := IsInstanceRunning(); checkErr != nil {
+		return fmt.Errorf("cannot check server status: %w", checkErr)
+	} else if running {
+		return fmt.Errorf(
+			"[strix config] ERROR: Cannot mutate config while Strix is running (PID: %d). "+
+				"Please stop the server first with 'strix stop'",
+			pid,
+		)
+	}
+
 	if permErr := AssertEnvPermissions(); permErr != nil {
 		return permErr
 	}
