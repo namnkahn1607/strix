@@ -11,7 +11,8 @@
 
 #include "constant.hh"
 
-inline float CosineSimilarity(const float* query, const float* node_vector) {
+inline float CosineSimilarity(const float* query,
+                              const float* node_vector) noexcept {
     // Apply 4 256-bit registers holding eight 0.0f's (unroll_factor = 4).
     __m256 sum0 = _mm256_setzero_ps();
     __m256 sum1 = _mm256_setzero_ps();
@@ -62,7 +63,8 @@ inline float CosineSimilarity(const float* query, const float* node_vector) {
 #else
 #include "constant.hh"
 
-inline float CosineSimilarity(const float* query, const float* node_vector) {
+inline float CosineSimilarity(const float* query,
+                              const float* node_vector) noexcept {
     float dot_product{0.0f};
 
     for (size_t i = 0; i < engine::VECTOR_DIM; ++i) {

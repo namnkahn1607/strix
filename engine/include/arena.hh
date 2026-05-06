@@ -30,19 +30,19 @@ public:
     void RunGarbageCollector(const std::atomic<bool>& g_shutdown_request);
 
     // Getters
-    [[nodiscard]] MetaNode& GetNode(const size_t node_id) const {
+    [[nodiscard]] MetaNode& GetNode(const size_t node_id) const noexcept {
         return metadata[node_id];
     }
 
-    [[nodiscard]] float* GetVector(const size_t node_id) const {
+    [[nodiscard]] float* GetVector(const size_t node_id) const noexcept {
         return vectors + (engine::VECTOR_DIM * node_id);
     };
 
-    [[nodiscard]] uint64_t GetWriteHead() const {
+    [[nodiscard]] uint64_t GetWriteHead() const noexcept {
         return write_head.load(std::memory_order_acquire);
     };
 
-    [[nodiscard]] uint64_t GetReadTail() const {
+    [[nodiscard]] uint64_t GetReadTail() const noexcept {
         return read_tail.load(std::memory_order_acquire);
     }
 

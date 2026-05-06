@@ -27,14 +27,15 @@ struct UnpackedControl {
 
 [[nodiscard]] inline uint64_t PackControl(NodeState state, EvictState ref_bit,
                                           const uint32_t length,
-                                          const uint64_t offset) {
+                                          const uint64_t offset) noexcept {
     return (static_cast<uint64_t>(state) << 62) |
            (static_cast<uint64_t>(ref_bit) << 61) |
            (static_cast<uint64_t>(length & engine::MAX_PAYLOAD_LENGTH) << 37) |
            (offset & engine::VIRTUAL_OFFSET_MASK);
 }
 
-[[nodiscard]] inline UnpackedControl UnpackControl(const uint64_t control) {
+[[nodiscard]] inline UnpackedControl UnpackControl(
+    const uint64_t control) noexcept {
     return {static_cast<NodeState>(control >> 62),
             static_cast<EvictState>((control >> 61) & 0x1),
             static_cast<uint32_t>((control >> 37) & engine::MAX_PAYLOAD_LENGTH),
@@ -54,7 +55,8 @@ struct alignas(64) MetaNode {
     std::atomic<uint64_t> control_block;
 
     [[nodiscard]] UnpackedControl LoadControl(
-        const std::memory_order order = std::memory_order_acquire) const {
+        const std::memory_order order =
+            std::memory_order_acquire) const noexcept {
         return UnpackControl(control_block.load(order));
     }
 };
