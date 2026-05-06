@@ -13,10 +13,6 @@ constexpr int32_t PIPE_READER_FD = 3;
 
 std::atomic g_shutdown_requested{false};
 
-void SignalHandler([[maybe_unused]] const int sig) {
-    g_shutdown_requested.store(true, std::memory_order_relaxed);
-}
-
 static void WarmUpEngine() {
     std::cout << "[Engine] Warming up ONNX runtime..." << std::endl;
 
@@ -65,10 +61,15 @@ void RunServer(MemoryArena& arena) {
     std::thread grpc_thread([&]() { server->Wait(); });
 
     char buffer;
-    if (const size_t bytes_read = read(PIPE_READER_FD, &buffer, 1); bytes_read == 0) {
-        std::cout << "[Engine] HTTP Gateway detached (EOF). Initiating Shutdown..." << std::endl;
+    if (const size_t bytes_read = read(PIPE_READER_FD, &buffer, 1);
+        bytes_read == 0) {
+        std::cout
+            << "[Engine] HTTP Gateway detached (EOF). Initiating Shutdown..."
+            << std::endl;
     } else {
-        std::cout << "[Engine] POSIX pipe error/Interrupt. Initiating Shutdown..." << std::endl;
+        std::cout
+            << "[Engine] POSIX pipe error/Interrupt. Initiating Shutdown..."
+            << std::endl;
     }
 
     g_shutdown_requested.store(true, std::memory_order_release);
@@ -90,8 +91,17 @@ void RunServer(MemoryArena& arena) {
 }
 
 int main() {
-    std::signal(SIGINT, SignalHandler);
-    std::signal(SIGTERM, SignalHandler);
+    sigset_t mask;
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGINT);
+    sigaddset(&mask, SIGTERM);
+    pthread_sigmask(SIG_BLOCK, &mask, nullptr);
+
+    std::thread sig_thread([&mask]() {
+        int sig;
+        sigwait(&mask, &sig);
+        g_shutdown_requested.store(true, std::memory_order_release);
+    });
 
     // Main Thread is responsible for construct & deconstruct Memory Arena.
     const auto memory_arena = std::make_unique<MemoryArena>();
