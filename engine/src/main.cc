@@ -58,7 +58,19 @@ void RunServer(MemoryArena& arena) {
                           std::ref(g_shutdown_requested));
 
     // Call Wait() on another thread to avoid blocking Main Thread.
-    std::thread grpc_thread([&]() { server->Wait(); });
+    std::thread grpc_thread([&]() {
+        try {
+            server->Wait();
+        } catch (const std::exception& e) {
+            std::cerr << "[Engine] FATAL: gRPC crashed unexpectedly: "
+                      << e.what() << std::endl;
+            g_shutdown_requested.store(true, std::memory_order_release);
+        } catch (...) {
+            std::cerr << "[Engine] FATAL: gRPC crashed with unknown error."
+                      << std::endl;
+            g_shutdown_requested.store(true, std::memory_order_release);
+        }
+    });
 
     char buffer;
     if (const size_t bytes_read = read(PIPE_READER_FD, &buffer, 1);
