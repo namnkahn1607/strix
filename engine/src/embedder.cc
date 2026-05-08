@@ -7,8 +7,10 @@
 #include "constant.hh"
 
 Embedder::Embedder()
-    : env_{Ort::Env(ORT_LOGGING_LEVEL_WARNING, "onnx-env")}
-    , session_options_{Ort::SessionOptions()} {
+    : env_{Ort::Env(ORT_LOGGING_LEVEL_ERROR, "onnx-env")}
+    , session_options_{Ort::SessionOptions()}
+    , mem_info_{
+          Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)} {
     const char* model_path{std::getenv("INFERENCE_MODEL_PATH")};
     if (model_path == nullptr) {
         throw std::runtime_error(
@@ -38,35 +40,36 @@ Embedder::Embedder()
 }
 
 AlignedVector Embedder::Encode(const std::string& prompt) const {
-    // 1. Initialize standard allocator for ONNX
-    Ort::MemoryInfo mem_info{
-        Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)};
-    const Ort::AllocatorWithDefaultOptions allocator;
-
-    // 2. Define Tensor Input structure
+    // 1. Define Tensor Input structure
     const std::vector<int64_t> input_shape{1};
     const char* input_string{prompt.c_str()};
 
-    // 3. Create String Tensor
+    // 2. Create String Tensor
     Ort::Value input_tensor{Ort::Value::CreateTensor(
-        allocator, input_shape.data(), input_shape.size(),
+        allocator_, input_shape.data(), input_shape.size(),
         ONNX_TENSOR_ELEMENT_DATA_TYPE_STRING)};
     input_tensor.FillStringTensor(&input_string, 1);
 
-    // 4. Prepare Run configurations
+    // 3. Prepare Run configurations
     const char* input_names[]{"text"};
     const char* output_names[]{"last_hidden_state"};
 
-    // 5. Use Neural Network to execute the Input Tensor
+    // 4. Use Neural Network to execute the Input Tensor
     const auto output_tensors{session_->Run(Ort::RunOptions{nullptr},
                                             input_names, &input_tensor, 1,
                                             output_names, 1)};
 
-    // 6. Extract Output Data
+    // 5. Extract Output Data
     const Ort::Value& output_tensor{output_tensors.front()};
     const auto type_info{output_tensor.GetTensorTypeAndShapeInfo()};
     // Output shape is always [1, N, 384].
     const std::vector output_shape{type_info.GetShape()};
+
+    if (output_shape.size() != 3) {
+        throw std::runtime_error(
+            "Unexpected output rank: expected [1, seq_len, 384], got rank " +
+            std::to_string(output_shape.size()));
+    }
 
     if (output_shape[0] != 1) {
         throw std::runtime_error("Batching Inference is not supported");
@@ -92,7 +95,7 @@ AlignedVector Embedder::Encode(const std::string& prompt) const {
     float* aligned_buffer = query_vec.get();
     std::memset(aligned_buffer, 0, engine::VECTOR_MEMSIZE);
 
-    // 7. Squeeze 2D array [N][384] into [384] array using Mean Pooling
+    // 6. Squeeze 2D array [N][384] into [384] array using Mean Pooling
     for (size_t i = 0; i < seq_length; ++i) {
         for (size_t j = 0; j < vec_dimension; ++j) {
             aligned_buffer[j] += float_array[i * vec_dimension + j];
@@ -104,7 +107,7 @@ AlignedVector Embedder::Encode(const std::string& prompt) const {
         aligned_buffer[i] /= seq_len_f;
     }
 
-    // 8. Perform L2 Normalization
+    // 7. Perform L2 Normalization
     float sum_sq = 0.0f;
     for (size_t i = 0; i < vec_dimension; ++i) {
         sum_sq += aligned_buffer[i] * aligned_buffer[i];

@@ -34,6 +34,9 @@ private:
     // initializer list if not declared as pointer => Use smart pointer.
     std::unique_ptr<Ort::Session> session_;
 
+    Ort::MemoryInfo mem_info_;
+    Ort::AllocatorWithDefaultOptions allocator_;
+
     Embedder();
     ~Embedder() = default;
 };
