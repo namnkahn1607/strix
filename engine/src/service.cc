@@ -38,54 +38,37 @@ grpc::Status SemanticServiceImpl::CheckCache(
         int32_t best_node_id = -1;
         int32_t reusable_node_id = -1;
 
-        for (size_t i = 0; i < engine::L0_MAX_SLOTS; ++i) {
-            auto& [created_at, control_block] = memory_arena.GetNode(i);
-            const uint64_t best_ctrl = control_block.load(
-                std::memory_order_relaxed);  // fine for x86, otherwise acquire
-            auto [state, ref_bit, length, v_offset] = UnpackControl(best_ctrl);
+        for (size_t i = 0; i < engine::L0_MAX_SLOTS; i += 4) {
+            float scores[4];
+            bool valid[4];
 
-            reusable_node_id =
-                (state == NodeState::DEAD && reusable_node_id == -1)
-                    ? static_cast<int32_t>(i)
-                    : reusable_node_id;
+            for (size_t k = 0; k < 4; ++k) {
+                auto& [created_at, control_block] = memory_arena.GetNode(i + k);
+                const uint64_t ctrl = control_block.load(
+                    std::memory_order_relaxed);  // fine for x86
+                auto [state, ref_bit, length, offset] = UnpackControl(ctrl);
 
-            bool is_valid =
-                (state == NodeState::READY || state == NodeState::MIGRATING);
+                const bool forbidden =
+                    (state == NodeState::PENDING &&
+                     created_at.load(std::memory_order_acquire) == 0);
 
-            if (state == NodeState::PENDING) {
-                const uint64_t birth_time =
-                    created_at.load(std::memory_order_acquire);
+                valid[k] = !forbidden && (state == NodeState::READY ||
+                                          state == NodeState::MIGRATING ||
+                                          state == NodeState::PENDING);
 
-                if (birth_time == 0) {
-                    continue;
-                }
-
-                if (curr_time - birth_time > engine::PENDING_LIFESPAN) {
-                    uint64_t expected_ctrl = best_ctrl;
-                    const uint64_t desired_ctrl =
-                        PackControl(NodeState::DEAD, ref_bit, length, v_offset);
-
-                    if (control_block.compare_exchange_strong(
-                            expected_ctrl, desired_ctrl,
-                            std::memory_order_release,
-                            std::memory_order_relaxed)) {
-                        reusable_node_id = (reusable_node_id == -1)
-                                               ? static_cast<int32_t>(i)
-                                               : reusable_node_id;
-                        created_at.store(0, std::memory_order_relaxed);
-                    }
-                } else {
-                    is_valid = true;
-                }
+                reusable_node_id =
+                    (state == NodeState::DEAD && reusable_node_id == -1)
+                        ? static_cast<int32_t>(i + k)
+                        : reusable_node_id;
             }
 
-            if (is_valid) {
-                const float curr_score = CosineSimilarity(
-                    query_vec.get(), memory_arena.GetVector(i));
-                const bool is_better = curr_score > max_score;
-                max_score = is_better ? curr_score : max_score;
+            CosineL0_Batch4(query_vec.get(), memory_arena.GetVector(i), scores);
+
+            for (size_t k = 0; k < 4; ++k) {
+                const bool better = valid[k] && scores[k] > max_score;
+                max_score = better ? scores[k] : max_score;
                 best_node_id =
-                    is_better ? static_cast<int32_t>(i) : best_node_id;
+                    better ? static_cast<int32_t>(i + k) : best_node_id;
             }
         }
 
