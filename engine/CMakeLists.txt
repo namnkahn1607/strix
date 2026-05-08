@@ -72,8 +72,15 @@ gtest_discover_tests(avx2_test)
 
 # Benchmark Executables
 find_package(benchmark CONFIG REQUIRED)
+
 add_executable(avx2_bench bench/avx_bench.cc)
 target_link_libraries(avx2_bench PRIVATE
+        strix_core
+        benchmark::benchmark
+)
+
+add_executable(model_bench bench/model_bench.cc)
+target_link_libraries(model_bench PRIVATE
         strix_core
         benchmark::benchmark
 )
