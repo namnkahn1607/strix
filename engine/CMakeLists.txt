@@ -7,33 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Protobuf CONFIG REQUIRED)
 find_package(gRPC CONFIG REQUIRED)
-
-set(ORT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ort")
-
-foreach (_lib IN ITEMS
-        "${ORT_DIR}/lib/libonnxruntime.so"
-        "${ORT_DIR}/lib/libonnxruntime_providers_shared.so"
-        "${ORT_DIR}/lib/libortextensions.so")
-    if (NOT EXISTS "${_lib}")
-        message(FATAL_ERROR "Required library not found: ${_lib}\n"
-                "Run the setup script or check ort/lib/.")
-    endif ()
-endforeach ()
-
-add_library(onnxruntime::onnxruntime SHARED IMPORTED GLOBAL)
-set_target_properties(onnxruntime::onnxruntime PROPERTIES
-        IMPORTED_LOCATION "${ORT_DIR}/lib/libonnxruntime.so.1.23.2"
-        IMPORTED_SONAME "libonnxruntime.so.1.23.2"
-)
-target_include_directories(onnxruntime::onnxruntime INTERFACE
-        "${ORT_DIR}/include"
-)
-
-add_library(onnxruntime::extensions SHARED IMPORTED GLOBAL)
-set_target_properties(onnxruntime::extensions PROPERTIES
-        IMPORTED_LOCATION "${ORT_DIR}/lib/libortextensions.so"
-        IMPORTED_NO_SONAME TRUE
-)
+find_package(onnxruntime CONFIG REQUIRED)
 
 add_library(strix_core STATIC
         # gRPC stubs files
@@ -75,7 +49,6 @@ target_link_libraries(strix_core PUBLIC
         gRPC::grpc++_reflection
         protobuf::libprotobuf
         onnxruntime::onnxruntime
-        onnxruntime::extensions
 )
 
 # Total Executable

@@ -27,12 +27,12 @@ Embedder::Embedder()
     session_options_.SetGraphOptimizationLevel(ORT_ENABLE_ALL);
     session_options_.SetIntraOpNumThreads(1);
     session_options_.SetInterOpNumThreads(1);
-
+    
     try {
         session_options_.RegisterCustomOpsLibrary(ext_path);
     } catch (const Ort::Exception& e) {
         throw std::runtime_error(
-            std::string("Failed to load custom ops library: ") + e.what());
+            std::string("Failed to register custom ops: ") + e.what());
     }
 
     session_ =
