@@ -10,8 +10,9 @@
 #include "embedder.hh"
 #include "raii_vector.hh"
 
-SemanticServiceImpl::SemanticServiceImpl(MemoryArena& arena)
-    : memory_arena(arena) {}
+SemanticServiceImpl::SemanticServiceImpl(const Embedder& embedder,
+                                         MemoryArena& arena)
+    : embedder_(embedder), memory_arena(arena) {}
 
 grpc::Status SemanticServiceImpl::CheckCache(
     [[maybe_unused]] grpc::ServerContext* context,
@@ -23,8 +24,7 @@ grpc::Status SemanticServiceImpl::CheckCache(
         }
 
         // Vectorize the user prompt
-        const AlignedVector query_vec =
-            Embedder::GetInstance().Encode(request->prompt());
+        const AlignedVector query_vec = embedder_.Encode(request->prompt());
 
         // Get current time ONCE at every CheckCache() routine
         const auto duration =
@@ -86,19 +86,35 @@ grpc::Status SemanticServiceImpl::CheckCache(
             switch (state) {
                 case NodeState::READY:
                 case NodeState::MIGRATING: {
-                    memory_arena.ReadPayload(
-                        offset, length, response->mutable_cached_payload());
-                    response->set_check_state(proto::CACHE_STATE_HIT);
-                    response->set_node_id(-1);
-
                     const uint64_t desired_ctrl =
                         PackControl(state, EvictState::HOT, length, offset);
-                    uint64_t expected_ctrl = best_ctrl;
 
-                    control_block.compare_exchange_strong(
-                        expected_ctrl, desired_ctrl, std::memory_order_release,
-                        std::memory_order_relaxed);
+                    if (uint64_t expected_ctrl = best_ctrl;
+                        !control_block.compare_exchange_strong(
+                            expected_ctrl, desired_ctrl,
+                            std::memory_order_release,
+                            std::memory_order_relaxed)) {
+                        break;
+                    }
 
+                    // TODO: Implement Hazard Offsets
+
+                    memory_arena.ReadPayload(
+                        offset, length, response->mutable_cached_payload());
+
+                    const uint64_t verify_ctrl =
+                        control_block.load(std::memory_order_acquire);
+                    const auto [verify_state, rb, l, o] =
+                        UnpackControl(verify_ctrl);
+
+                    if (verify_state != NodeState::READY &&
+                        verify_state != NodeState::MIGRATING) {
+                        response->clear_cached_payload();
+                        break;
+                    }
+
+                    response->set_check_state(proto::CACHE_STATE_HIT);
+                    response->set_node_id(-1);
                     return grpc::Status::OK;
                 }
 
