@@ -6,28 +6,14 @@
 
 #include "constant.hh"
 
-Embedder::Embedder()
+Embedder::Embedder(const char* model_path, const char* ext_path)
     : env_{Ort::Env(ORT_LOGGING_LEVEL_ERROR, "onnx-env")}
-    , session_options_{Ort::SessionOptions()}
-    , mem_info_{
-          Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)} {
-    const char* model_path{std::getenv("INFERENCE_MODEL_PATH")};
-    if (model_path == nullptr) {
-        throw std::runtime_error(
-            "Environment variable INFERENCE_MODEL_PATH is not set");
-    }
-
-    const char* ext_path{std::getenv("ORT_EXTENSIONS_PATH")};
-    if (ext_path == nullptr) {
-        throw std::runtime_error(
-            "Environment variable ORT_EXTENSIONS_PATH is not set");
-    }
-
+    , session_options_{Ort::SessionOptions()} {
     // Highest level of graph optimization
     session_options_.SetGraphOptimizationLevel(ORT_ENABLE_ALL);
     session_options_.SetIntraOpNumThreads(1);
     session_options_.SetInterOpNumThreads(1);
-    
+
     try {
         session_options_.RegisterCustomOpsLibrary(ext_path);
     } catch (const Ort::Exception& e) {
@@ -40,6 +26,8 @@ Embedder::Embedder()
 }
 
 AlignedVector Embedder::Encode(const std::string& prompt) const {
+    const Ort::AllocatorWithDefaultOptions allocator_;
+
     // 1. Define Tensor Input structure
     const std::vector<int64_t> input_shape{1};
     const char* input_string{prompt.c_str()};
@@ -65,14 +53,8 @@ AlignedVector Embedder::Encode(const std::string& prompt) const {
     // Output shape is always [1, N, 384].
     const std::vector output_shape{type_info.GetShape()};
 
-    if (output_shape.size() != 3) {
-        throw std::runtime_error(
-            "Unexpected output rank: expected [1, seq_len, 384], got rank " +
-            std::to_string(output_shape.size()));
-    }
-
-    if (output_shape[0] != 1) {
-        throw std::runtime_error("Batching Inference is not supported");
+    if (output_shape.size() != 3 || output_shape[0] != 1) {
+        throw std::runtime_error("Unexpected output rank or batching detected");
     }
 
     const size_t seq_length{
@@ -80,31 +62,24 @@ AlignedVector Embedder::Encode(const std::string& prompt) const {
     const size_t vec_dimension{
         static_cast<size_t>(output_shape[2])};  // vector dimension: 384
 
-    if (seq_length == 0) {
-        throw std::runtime_error(
-            "Sequence length is 0. Cannot compute mean pooling.");
+    if (seq_length == 0 || vec_dimension != engine::VECTOR_DIM) {
+        throw std::runtime_error("Invalid sequence length or vector dimension");
     }
 
-    if (vec_dimension != engine::VECTOR_DIM) {
-        throw std::runtime_error("Unexpected vector length");
-    }
-
-    const auto* float_array{output_tensor.GetTensorData<float>()};
     auto query_vec = NewAlignedVector(vec_dimension);
 
-    float* aligned_buffer = query_vec.get();
-    std::memset(aligned_buffer, 0, engine::VECTOR_MEMSIZE);
+    float* __restrict__ aligned_buffer = query_vec.get();
+    const auto* __restrict__ float_array{output_tensor.GetTensorData<float>()};
+
+    std::memset(aligned_buffer, 0, vec_dimension * sizeof(float));
 
     // 6. Squeeze 2D array [N][384] into [384] array using Mean Pooling
+    const float inv_seq_len = 1.0f / static_cast<float>(seq_length);
     for (size_t i = 0; i < seq_length; ++i) {
         for (size_t j = 0; j < vec_dimension; ++j) {
-            aligned_buffer[j] += float_array[i * vec_dimension + j];
+            aligned_buffer[j] +=
+                float_array[i * vec_dimension + j] * inv_seq_len;
         }
-    }
-
-    const auto seq_len_f = static_cast<float>(seq_length);
-    for (size_t i = 0; i < vec_dimension; ++i) {
-        aligned_buffer[i] /= seq_len_f;
     }
 
     // 7. Perform L2 Normalization

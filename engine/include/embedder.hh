@@ -9,20 +9,15 @@
 
 #include "raii_vector.hh"
 
-class Embedder {  // Meyers Singleton
+class Embedder {
 public:
-    // Remove Copy Constructor & Copy Assignment Operator
+    Embedder(const char* model_path, const char* ext_path);
+
+    // Disallow copy/move/assignment semantics
     Embedder(const Embedder&) = delete;
     Embedder& operator=(const Embedder&) = delete;
-
-    // getInstance() now is thread-safe. If multiple calls to it are made,
-    // they'll have to wait for initialization to complete.
-    static Embedder& GetInstance() {
-        // Only get initialization once called
-        static Embedder instance;  // C++11 Magic Statics (Thread-safe local
-                                   // static initialization)
-        return instance;
-    }
+    Embedder(Embedder&&) = delete;
+    Embedder& operator=(Embedder&&) = delete;
 
     [[nodiscard]] AlignedVector Encode(const std::string& prompt) const;
 
@@ -33,12 +28,6 @@ private:
     // Ort::Session has no default constructor, C++ will force construction in
     // initializer list if not declared as pointer => Use smart pointer.
     std::unique_ptr<Ort::Session> session_;
-
-    Ort::MemoryInfo mem_info_;
-    Ort::AllocatorWithDefaultOptions allocator_;
-
-    Embedder();
-    ~Embedder() = default;
 };
 
 #endif  // STRIX_ENGINE_EMBEDDER_HH
