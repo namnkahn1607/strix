@@ -8,11 +8,6 @@
 
 constexpr size_t DIM = 384;
 
-static std::vector<float> GetGroundTruth(const std::string& prompt) {
-    const auto vec = Embedder::GetInstance().Encode(prompt);
-    return {vec.get(), vec.get() + DIM};
-}
-
 static float CosineSimilarity(const float* a, const float* b) {
     float dot = 0.0f;
 
@@ -25,16 +20,34 @@ static float CosineSimilarity(const float* a, const float* b) {
 
 class EmbedderConcurrencyTest : public ::testing::Test {
 protected:
+    static std::unique_ptr<Embedder> emb_;
+    static std::vector<float> truth_;
+
     static constexpr uint32_t NUM_THREADS = 8;
     static constexpr uint32_t CALLS_PER_THREAD = 20;
     static constexpr float COSINE_THRESHOLD = 0.9999f;
 
     const std::string kPrompt = "What is the capital of France?";
+
+    static void SetUpTestSuite() {
+        const char* model_path = std::getenv("INFERENCE_MODEL_PATH");
+        ASSERT_NE(model_path, nullptr)
+            << "Environment variable INFERENCE_MODEL_PATH is missing!";
+
+        emb_ = std::make_unique<Embedder>(model_path);
+
+        const auto vec = emb_->Encode("What is the capital of France?");
+        truth_.assign(vec.get(), vec.get() + DIM);
+    }
+
+    static void TearDownTestSuite() { emb_.reset(); }
 };
 
+std::unique_ptr<Embedder> EmbedderConcurrencyTest::emb_ = nullptr;
+std::vector<float> EmbedderConcurrencyTest::truth_;
+
 TEST_F(EmbedderConcurrencyTest, OutputConsistencyUnderConcurrency) {
-    [[maybe_unused]] auto _ = Embedder::GetInstance().Encode("warmup");
-    const auto truth = GetGroundTruth(kPrompt);
+    [[maybe_unused]] auto _ = emb_->Encode("warmup");
 
     std::atomic correct_count{0};
     std::atomic total_count{0};
@@ -43,8 +56,8 @@ TEST_F(EmbedderConcurrencyTest, OutputConsistencyUnderConcurrency) {
     auto worker = [&]() {
         for (uint32_t i = 0; i < CALLS_PER_THREAD; ++i) {
             try {
-                auto vec = Embedder::GetInstance().Encode(kPrompt);
-                const float sim = CosineSimilarity(vec.get(), truth.data());
+                auto vec = emb_->Encode(kPrompt);
+                const float sim = CosineSimilarity(vec.get(), truth_.data());
 
                 ++total_count;
                 if (sim >= COSINE_THRESHOLD) {
@@ -81,7 +94,7 @@ TEST_F(EmbedderConcurrencyTest, NoNaNUnderConcurrency) {
 
     auto worker = [&]() {
         for (int i = 0; i < CALLS_PER_THREAD; ++i) {
-            auto vec = Embedder::GetInstance().Encode(kPrompt);
+            auto vec = emb_->Encode(kPrompt);
             for (size_t j = 0; j < DIM; ++j) {
                 if (std::isnan(vec.get()[j])) {
                     ++nan_count;
