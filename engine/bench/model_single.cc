@@ -10,8 +10,23 @@
 
 constexpr size_t DIM = 384;
 
+static std::unique_ptr<Embedder> emb_;
+
+static Embedder& GetEmbedder() {
+    if (!emb_) {
+        const char* model_path = std::getenv("INFERENCE_MODEL_PATH");
+        if (!model_path) {
+            throw std::runtime_error("INFERENCE_MODEL_PATH is not set");
+        }
+
+        emb_ = std::make_unique<Embedder>(model_path);
+    }
+
+    return *emb_;
+}
+
 static void SanityCheck() {
-    const auto& emb = Embedder::GetInstance();
+    const auto& emb = GetEmbedder();
 
     // Bit-identical results for multiple same prompts
     const auto v1 = emb.Encode("Paris is the capital of France.");
@@ -40,9 +55,11 @@ static void SanityCheck() {
 }
 
 static void BenchEncode_ShortSingle(benchmark::State& state) {
-    SanityCheck();
+    if (state.thread_index() == 0) {
+        SanityCheck();
+    }
 
-    const auto& emb = Embedder::GetInstance();
+    const auto& emb = GetEmbedder();
     benchmark::DoNotOptimize(emb.Encode("warmup"));
 
     for ([[maybe_unused]] auto _ : state) {
@@ -56,9 +73,7 @@ BENCHMARK(BenchEncode_ShortSingle)
     ->Unit(benchmark::kMillisecond);
 
 static void BenchEncode_LongSingle(benchmark::State& state) {
-    SanityCheck();
-
-    const auto& emb = Embedder::GetInstance();
+    const auto& emb = GetEmbedder();
     benchmark::DoNotOptimize(emb.Encode("warmup"));
 
     const std::string long_prompt(1000, 'x');
