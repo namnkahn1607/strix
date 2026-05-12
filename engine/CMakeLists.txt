@@ -92,3 +92,9 @@ target_link_libraries(model_single PRIVATE
         strix_core
         benchmark::benchmark
 )
+
+add_executable(customops_mutex bench/customops_mutex.cc)
+target_link_libraries(customops_mutex PRIVATE
+        strix_core
+        benchmark::benchmark
+)
