@@ -124,13 +124,7 @@ int main() {
             "Environment variable INFERENCE_MODEL_PATH is not set");
     }
 
-    const char* ext_path{std::getenv("ORT_EXTENSIONS_PATH")};
-    if (ext_path == nullptr) {
-        throw std::runtime_error(
-            "Environment variable ORT_EXTENSIONS_PATH is not set");
-    }
-
-    const Embedder embedder(model_path, ext_path);
+    const Embedder embedder(model_path);
 
     // Main Thread is responsible for construct & deconstruct Memory Arena.
     const auto memory_arena = std::make_unique<MemoryArena>();

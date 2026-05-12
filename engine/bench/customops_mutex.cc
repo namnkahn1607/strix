@@ -16,13 +16,7 @@ static void BenchConcurrentInference(benchmark::State& state) {
                 "Environment variable INFERENCE_MODEL_PATH is not set");
         }
 
-        const char* ext_path{std::getenv("ORT_EXTENSIONS_PATH")};
-        if (ext_path == nullptr) {
-            throw std::runtime_error(
-                "Environment variable ORT_EXTENSIONS_PATH is not set");
-        }
-
-        shared_emb = std::make_unique<Embedder>(model_path, ext_path);
+        shared_emb = std::make_unique<Embedder>(model_path);
     });
 
     const std::string prompt = "The quick brown fox jumps over the lazy dog";

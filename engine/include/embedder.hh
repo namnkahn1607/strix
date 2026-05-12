@@ -11,7 +11,7 @@
 
 class Embedder {
 public:
-    Embedder(const char* model_path, const char* ext_path);
+    explicit Embedder(const char* model_path);
 
     // Disallow copy/move/assignment semantics
     Embedder(const Embedder&) = delete;
