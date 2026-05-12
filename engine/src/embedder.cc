@@ -6,7 +6,7 @@
 
 #include "constant.hh"
 
-Embedder::Embedder(const char* model_path, const char* ext_path)
+Embedder::Embedder(const char* model_path)
     : env_{Ort::Env(ORT_LOGGING_LEVEL_ERROR, "onnx-env")}
     , session_options_{Ort::SessionOptions()} {
     // Highest level of graph optimization
@@ -14,13 +14,7 @@ Embedder::Embedder(const char* model_path, const char* ext_path)
     session_options_.SetIntraOpNumThreads(1);
     session_options_.SetInterOpNumThreads(1);
 
-    try {
-        session_options_.RegisterCustomOpsLibrary(ext_path);
-    } catch (const Ort::Exception& e) {
-        throw std::runtime_error(
-            std::string("Failed to register custom ops: ") + e.what());
-    }
-
+    session_options_.EnableOrtCustomOps();
     session_ =
         std::make_unique<Ort::Session>(env_, model_path, session_options_);
 }
