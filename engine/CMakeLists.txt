@@ -87,8 +87,8 @@ target_link_libraries(avx2_bench PRIVATE
         benchmark::benchmark
 )
 
-add_executable(model_bench bench/model_bench.cc)
-target_link_libraries(model_bench PRIVATE
+add_executable(model_single bench/model_single.cc)
+target_link_libraries(model_single PRIVATE
         strix_core
         benchmark::benchmark
 )
