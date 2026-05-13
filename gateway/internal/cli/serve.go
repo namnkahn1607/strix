@@ -52,16 +52,14 @@ var serveCmd = &cobra.Command{
 // ├── bin/
 // │   ├── strix_gateway  <- os.Executable()
 // │   └── strix_engine
-// ├── engine/
-// │   └── model/
-// │       ├── strix-minilm-with-tokenizer.onnx
-// │	   └── libortextensions.so
-// └── gateway/           <- Go Gateway source code
+// ├── gateway/           <- Go Supervisor & Gateway source code
+// └── engine/            <- C++ Vector Engine source code
+//     └── model/
+//         └── strix-minilm-with-tokenizer.onnx
 
 type projectPaths struct {
 	engineBinary string // strix/bin/strix_engine
 	modelPath    string // strix/engine/model/strix-minilm-with-tokenizer.onnx
-	ortLibPath   string // strix/engine/model/libortextensions.so
 }
 
 func runServe(_ *cobra.Command, _ []string) error {
@@ -97,7 +95,6 @@ func runServe(_ *cobra.Command, _ []string) error {
 
 	log.Printf("[strix serve] Vector Engine binary: %s\n", paths.engineBinary)
 	log.Printf("[strix serve] Inference model: %s\n", paths.modelPath)
-	log.Printf("[strix serve] ORT extensions library: %s\n", paths.ortLibPath)
 
 	// 3. Load ~/.strix/.env into the process environment.
 	envPath, pathErr := EnvFilePath()
@@ -306,9 +303,6 @@ func resolvePaths() (projectPaths, error) {
 		modelPath: filepath.Join(
 			projectRoot, "engine", "model", "strix-minilm-with-tokenizer.onnx",
 		),
-		ortLibPath: filepath.Join(
-			projectRoot, "engine", "model", "libortextensions.so",
-		),
 	}, nil
 }
 
@@ -324,11 +318,7 @@ func buildEngineEnv(paths projectPaths) []string {
 		env = append(env, kv)
 	}
 
-	env = append(env,
-		"INFERENCE_MODEL_PATH="+paths.modelPath,
-		"ORT_EXTENSIONS_PATH="+paths.ortLibPath,
-	)
-
+	env = append(env, "INFERENCE_MODEL_PATH="+paths.modelPath)
 	return env
 }
 
