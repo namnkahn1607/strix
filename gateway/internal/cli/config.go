@@ -20,13 +20,9 @@ var configCmd = &cobra.Command{
 var configSetCmd = &cobra.Command{
 	Use:   "set",
 	Short: "Set credentials in ~/.strix/.env",
-	Long: `Writes (or overwrites) the LLM_ENDPOINT and LLM_API_KEY values
-	into ~/.strix/.env. The file must exist (run 'strix init' first) and
-	must have permission 0600.
- 
-	The API key is NEVER passed via command-line arguments that would be
-	visible in process listings - it is written directly to the secured
-	.env file only.`,
+	Long: `Writes (or overwrites) the Endpoint and API Key values into
+	~/.strix/.env. The file must exist (run 'strix init' first) and
+	must have permission 0600.`,
 	RunE: runConfigSet,
 }
 
@@ -54,7 +50,7 @@ func runConfigSet(_ *cobra.Command, _ []string) error {
 		return permErr
 	}
 
-	fmt.Print("[strix config] Enter API key: ")
+	fmt.Print("[strix config] Enter API Key: ")
 	rawKey, readErr := term.ReadPassword(int(os.Stdin.Fd()))
 	fmt.Println()
 	if readErr != nil {
@@ -84,8 +80,8 @@ func runConfigSet(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("cannot parse %s: %w", envPath, readErr)
 	}
 
-	currEnv["API_KEY"] = apiKey
-	currEnv["ENDPOINT"] = flagEndpoint
+	currEnv["GATEWAY_APIKEY"] = apiKey
+	currEnv["GATEWAY_ENDPOINT"] = flagEndpoint
 
 	if writeErr := godotenv.Write(currEnv, envPath); writeErr != nil {
 		return fmt.Errorf("cannot write to %s: %w", envPath, writeErr)

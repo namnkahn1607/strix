@@ -30,7 +30,7 @@ const (
 
 var (
 	errMisConfiguredCredential = errors.New(
-		"ENDPOINT or API_KEY is not configured - run 'strix config set'",
+		"API Key or Endpoint is not configured - run 'strix config set'",
 	)
 )
 
@@ -49,8 +49,8 @@ func StrixService(
 	stub pb.SemanticServiceClient, l0Cache *fastcache.Cache,
 	fatalErrChan chan<- error, pool *WorkerPool,
 ) http.HandlerFunc {
-	apiKey := os.Getenv("API_KEY")
-	endpoint := os.Getenv("ENDPOINT")
+	apiKey := os.Getenv("GATEWAY_APIKEY")
+	endpoint := os.Getenv("GATEWAY_ENDPOINT")
 
 	if len(apiKey) == 0 || len(endpoint) == 0 {
 		go func() {

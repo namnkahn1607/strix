@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -94,15 +95,9 @@ func runServe(_ *cobra.Command, _ []string) error {
 		return envErr
 	}
 
-	env, readErr := godotenv.Read(envPath)
+	configEnv, readErr := godotenv.Read(envPath)
 	if readErr != nil {
 		return fmt.Errorf("cannot read %s: %w", envPath, readErr)
-	}
-
-	apiKey, hasKey := env["API_KEY"]
-	endpoint, hasEndpoint := env["ENDPOINT"]
-	if !hasKey || !hasEndpoint {
-		return fmt.Errorf("missing API_KEY or ENDPOINT in %s", envPath)
 	}
 
 	// 5. Create 2 Death Pipes for Process B and C.
@@ -126,7 +121,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	}()
 
 	// 6. Fork Process C - running Vector Engine.
-	engineProc, engineErr := forkEngine(paths, mask.EngineCores, readC)
+	engineProc, engineErr := forkEngine(paths, mask.EngineCores, readC, configEnv)
 	if engineErr != nil {
 		_ = readB.Close()
 		_ = writeB.Close()
@@ -139,7 +134,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	_ = readC.Close()
 
 	// 7. Fork Process B - running HTTP Gateway.
-	gatewayProc, gatewayErr := forkGateway(paths, mask.GatewayCores, apiKey, endpoint, readB)
+	gatewayProc, gatewayErr := forkGateway(paths, mask.GatewayCores, readB, configEnv)
 	if gatewayErr != nil {
 		_ = readB.Close()
 		_ = writeB.Close()
@@ -317,13 +312,13 @@ func resolvePaths() (projectPaths, error) {
 }
 
 func forkGateway(
-	paths projectPaths, coreMask, apiKey, endpoint string, readerB *os.File,
+	paths projectPaths, coreMask string, readerB *os.File, configEnv map[string]string,
 ) (*exec.Cmd, error) {
 	cmd := exec.Command("taskset", "-c", coreMask, paths.mainBinary)
 	cmd.ExtraFiles = []*os.File{readerB}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Env = buildGatewayEnv(apiKey, endpoint, coreMask)
+	cmd.Env = buildGatewayEnv(coreMask, configEnv)
 
 	if startErr := cmd.Start(); startErr != nil {
 		return nil, fmt.Errorf(
@@ -335,13 +330,13 @@ func forkGateway(
 }
 
 func forkEngine(
-	paths projectPaths, coreMask string, readerC *os.File,
+	paths projectPaths, coreMask string, readerC *os.File, configEnv map[string]string,
 ) (*exec.Cmd, error) {
 	cmd := exec.Command("taskset", "-c", coreMask, paths.engineBinary)
 	cmd.ExtraFiles = []*os.File{readerC}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Env = buildEngineEnv(paths, coreMask)
+	cmd.Env = buildEngineEnv(paths, coreMask, configEnv)
 
 	if startErr := cmd.Start(); startErr != nil {
 		return nil, fmt.Errorf(
@@ -352,26 +347,32 @@ func forkEngine(
 	return cmd, nil
 }
 
-func buildGatewayEnv(apiKey, endpoint, coreMask string) []string {
-	base := os.Environ()
-	env := make([]string, 0, len(base)+4)
-	env = append(env,
-		"API_KEY="+apiKey,
-		"ENDPOINT="+endpoint,
+func buildGatewayEnv(coreMask string, configEnv map[string]string) []string {
+	env := []string{
 		"STRIX_WORKER=1",
-		"GATEWAY_CORES="+coreMask,
-	)
+		"GATEWAY_CORES=" + coreMask,
+	}
+
+	for key, value := range configEnv {
+		if strings.HasPrefix(key, "GATEWAY_") {
+			env = append(env, key+"="+value)
+		}
+	}
 
 	return env
 }
 
-func buildEngineEnv(paths projectPaths, coreMask string) []string {
-	base := os.Environ()
-	env := make([]string, 0, len(base)+2)
-	env = append(env,
-		"INFERENCE_MODEL_PATH="+paths.modelPath,
-		"ENGINE_CORES="+coreMask,
-	)
+func buildEngineEnv(paths projectPaths, coreMask string, configEnv map[string]string) []string {
+	env := []string{
+		"INFERENCE_MODEL_PATH=" + paths.modelPath,
+		"ENGINE_CORES=" + coreMask,
+	}
+
+	for key, value := range configEnv {
+		if strings.HasPrefix(key, "ENGINE_") {
+			env = append(env, key+"="+value)
+		}
+	}
 
 	return env
 }
