@@ -18,9 +18,10 @@ import (
 )
 
 const (
-	maxFD           = 65536
-	gatewayShutdown = 3 * time.Second
-	engineShutdown  = 5 * time.Second
+	maxFD                  = 65536
+	supervisorDrainTimeout = 6 * time.Second
+	gatewayShutdown        = 3 * time.Second
+	engineShutdown         = 5 * time.Second
 )
 
 var serveCmd = &cobra.Command{
@@ -167,7 +168,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 
 	// 9. Trap SIGTERM / SIGKILL for parent Process A.
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, os.Kill, syscall.SIGTERM)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sigChan)
 
 	// 10. React to whatever comes first: OS signal or child death.
@@ -182,8 +183,25 @@ func runServe(_ *cobra.Command, _ []string) error {
 		_ = writeB.Close()
 		_ = writeC.Close()
 
-		for range 2 {
-			<-deadChan
+		drainTimeout := time.After(supervisorDrainTimeout)
+		for i := range 2 {
+			select {
+			case <-deadChan:
+				// One child confirmed dead, continue to next
+
+			case <-drainTimeout:
+				log.Println(
+					"[Supervisor] Drain timeout exceeded. Force-killing remaining children...",
+				)
+				_ = engineProc.Process.Signal(syscall.SIGKILL)
+				_ = gatewayProc.Process.Signal(syscall.SIGKILL)
+
+				for ; i < 2; i++ {
+					<-deadChan
+				}
+
+				return nil
+			}
 		}
 
 	case first := <-deadChan:
