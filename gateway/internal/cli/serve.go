@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"syscall"
@@ -164,46 +165,68 @@ func runServe(_ *cobra.Command, _ []string) error {
 		deadChan <- gatewayProc
 	}()
 
-	// 9. React to the first death.
-	switch <-deadChan {
-	case engineProc:
-		// Process C died → close Gateway Death Pipe → Process B shuts down.
+	// 9. Trap SIGTERM / SIGKILL for parent Process A.
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, os.Kill, syscall.SIGTERM)
+	defer signal.Stop(sigChan)
+
+	// 10. React to whatever comes first: OS signal or child death.
+	select {
+	case sig := <-sigChan:
+		// Process A received SIGTERM/SIGINT/SIGKILL from OS or 'strix stop'
 		log.Printf(
-			"[Supervisor] Vector Engine died. Closing HTTP Gateway in %d secs...\n",
-			gatewayShutdown,
+			"[Supervisor] Received signal %v. Closing both child processes...\n",
+			sig,
 		)
 
 		_ = writeB.Close()
-
-		select {
-		case <-deadChan:
-			log.Println("[Supervisor] HTTP Gateway finally exited.")
-		case <-time.After(gatewayShutdown):
-			log.Println(
-				"[Supervisor] HTTP Gateway is taking longer to exit - forcing shutdown...",
-			)
-
-			_ = gatewayProc.Process.Signal(syscall.SIGKILL)
-		}
-
-	case gatewayProc:
-		// Process B died → close Engine Death Pipe → Process C shuts down.
-		log.Printf(
-			"[Supervisor] HTTP Gateway died. Closing Vector Engine in %d secs...\n",
-			engineShutdown,
-		)
-
 		_ = writeC.Close()
 
-		select {
-		case <-deadChan:
-			log.Printf("[Supervisor] Vector Engine finally exited")
-		case <-time.After(engineShutdown):
-			log.Println(
-				"[Supervisor] Vector Engine is taking longer to exit - forcing shutdown...",
+		for range 2 {
+			<-deadChan
+		}
+
+	case first := <-deadChan:
+		switch first {
+		case engineProc:
+			// Process C died → close Gateway Death Pipe → Process B shuts down.
+			log.Printf(
+				"[Supervisor] Vector Engine died. Closing HTTP Gateway in %d secs...\n",
+				gatewayShutdown,
 			)
 
-			_ = engineProc.Process.Signal(syscall.SIGKILL)
+			_ = writeB.Close()
+
+			select {
+			case <-deadChan:
+				log.Println("[Supervisor] HTTP Gateway finally exited.")
+			case <-time.After(gatewayShutdown):
+				log.Println(
+					"[Supervisor] HTTP Gateway is taking longer to exit - forcing shutdown...",
+				)
+
+				_ = gatewayProc.Process.Signal(syscall.SIGKILL)
+			}
+
+		case gatewayProc:
+			// Process B died → close Engine Death Pipe → Process C shuts down.
+			log.Printf(
+				"[Supervisor] HTTP Gateway died. Closing Vector Engine in %d secs...\n",
+				engineShutdown,
+			)
+
+			_ = writeC.Close()
+
+			select {
+			case <-deadChan:
+				log.Printf("[Supervisor] Vector Engine finally exited")
+			case <-time.After(engineShutdown):
+				log.Println(
+					"[Supervisor] Vector Engine is taking longer to exit - forcing shutdown...",
+				)
+
+				_ = engineProc.Process.Signal(syscall.SIGKILL)
+			}
 		}
 	}
 
