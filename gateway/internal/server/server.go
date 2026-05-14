@@ -23,21 +23,21 @@ const (
 	allowedBurstRate = 2200
 )
 
-type StrixServer struct {
+type strixServer struct {
 	sv *http.Server
 }
 
-func NewServer(
+func newServer(
 	stub pb.SemanticServiceClient, cache *fastcache.Cache,
 	fatalChan chan error, pool *proxy.WorkerPool,
-) *StrixServer {
+) *strixServer {
 	mux := http.NewServeMux()
 	limiter := rate.NewLimiter(rate.Limit(allowedRate), allowedBurstRate)
 
-	mainHandler := proxy.HandleService(stub, cache, fatalChan, pool)
+	mainHandler := proxy.StrixService(stub, cache, fatalChan, pool)
 	mux.HandleFunc(endpoint, middleware.RateLimiter(limiter, mainHandler))
 
-	return &StrixServer{
+	return &strixServer{
 		sv: &http.Server{
 			Addr:    serverPort,
 			Handler: mux,
@@ -50,7 +50,7 @@ func NewServer(
 	}
 }
 
-func (server *StrixServer) Start() <-chan error {
+func (server *strixServer) start() <-chan error {
 	serverErrChan := make(chan error, 1)
 
 	go func() {
@@ -65,7 +65,7 @@ func (server *StrixServer) Start() <-chan error {
 	return serverErrChan
 }
 
-func (server *StrixServer) Stop(ctx context.Context) error {
+func (server *strixServer) stop(ctx context.Context) error {
 	if shutdownErr := server.sv.Shutdown(ctx); shutdownErr != nil {
 		return fmt.Errorf("server shutdown failed: %w", shutdownErr)
 	}

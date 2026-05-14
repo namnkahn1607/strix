@@ -39,13 +39,13 @@ type CheckCacheAPIRequest struct {
 	LLMBody []byte `json:"llm_body"`
 }
 
-// HandleService returns an http.HandlerFunc that:
+// StrixService returns an http.HandlerFunc that:
 //  1. Validates the request method to be POST.
 //  2. Decodes the JSON body.
 //  3. Computes SHA-256 hash of the prompt and queries the L0 exact-match cache.
 //  4. Falls through to the LLM provider for long prompts (> 512 bytes).
 //  5. Falls through to the Vector Engine for short prompts.
-func HandleService(
+func StrixService(
 	stub pb.SemanticServiceClient, l0Cache *fastcache.Cache,
 	fatalErrChan chan<- error, pool *WorkerPool,
 ) http.HandlerFunc {
