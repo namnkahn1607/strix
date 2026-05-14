@@ -2,10 +2,12 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"gateway/internal/proxy"
 	system "gateway/internal/sys"
 	pb "gateway/pb/proto"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -125,10 +127,22 @@ func waitDeathPipe() <-chan struct{} {
 		defer close(ch)
 
 		deathPipe := os.NewFile(3, "death_pipe")
-		if deathPipe != nil {
+		if deathPipe == nil {
 			log.Println("[Gateway] WARNING: FD 3 is not a valid Death Pipe")
 			return
 		}
+
+		defer func() {
+			_ = deathPipe.Close()
+		}()
+
+		buf := make([]byte, 1)
+		_, readErr := deathPipe.Read(buf)
+		if readErr == nil || errors.Is(readErr, io.EOF) {
+			return
+		}
+
+		log.Printf("[Gateway] Death Pipe read error: %v\n", readErr)
 	}()
 
 	return ch
@@ -158,5 +172,5 @@ func waitForEngine(ctx context.Context, stub pb.SemanticServiceClient) error {
 		time.Sleep(pollInterval)
 	}
 
-	return fmt.Errorf("FATAL: Vector Engine unresponsive after %s second(s)", pollTimeout)
+	return fmt.Errorf("FATAL: Vector Engine unresponsive after %s", pollTimeout)
 }
