@@ -5,13 +5,14 @@
 #ifndef STRIX_ENGINE_SERVICE_HH
 #define STRIX_ENGINE_SERVICE_HH
 
+#include "embedder.hh"
 #include "proto/strix.grpc.pb.h"
 
 class MemoryArena;
 
 class SemanticServiceImpl final : public proto::SemanticService::Service {
 public:
-    explicit SemanticServiceImpl(MemoryArena& arena);
+    explicit SemanticServiceImpl(const Embedder& embedder, MemoryArena& arena);
 
     // No Copy/Move constructor
     SemanticServiceImpl(const SemanticServiceImpl&) = delete;
@@ -27,6 +28,7 @@ public:
                           proto::SetCacheResponse* response) override;
 
 private:
+    const Embedder& embedder_;
     MemoryArena& memory_arena;
 };
 

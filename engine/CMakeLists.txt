@@ -7,7 +7,15 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Protobuf CONFIG REQUIRED)
 find_package(gRPC CONFIG REQUIRED)
-find_package(onnxruntime CONFIG REQUIRED)
+
+set(ORT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/ort")
+add_library(ONNXRuntime SHARED IMPORTED)
+set_target_properties(ONNXRuntime PROPERTIES
+        IMPORTED_LOCATION "${ORT_ROOT}/lib/libonnxruntime.so"
+        INTERFACE_INCLUDE_DIRECTORIES "${ORT_ROOT}/include"
+)
+
+set(CMAKE_BUILD_RPATH "${ORT_ROOT}/lib")
 
 add_library(strix_core STATIC
         # gRPC stubs files
@@ -48,7 +56,7 @@ target_link_libraries(strix_core PUBLIC
         gRPC::grpc++
         gRPC::grpc++_reflection
         protobuf::libprotobuf
-        onnxruntime::onnxruntime
+        ONNXRuntime
 )
 
 # Total Executable
@@ -56,12 +64,27 @@ add_executable(strix_engine src/main.cc)
 target_link_libraries(strix_engine PRIVATE strix_core)
 set_target_properties(strix_engine PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/../bin"
+        BUILD_WITH_INSTALL_RPATH TRUE
+        INSTALL_RPATH "$ORIGIN"
+)
+
+add_custom_command(TARGET strix_engine POST_BUILD
+        COMMAND cp -P ${ORT_ROOT}/lib/libonnxruntime.so* "$<TARGET_FILE_DIR:strix_engine>/"
+        COMMENT "Copying ONNX Runtime shared libraries to binary directory"
 )
 
 # Testing Executables
 find_package(GTest CONFIG REQUIRED)
+
 add_executable(avx2_test tests/avx_test.cc)
 target_link_libraries(avx2_test PRIVATE
+        strix_core
+        GTest::gtest_main
+        GTest::gtest
+)
+
+add_executable(model_test tests/model_test.cc)
+target_link_libraries(model_test PRIVATE
         strix_core
         GTest::gtest_main
         GTest::gtest
@@ -72,8 +95,21 @@ gtest_discover_tests(avx2_test)
 
 # Benchmark Executables
 find_package(benchmark CONFIG REQUIRED)
+
 add_executable(avx2_bench bench/avx_bench.cc)
 target_link_libraries(avx2_bench PRIVATE
+        strix_core
+        benchmark::benchmark
+)
+
+add_executable(model_single bench/model_single.cc)
+target_link_libraries(model_single PRIVATE
+        strix_core
+        benchmark::benchmark
+)
+
+add_executable(customops_mutex bench/customops_mutex.cc)
+target_link_libraries(customops_mutex PRIVATE
         strix_core
         benchmark::benchmark
 )

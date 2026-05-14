@@ -2,54 +2,16 @@
 // Created by nlnk on Apr 24, 26.
 //
 
-#include "avx_math.hh"
-
 #include <gtest/gtest.h>
 #include <immintrin.h>
 
 #include <random>
 
+#include "avx_math.hh"
+
 constexpr int32_t ALIGN = 32;
 constexpr int32_t DIM = 384;
-
-class AVX2CosineTest : public ::testing::Test {
-protected:
-    float* query = nullptr;
-    float* node_vector = nullptr;
-
-    void SetUp() override {
-        constexpr size_t bytes = DIM * sizeof(float);
-        query = static_cast<float*>(_mm_malloc(bytes, ALIGN));
-        node_vector = static_cast<float*>(_mm_malloc(bytes, ALIGN));
-    }
-
-    void TearDown() override {
-        _mm_free(query);
-        _mm_free(node_vector);
-    }
-
-    void GenerateNormalizedVectors(const int32_t seed = 42) const {
-        std::mt19937 gen(seed);
-        std::uniform_real_distribution dist(-1.0f, 1.0f);
-
-        float norm_q = 0.0f;
-        float norm_n = 0.0f;
-        for (int32_t i = 0; i < DIM; ++i) {
-            query[i] = dist(gen);
-            node_vector[i] = dist(gen);
-            norm_q += (query[i] * query[i]);
-            norm_n += (node_vector[i] * node_vector[i]);
-        }
-
-        norm_q = std::sqrt(norm_q);
-        norm_n = std::sqrt(norm_n);
-
-        for (int32_t i = 0; i < DIM; ++i) {
-            query[i] /= norm_q;
-            node_vector[i] /= norm_n;
-        }
-    }
-};
+constexpr int32_t BATCH = 4;
 
 float ScalarCosineSimilarity(const float* query, const float* node_vector) {
     float sum = 0.0f;
@@ -61,45 +23,119 @@ float ScalarCosineSimilarity(const float* query, const float* node_vector) {
     return sum;
 }
 
-TEST_F(AVX2CosineTest, IdenticalVectors) {
-    GenerateNormalizedVectors();
-    std::copy_n(query, DIM, node_vector);
-    const float result = CosineSimilarity(query, node_vector);
-    EXPECT_NEAR(result, 1.0f, 1e-4f);
-}
+class AVX2Batch4CosineTest : public ::testing::Test {
+protected:
+    float* query = nullptr;
+    float* node_batch = nullptr;
 
-TEST_F(AVX2CosineTest, OppositeVectors) {
-    GenerateNormalizedVectors();
-    for (int32_t i = 0; i < DIM; ++i) {
-        node_vector[i] = -query[i];
+    void SetUp() override {
+        query = static_cast<float*>(_mm_malloc(DIM * sizeof(float), ALIGN));
+        node_batch =
+            static_cast<float*>(_mm_malloc(BATCH * DIM * sizeof(float), ALIGN));
     }
 
-    const float result = CosineSimilarity(query, node_vector);
-    EXPECT_NEAR(result, -1.0f, 1e-4f);
-}
+    void TearDown() override {
+        _mm_free(query);
+        _mm_free(node_batch);
+    }
 
-TEST_F(AVX2CosineTest, OrthogonalVectors) {
-    std::fill_n(query, DIM, 0.0f);
-    std::fill_n(node_vector, DIM, 0.0f);
-    query[0] = 1.0f;
-    node_vector[1] = 1.0f;
-    EXPECT_NEAR(CosineSimilarity(query, node_vector), 0.0f, 1e-4f);
-}
+    void GenerateNormalizedBatch(const int32_t seed = 42) const {
+        auto normalize = [](float* v, const int32_t dim, std::mt19937& rng) {
+            std::uniform_real_distribution dist(-1.0f, 1.0f);
+            float norm = 0.0f;
 
-TEST_F(AVX2CosineTest, CompareWithScalarOracle) {
+            for (int32_t i = 0; i < dim; ++i) {
+                v[i] = dist(rng);
+                norm += (v[i] * v[i]);
+            }
+
+            norm = std::sqrt(norm);
+
+            for (int32_t i = 0; i < dim; ++i) {
+                v[i] /= norm;
+            }
+        };
+
+        std::mt19937 gen(seed);
+
+        normalize(query, DIM, gen);
+        for (int32_t b = 0; b < BATCH; ++b) {
+            normalize(node_batch + b * DIM, DIM, gen);
+        }
+    }
+};
+
+TEST_F(AVX2Batch4CosineTest, CompareWithScalarOracle) {
     for (int iter = 0; iter < 1000; ++iter) {
-        GenerateNormalizedVectors(iter);
-        const float avx2_result = CosineSimilarity(query, node_vector);
-        const float scalar_result = ScalarCosineSimilarity(query, node_vector);
-        EXPECT_NEAR(avx2_result, scalar_result, 1e-4f);
+        GenerateNormalizedBatch(iter);
+
+        float scores[BATCH] = {};
+        CosineL0_Batch4(query, node_batch, scores);
+
+        for (int32_t b = 0; b < BATCH; ++b) {
+            const float expected =
+                ScalarCosineSimilarity(query, node_batch + b * DIM);
+            EXPECT_NEAR(scores[b], expected, 1e-4f)
+                << "lane " << b << " iter " << iter;
+        }
     }
 }
 
-TEST_F(AVX2CosineTest, Deterministic) {
-    GenerateNormalizedVectors();
-    const float first = CosineSimilarity(query, node_vector);
+TEST_F(AVX2Batch4CosineTest, IdenticalVectors) {
+    GenerateNormalizedBatch();
+    for (int32_t b = 0; b < BATCH; ++b) {
+        std::copy_n(query, DIM, node_batch + b * DIM);
+    }
+
+    float scores[BATCH] = {};
+    CosineL0_Batch4(query, node_batch, scores);
+
+    for (int32_t b = 0; b < BATCH; ++b) {
+        EXPECT_NEAR(scores[b], 1.0f, 1e-4f) << "lane " << b;
+    }
+}
+
+TEST_F(AVX2Batch4CosineTest, OppositeVectors) {
+    GenerateNormalizedBatch();
+    for (int32_t b = 0; b < BATCH; ++b) {
+        float* node = node_batch + b * DIM;
+        for (int32_t i = 0; i < DIM; ++i) {
+            node[i] = -query[i];
+        }
+    }
+
+    float scores[BATCH] = {};
+    CosineL0_Batch4(query, node_batch, scores);
+
+    for (int32_t b = 0; b < BATCH; ++b) {
+        EXPECT_NEAR(scores[b], -1.0f, 1e-4f) << "lane " << b;
+    }
+}
+
+TEST_F(AVX2Batch4CosineTest, MixedLanes) {
+    GenerateNormalizedBatch();
+
+    float scores[BATCH] = {};
+    CosineL0_Batch4(query, node_batch, scores);
+
+    for (int32_t b = 0; b < BATCH; ++b) {
+        const float expected =
+            ScalarCosineSimilarity(query, node_batch + b * DIM);
+        EXPECT_NEAR(scores[b], expected, 1e-4f) << "lane " << b;
+    }
+}
+
+TEST_F(AVX2Batch4CosineTest, Deterministic) {
+    GenerateNormalizedBatch();
+
+    float first[BATCH] = {};
+    CosineL0_Batch4(query, node_batch, first);
 
     for (int c = 0; c < 10; ++c) {
-        EXPECT_EQ(CosineSimilarity(query, node_vector), first) << "call " << c;
+        float scores[BATCH] = {};
+        CosineL0_Batch4(query, node_batch, scores);
+        for (int32_t b = 0; b < BATCH; ++b) {
+            EXPECT_EQ(scores[b], first[b]) << "lane " << b << " call " << c;
+        }
     }
 }

@@ -13,10 +13,9 @@ constexpr int32_t PIPE_READER_FD = 3;
 
 std::atomic g_shutdown_requested{false};
 
-static void WarmUpEngine() {
+static void WarmUpEngine(const Embedder& embedder) {
     std::cout << "[Engine] Warming up ONNX runtime..." << std::endl;
 
-    const auto& embedder = Embedder::GetInstance();
     constexpr int32_t WARM_UP_ROUNDS = 3;
     const std::string dummy_prompt = "Hello, World";
 
@@ -25,14 +24,18 @@ static void WarmUpEngine() {
         dummy_vec = embedder.Encode(dummy_prompt);
     }
 
+    const auto* dummy_batch =
+        static_cast<float*>(std::aligned_alloc(32, 4 * engine::VECTOR_MEMSIZE));
+    float scores[4];
+
     if (dummy_vec) {
-        CosineSimilarity(dummy_vec.get(), dummy_vec.get());
+        CosineL0_Batch4(dummy_vec.get(), dummy_batch, scores);
     }
 
     std::cout << "[Engine] Warm-up completed." << std::endl;
 }
 
-void RunServer(MemoryArena& arena) {
+void RunServer(const Embedder& embedder, MemoryArena& arena) {
     const std::string server_address{"unix:///tmp/strix.sock"};
     const auto socket_directory{"/tmp/strix.sock"};
 
@@ -41,7 +44,7 @@ void RunServer(MemoryArena& arena) {
     unlink(socket_directory);
 
     // Service is only allowed to reference for reading and writing data.
-    SemanticServiceImpl service(arena);
+    SemanticServiceImpl service(embedder, arena);
 
     grpc::ServerBuilder builder;
     builder.AddListeningPort(
@@ -115,13 +118,21 @@ int main() {
         g_shutdown_requested.store(true, std::memory_order_release);
     });
 
+    const char* model_path{std::getenv("INFERENCE_MODEL_PATH")};
+    if (model_path == nullptr) {
+        throw std::runtime_error(
+            "Environment variable INFERENCE_MODEL_PATH is not set");
+    }
+
+    const Embedder embedder(model_path);
+
     // Main Thread is responsible for construct & deconstruct Memory Arena.
     const auto memory_arena = std::make_unique<MemoryArena>();
 
-    WarmUpEngine();
+    WarmUpEngine(embedder);
 
     std::cout << "[Vector Engine] Opening to gRPC..." << std::endl;
-    RunServer(*memory_arena);
+    RunServer(embedder, *memory_arena);
     std::cout << "[Vector Engine] Closing..." << std::endl;
 
     return 0;
