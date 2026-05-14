@@ -88,7 +88,24 @@ func runServe(_ *cobra.Command, _ []string) error {
 	log.Printf("[strix serve] Strix Engine binary: %s\n", paths.engineBinary)
 	log.Printf("[strix serve] Inference model: %s\n", paths.modelPath)
 
-	// 4. Create 2 Death Pipes for Process B and C.
+	// 4. Read ~/.strix/.env to get API key and endpoint.
+	envPath, envErr := EnvFilePath()
+	if envErr != nil {
+		return envErr
+	}
+
+	env, readErr := godotenv.Read(envPath)
+	if readErr != nil {
+		return fmt.Errorf("cannot read %s: %w", envPath, readErr)
+	}
+
+	apiKey, hasKey := env["API_KEY"]
+	endpoint, hasEndpoint := env["ENDPOINT"]
+	if !hasKey || !hasEndpoint {
+		return fmt.Errorf("missing API_KEY or ENDPOINT in %s", envPath)
+	}
+
+	// 5. Create 2 Death Pipes for Process B and C.
 	readB, writeB, pipeErr := os.Pipe()
 	if pipeErr != nil {
 		return fmt.Errorf("cannot create Gateway Death Pipe: %w", pipeErr)
@@ -108,7 +125,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 		_ = writeC.Close()
 	}()
 
-	// 5. Fork Process C - running Vector Engine.
+	// 6. Fork Process C - running Vector Engine.
 	engineProc, engineErr := forkEngine(paths, mask.EngineCores, readC)
 	if engineErr != nil {
 		_ = readB.Close()
@@ -121,8 +138,8 @@ func runServe(_ *cobra.Command, _ []string) error {
 	log.Printf("[strix serve] Vector Engine started (PID %d)\n", engineProc.Process.Pid)
 	_ = readC.Close()
 
-	// 6. Fork Process B - running HTTP Gateway.
-	gatewayProc, gatewayErr := forkGateway(paths, mask.GatewayCores, readB)
+	// 7. Fork Process B - running HTTP Gateway.
+	gatewayProc, gatewayErr := forkGateway(paths, mask.GatewayCores, apiKey, endpoint, readB)
 	if gatewayErr != nil {
 		_ = readB.Close()
 		_ = writeB.Close()
@@ -134,14 +151,14 @@ func runServe(_ *cobra.Command, _ []string) error {
 	log.Printf("[strix serve] HTTP Gateway started (PID %d)\n", gatewayProc.Process.Pid)
 	_ = readB.Close()
 
-	// 7. Write Process A's PID to a file.
+	// 8. Write Process A's PID to a file.
 	if writePIDErr := writePIDFile(); writePIDErr != nil {
 		return writePIDErr
 	}
 
 	defer removePIDFile()
 
-	// 8. Process A now waits for any shutdown of its children.
+	// 9. Process A now waits for any shutdown of its children.
 	deadChan := make(chan *exec.Cmd, 2)
 
 	go func() {
@@ -166,12 +183,12 @@ func runServe(_ *cobra.Command, _ []string) error {
 		deadChan <- gatewayProc
 	}()
 
-	// 9. Trap SIGTERM / SIGKILL for parent Process A.
+	// 10. Trap SIGTERM / SIGKILL for parent Process A.
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sigChan)
 
-	// 10. React to whatever comes first: OS signal or child death.
+	// 11. React to whatever comes first: OS signal or child death.
 	select {
 	case sig := <-sigChan:
 		// Process A received SIGTERM/SIGINT/SIGKILL from OS or 'strix stop'
@@ -299,28 +316,13 @@ func resolvePaths() (projectPaths, error) {
 	}, nil
 }
 
-func forkGateway(paths projectPaths, coreMask string, readerB *os.File) (*exec.Cmd, error) {
+func forkGateway(
+	paths projectPaths, coreMask, apiKey, endpoint string, readerB *os.File,
+) (*exec.Cmd, error) {
 	cmd := exec.Command("taskset", "-c", coreMask, paths.mainBinary)
 	cmd.ExtraFiles = []*os.File{readerB}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-
-	envPath, pathErr := EnvFilePath()
-	if pathErr != nil {
-		return nil, pathErr
-	}
-
-	currEnv, readErr := godotenv.Read(envPath)
-	if readErr != nil {
-		return nil, fmt.Errorf("cannot parse %s: %w", envPath, readErr)
-	}
-
-	apiKey, ok1 := currEnv["API_KEY"]
-	endpoint, ok2 := currEnv["ENDPOINT"]
-	if !ok1 || !ok2 {
-		return nil, fmt.Errorf("missing environment variable for HTTP Gateway")
-	}
-
 	cmd.Env = buildGatewayEnv(apiKey, endpoint, coreMask)
 
 	if startErr := cmd.Start(); startErr != nil {
@@ -332,12 +334,14 @@ func forkGateway(paths projectPaths, coreMask string, readerB *os.File) (*exec.C
 	return cmd, nil
 }
 
-func forkEngine(paths projectPaths, coreMask string, readerC *os.File) (*exec.Cmd, error) {
+func forkEngine(
+	paths projectPaths, coreMask string, readerC *os.File,
+) (*exec.Cmd, error) {
 	cmd := exec.Command("taskset", "-c", coreMask, paths.engineBinary)
 	cmd.ExtraFiles = []*os.File{readerC}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Env = buildEngineEnv(paths)
+	cmd.Env = buildEngineEnv(paths, coreMask)
 
 	if startErr := cmd.Start(); startErr != nil {
 		return nil, fmt.Errorf(
@@ -361,10 +365,14 @@ func buildGatewayEnv(apiKey, endpoint, coreMask string) []string {
 	return env
 }
 
-func buildEngineEnv(paths projectPaths) []string {
+func buildEngineEnv(paths projectPaths, coreMask string) []string {
 	base := os.Environ()
-	env := make([]string, 0, len(base)+1)
-	env = append(env, "INFERENCE_MODEL_PATH="+paths.modelPath)
+	env := make([]string, 0, len(base)+2)
+	env = append(env,
+		"INFERENCE_MODEL_PATH="+paths.modelPath,
+		"ENGINE_CORES="+coreMask,
+	)
+
 	return env
 }
 
