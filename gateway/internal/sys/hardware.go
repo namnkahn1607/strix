@@ -6,38 +6,81 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+
+	"golang.org/x/sys/unix"
 )
 
 const (
-	minRAMBytes   = 8 * 1024 * 1024 * 1024
-	maxVirtualCPU = 4
+	minRAMBytes    = 8 * 1024 * 1024 * 1024
+	maxGatewayCPUs = 4
 )
 
-// ApplyGoLimits sets GOMAXPROCS based on system's total CPUs
-// and return it as integer.
-func ApplyGoLimits() (goCores int) {
-	totalCores := runtime.NumCPU()
-	if totalCores < 2 {
-		runtime.GOMAXPROCS(1)
-		return 1
-	}
-
-	goCores = min(maxVirtualCPU, totalCores/2)
-	runtime.GOMAXPROCS(goCores)
-	return goCores
+type MaskCPU struct {
+	GatewayCores string
+	EngineCores  string
 }
 
-// GenCppLimits generates a taskset -c flag argument used for
-// Vector Engine based on number of allocated CPUs for HTTP Gateway.
-func GenCppLimits(goCores int) string {
-	totalCores := runtime.NumCPU()
-
-	cppCores := make([]string, 0, totalCores-goCores)
-	for i := goCores; i < totalCores; i++ {
-		cppCores = append(cppCores, strconv.Itoa(i))
+func GetAffineCPUs() (MaskCPU, error) {
+	var cpuSet unix.CPUSet
+	if getErr := unix.SchedGetaffinity(os.Getpid(), &cpuSet); getErr != nil {
+		return MaskCPU{}, fmt.Errorf("sched_setaffinity failed: %w", getErr)
 	}
 
-	return strings.Join(cppCores, ",")
+	cpuCount := cpuSet.Count()
+	if cpuCount <= 0 {
+		return MaskCPU{}, fmt.Errorf("FATAL: no CPU allocated for process")
+	}
+
+	available := make([]int, 0, cpuCount)
+	found := 0
+	for i := range 1024 {
+		if cpuSet.IsSet(i) {
+			available = append(available, i)
+			found++
+
+			if found == cpuCount {
+				break
+			}
+		}
+	}
+
+	switch {
+	case cpuCount == 1:
+		_, _ = fmt.Fprintln(os.Stderr,
+			"[strix] WARNING: only 1 CPU available. "+
+				"HTTP Gateway and Vector Engine will share it. "+
+				"Expect degraded performance.",
+		)
+
+		shared := joinCPUs(available)
+		return MaskCPU{
+			GatewayCores: shared,
+			EngineCores:  shared,
+		}, nil
+
+	case cpuCount <= 8:
+		half := cpuCount / 2
+		return MaskCPU{
+			GatewayCores: joinCPUs(available[:half]),
+			EngineCores:  joinCPUs(available[half:]),
+		}, nil
+
+	default:
+		return MaskCPU{
+			GatewayCores: joinCPUs(available[:maxGatewayCPUs]),
+			EngineCores:  joinCPUs(available[maxGatewayCPUs:]),
+		}, nil
+	}
+}
+
+// ApplyGoMaxProcs sets GOMAXPROCS to the number of CPUs in the provided
+// taskset -c string, capped at 4.
+// Call this from Process B after it has identified itself via STRIX_WORKER=1.
+func ApplyGoMaxProcs(gatewayCores string) int {
+	n := len(strings.Split(gatewayCores, ","))
+	procs := min(maxGatewayCPUs, n)
+	runtime.GOMAXPROCS(procs)
+	return procs
 }
 
 // CheckRAM checks if the system has sufficient amount of RAM (>= 8GB).
@@ -72,4 +115,14 @@ func CheckRAM() error {
 	}
 
 	return fmt.Errorf("MemTotal not found in /proc/meminfo")
+}
+
+func joinCPUs(cpus []int) string {
+	parts := make([]string, len(cpus))
+
+	for i, c := range cpus {
+		parts[i] = strconv.Itoa(c)
+	}
+
+	return strings.Join(parts, ",")
 }
