@@ -1,41 +1,26 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"gateway/internal/proxy"
-	"gateway/internal/server"
 	"gateway/internal/sys"
-	pb "gateway/pb/proto"
 	"log"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
-	"github.com/VictoriaMetrics/fastcache"
 	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/status"
 )
 
 const (
-	socketAddress = "unix:///tmp/strix.sock"
-
-	maxFD       = 65536
-	l0CacheSize = 256 * 1024 * 1024
-
-	pollInterval    = 100 * time.Millisecond
-	pollTimeout     = 10 * time.Second
-	shutdownTimeout = 3 * time.Second
+	maxFD           = 65536
+	gatewayShutdown = 3 * time.Second
+	engineShutdown  = 5 * time.Second
 )
 
 var serveCmd = &cobra.Command{
@@ -50,15 +35,16 @@ var serveCmd = &cobra.Command{
 
 // strix/
 // ├── bin/
-// │   ├── strix_gateway  <- os.Executable()
-// │   └── strix_engine
-// ├── gateway/           <- Go Supervisor & Gateway source code
-// └── engine/            <- C++ Vector Engine source code
+// │   ├── strix          <- os.Executable() — Process A and B share this binary
+// │   └── strix_engine   <- Process C
+// ├── gateway/
+// └── engine/
 //     └── model/
 //         └── strix-minilm-with-tokenizer.onnx
 
 type projectPaths struct {
-	engineBinary string // strix/bin/strix_engine
+	mainBinary   string // strix/bin/strix         - reused to fork Process B
+	engineBinary string // strix/bin/strix_engine  - forked as Process C
 	modelPath    string // strix/engine/model/strix-minilm-with-tokenizer.onnx
 }
 
@@ -82,21 +68,26 @@ func runServe(_ *cobra.Command, _ []string) error {
 		return fdErr
 	}
 
-	// 2. Calculate CPU affinity ratio for each process.
-	goCores := system.ApplyGoLimits()
-	log.Printf("[strix serve] GOMAXPROCS = %d\n", goCores)
-	cppCoresStr := system.GenCppLimits(goCores)
+	// 2. Calculate CPU affinity ratio for Process B and C.
+	mask, maskErr := system.GetAffineCPUs()
+	if maskErr != nil {
+		return fmt.Errorf("cannot determine CPU affinity: %w", maskErr)
+	}
 
-	// 2. Resolve artifact paths.
+	log.Printf("[strix serve] Gateway cores : %s\n", mask.GatewayCores)
+	log.Printf("[strix serve] Engine cores: %s\n", mask.EngineCores)
+
+	// 3. Resolve artifact paths.
 	paths, pathErr := resolvePaths()
 	if pathErr != nil {
 		return pathErr
 	}
 
-	log.Printf("[strix serve] Vector Engine binary: %s\n", paths.engineBinary)
+	log.Printf("[strix serve] Strix Binary: %s\n", paths.mainBinary)
+	log.Printf("[strix serve] Strix Engine binary: %s\n", paths.engineBinary)
 	log.Printf("[strix serve] Inference model: %s\n", paths.modelPath)
 
-	// 3. Load ~/.strix/.env into the process environment.
+	// 4. Load ~/.strix/.env into Process C's environment.
 	envPath, pathErr := EnvFilePath()
 	if pathErr != nil {
 		return pathErr
@@ -108,156 +99,129 @@ func runServe(_ *cobra.Command, _ []string) error {
 
 	log.Println("[strix serve] Configuration loaded from .env")
 
-	// 4. Fork a C++ process running Vector Engine.
-	reader, writer, pipeErr := os.Pipe()
+	// 5. Create 2 Death Pipes for Process B and C.
+	readB, writeB, pipeErr := os.Pipe()
 	if pipeErr != nil {
-		return fmt.Errorf("cannot create Death Pipe: %w", pipeErr)
+		return fmt.Errorf("cannot create Gateway Death Pipe: %w", pipeErr)
 	}
 
-	engineProc := exec.Command("taskset", "-c", cppCoresStr, paths.engineBinary)
-	fmt.Printf("Pinned Vector Engine to cores (via taskset): %s\n", cppCoresStr)
-
-	engineProc.ExtraFiles = []*os.File{reader}
-	engineProc.Stdout = os.Stdout
-	engineProc.Stderr = os.Stderr
-	engineProc.Env = buildEngineEnv(paths)
-
-	if startErr := engineProc.Start(); startErr != nil {
-		_ = reader.Close()
-		_ = writer.Close()
-
-		return fmt.Errorf("cannot start Vector Engine at %q: %w",
-			paths.engineBinary, startErr,
-		)
+	readC, writeC, pipeErr := os.Pipe()
+	if pipeErr != nil {
+		_ = readB.Close()
+		_ = writeB.Close()
+		return fmt.Errorf("cannot create Engine Death Pipe: %w", pipeErr)
 	}
-
-	log.Printf("[strix serve] Vector Engine started (PID %d)", engineProc.Process.Pid)
 
 	defer func() {
-		if closeErr := writer.Close(); closeErr != nil {
-			log.Printf(
-				"[strix serve] CRITICAL: Death Pipe Write-end close failed: %v. "+
-					"Sending SIGTERM as fallback...\n",
-				closeErr,
-			)
-
-			_ = engineProc.Process.Signal(syscall.SIGTERM)
-		}
+		_ = readB.Close()
+		_ = writeB.Close()
+		_ = readC.Close()
+		_ = writeC.Close()
 	}()
 
-	if closeErr := reader.Close(); closeErr != nil {
-		return fmt.Errorf("cannot close Read-end of the Death Pipe: %v", closeErr)
+	// 6. Fork Process C - running Vector Engine.
+	engineProc, engineErr := forkEngine(paths, mask.EngineCores, readC)
+	if engineErr != nil {
+		_ = readB.Close()
+		_ = writeB.Close()
+		_ = readC.Close()
+		_ = writeC.Close()
+		return engineErr
 	}
+
+	log.Printf("[strix serve] Vector Engine started (PID %d)\n", engineProc.Process.Pid)
+	_ = readC.Close()
+
+	// 7. Fork Process B - running HTTP Gateway.
+	gatewayProc, gatewayErr := forkGateway(paths, mask.GatewayCores, readB)
+	if gatewayErr != nil {
+		_ = readB.Close()
+		_ = writeB.Close()
+		_ = writeC.Close()
+		_ = engineProc.Process.Signal(syscall.SIGTERM)
+		return gatewayErr
+	}
+
+	log.Printf("[strix serve] HTTP Gateway started (PID %d)\n", gatewayProc.Process.Pid)
+	_ = readB.Close()
+
+	// 8. Write Process A's PID to a file.
+	if writePIDErr := writePIDFile(); writePIDErr != nil {
+		return writePIDErr
+	}
+
+	defer removePIDFile()
+
+	// 9. Process A now waits for any shutdown of its children.
+	deadChan := make(chan *exec.Cmd, 2)
 
 	go func() {
-		if waitErr := engineProc.Wait(); waitErr != nil {
-			log.Printf("[strix serve] Vector Engine exited: %v", waitErr)
+		waitErr := engineProc.Wait()
+		if waitErr != nil {
+			log.Printf("[Supervisor] Vector Engine exited: %v\n", waitErr)
 		} else {
-			log.Println("[strix serve] Vector Engine exited cleanly")
+			log.Println("[Supervisor] Vector Engine exited cleanly")
 		}
+
+		deadChan <- engineProc
 	}()
 
-	// 5. Initialize L1 Exact-match Cache.
-	log.Printf(
-		"[strix serve] Allocating %dMB off-heap memory for L1 Fast Cache...\n",
-		l0CacheSize/(1024*1024),
-	)
-	l0Cache := fastcache.New(l0CacheSize)
-	defer l0Cache.Reset()
-
-	// 6.1. Open a single gRPC connection to Vector Engine
-	conn, connErr := grpc.NewClient(
-		socketAddress, grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	if connErr != nil {
-		return connErr
-	}
-
-	defer func() {
-		if closeErr := conn.Close(); closeErr != nil {
-			log.Printf("[strix serve] gRPC connection close error: %v\n", closeErr)
+	go func() {
+		waitErr := gatewayProc.Wait()
+		if waitErr != nil {
+			log.Printf("[Supervisor] HTTP Gateway exited: %v\n", waitErr)
 		} else {
-			log.Println("[strix serve] gRPC connection closed.")
+			log.Println("[Supervisor] HTTP Gateway exited cleanly")
 		}
+
+		deadChan <- gatewayProc
 	}()
 
-	// 6.2. Create only ONE Vector Engine stub.
-	clientStub := pb.NewSemanticServiceClient(conn)
-
-	// 7. Perform polling (ping request) on Vector Engine.
-	log.Println("[strix serve] Waiting for Vector Engine to become ready...")
-	if pollErr := waitForEngine(context.Background(), clientStub); pollErr != nil {
-		return pollErr
-	}
-
-	pidPath, pidPathErr := PIDFilePath()
-	if pidPathErr != nil {
-		return pidPathErr
-	}
-
-	pidContent := strconv.Itoa(os.Getpid())
-	if writeErr := os.WriteFile(pidPath, []byte(pidContent), 0600); writeErr != nil {
-		return fmt.Errorf("cannot write PID file %s: %w", pidPath, writeErr)
-	}
-
-	defer func() {
-		if rmErr := os.Remove(pidPath); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
-			log.Printf(
-				"[strix serve] WARNING: cannot remove PID file %s: %v\n",
-				pidPath, rmErr,
-			)
-		}
-	}()
-
-	log.Printf("[strix serve] PID file written: %s (PID %d)\n", pidPath, os.Getpid())
-
-	// 8. Initialize HTTP Server.
-	fatalErrChan := make(chan error, 1)
-	pool := proxy.NewWorkerPool(clientStub)
-	sv := server.NewServer(clientStub, l0Cache, fatalErrChan, pool)
-
-	// 9. Create OS Signal listener.
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-
-	serverErrChan := sv.Start()
-	var runErr error
-
-	select {
-	case serverErr := <-serverErrChan:
-		runErr = serverErr
-		log.Printf("[strix serve] Gateway server crashed due to: %v\n", runErr)
-
-	case fatalErr := <-fatalErrChan:
+	// 10. React to the first death.
+	switch <-deadChan {
+	case engineProc:
+		// Process C died → close Gateway Death Pipe → Process B shuts down.
 		log.Printf(
-			"[strix serve] Fatal error from handler: %v - Initiating shutdown...\n",
-			fatalErr,
+			"[Supervisor] Vector Engine died. Closing HTTP Gateway in %d secs...\n",
+			gatewayShutdown,
 		)
 
-	case sysSig := <-sigChan:
-		log.Printf("[strix serve] Received SIGTERM %v. Initiating shutdown...\n",
-			sysSig,
-		)
-	}
+		_ = writeB.Close()
 
-	// 10. HTTP Gateway graceful shutdown.
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
-	defer shutdownCancel()
+		select {
+		case <-deadChan:
+			log.Println("[Supervisor] HTTP Gateway finally exited.")
+		case <-time.After(gatewayShutdown):
+			log.Println(
+				"[Supervisor] HTTP Gateway is taking longer to exit - forcing shutdown...",
+			)
 
-	defer func() {
-		if poolErr := pool.Stop(shutdownCtx); poolErr != nil {
-			log.Printf("[strix serve] Worker Pool stop error: %v\n", poolErr)
-		} else {
-			log.Println("[strix server] Worker Pool stopped")
+			_ = gatewayProc.Process.Signal(syscall.SIGKILL)
 		}
-	}()
 
-	log.Println("[strix serve] Stopping HTTP Server...")
-	if stopErr := sv.Stop(shutdownCtx); stopErr != nil {
-		log.Printf("[strix serve] HTTP Server stop error: %v\n", stopErr)
+	case gatewayProc:
+		// Process B died → close Engine Death Pipe → Process C shuts down.
+		log.Printf(
+			"[Supervisor] HTTP Gateway died. Closing Vector Engine in %d secs...\n",
+			engineShutdown,
+		)
+
+		_ = writeC.Close()
+
+		select {
+		case <-deadChan:
+			log.Printf("[Supervisor] Vector Engine finally exited")
+		case <-time.After(engineShutdown):
+			log.Println(
+				"[Supervisor] Vector Engine is taking longer to exit - forcing shutdown...",
+			)
+
+			_ = engineProc.Process.Signal(syscall.SIGKILL)
+		}
 	}
 
-	return runErr
+	log.Println("All processes exited. Supervisor shutting down...")
+	return nil
 }
 
 func openMoreFD() error {
@@ -299,6 +263,7 @@ func resolvePaths() (projectPaths, error) {
 	projectRoot := filepath.Join(filepath.Dir(execDir), "..")
 
 	return projectPaths{
+		mainBinary:   execDir,
 		engineBinary: filepath.Join(projectRoot, "bin", "strix_engine"),
 		modelPath: filepath.Join(
 			projectRoot, "engine", "model", "strix-minilm-with-tokenizer.onnx",
@@ -306,9 +271,52 @@ func resolvePaths() (projectPaths, error) {
 	}, nil
 }
 
-func buildEngineEnv(paths projectPaths) []string {
+func forkGateway(paths projectPaths, coreMask string, readerB *os.File) (*exec.Cmd, error) {
+	cmd := exec.Command("taskset", "-c", coreMask, paths.mainBinary)
+	cmd.ExtraFiles = []*os.File{readerB}
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Env = buildGatewayEnv(coreMask)
+
+	if startErr := cmd.Start(); startErr != nil {
+		return nil, fmt.Errorf(
+			"cannot start HTTP Gateway at %q: %w", paths.mainBinary, startErr,
+		)
+	}
+
+	return cmd, nil
+}
+
+func forkEngine(paths projectPaths, coreMask string, readerC *os.File) (*exec.Cmd, error) {
+	cmd := exec.Command("taskset", "-c", coreMask, paths.engineBinary)
+	cmd.ExtraFiles = []*os.File{readerC}
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Env = buildEngineEnv(paths)
+
+	if startErr := cmd.Start(); startErr != nil {
+		return nil, fmt.Errorf(
+			"cannot start Vector Engine at %q: %w", paths.engineBinary, startErr,
+		)
+	}
+
+	return cmd, nil
+}
+
+func buildGatewayEnv(coreMask string) []string {
 	base := os.Environ()
 	env := make([]string, 0, len(base)+2)
+	env = append(env,
+		"STRIX_WORKER=1",
+		"GATEWAY_CORES="+coreMask,
+	)
+
+	return env
+}
+
+func buildEngineEnv(paths projectPaths) []string {
+	base := os.Environ()
+	env := make([]string, 0, len(base)+1)
 
 	for _, kv := range base {
 		if strings.HasPrefix(kv, "API_KEY=") {
@@ -322,29 +330,31 @@ func buildEngineEnv(paths projectPaths) []string {
 	return env
 }
 
-func waitForEngine(ctx context.Context, stub pb.SemanticServiceClient) error {
-	deadline := time.Now().Add(pollTimeout)
-
-	for attempt := 1; time.Now().Before(deadline); attempt++ {
-		pingCtx, pingCancel := context.WithTimeout(ctx, pollInterval)
-		_, pingErr := stub.CheckCache(pingCtx, &pb.CheckCacheRequest{Prompt: []byte("health_check")})
-		pingCancel()
-
-		if pingErr == nil {
-			log.Printf("[strix serve] Vector Engine ready after %d poll(s).\n", attempt)
-			return nil
-		}
-
-		if status.Code(pingErr) != codes.Unavailable {
-			return fmt.Errorf("unexpected error in Vector Engine: %w", pingErr)
-		}
-
-		log.Printf(
-			"[strix serve] Vector Engine not ready yet (attempt %d). Retrying in %s...\n",
-			attempt, pollInterval,
-		)
-		time.Sleep(pollInterval)
+func writePIDFile() error {
+	pidPath, pidPathErr := PIDFilePath()
+	if pidPathErr != nil {
+		return pidPathErr
 	}
 
-	return fmt.Errorf("FATAL: unready Vector Engine after %s second(s)", pollTimeout)
+	pidContent := strconv.Itoa(os.Getpid())
+	if writeErr := os.WriteFile(pidPath, []byte(pidContent), 0600); writeErr != nil {
+		return fmt.Errorf("cannot write PID file %s: %w", pidPath, writeErr)
+	}
+
+	log.Printf("[strix serve] PID file written: %s (PID %d)\n", pidPath, os.Getpid())
+	return nil
+}
+
+func removePIDFile() {
+	pidPath, pidPathErr := PIDFilePath()
+	if pidPathErr != nil {
+		return
+	}
+
+	if rmErr := os.Remove(pidPath); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
+		log.Printf(
+			"[strix serve] WARNING: cannot remove PID file %s: %v\n",
+			pidPath, rmErr,
+		)
+	}
 }
