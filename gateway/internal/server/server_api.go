@@ -12,13 +12,9 @@ import (
 	"time"
 
 	"github.com/VictoriaMetrics/fastcache"
-	"golang.org/x/time/rate"
 )
 
 const (
-	allowedRate      = 2000
-	allowedBurstRate = 2200
-
 	gatewayEndpoint = "/v1/cache/strix"
 	serverPort      = ":8080"
 )
@@ -33,10 +29,8 @@ func newServer(
 	llmAPIKey, llmEndpoint string,
 ) *strixServer {
 	mux := http.NewServeMux()
-	limiter := rate.NewLimiter(rate.Limit(allowedRate), allowedBurstRate)
-
 	mainHandler := transport.StrixService(stub, cache, fatalChan, pool, llmAPIKey, llmEndpoint)
-	mux.HandleFunc(gatewayEndpoint, transport.RateLimiter(limiter, mainHandler))
+	mux.HandleFunc(gatewayEndpoint, mainHandler)
 
 	return &strixServer{
 		sv: &http.Server{
