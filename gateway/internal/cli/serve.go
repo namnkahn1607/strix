@@ -134,7 +134,9 @@ func runServe(_ *cobra.Command, _ []string) error {
 		_ = readB.Close()
 		_ = writeB.Close()
 		_ = writeC.Close()
+
 		_ = engineProc.Process.Signal(syscall.SIGTERM)
+		_ = engineProc.Wait()
 		return gatewayErr
 	}
 
