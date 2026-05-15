@@ -4,7 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"gateway/internal/proxy"
+	"gateway/internal/config"
+	"gateway/internal/core"
 	system "gateway/internal/sys"
 	pb "gateway/pb/proto"
 	"io"
@@ -31,7 +32,7 @@ const (
 	shutdownTimeout = 3 * time.Second
 )
 
-func RunGateway(cfg system.GatewayConfig) error {
+func RunGateway(cfg config.GatewayConfig) error {
 	// 1. Apply GOMAXPROCS based on pinned CPU mask.
 	system.ApplyGoMaxProcs(cfg.Cores)
 	log.Printf("[Gateway] GOMAXPROCS = %d\n", cfg.NumWorkers)
@@ -60,7 +61,7 @@ func RunGateway(cfg system.GatewayConfig) error {
 
 	// 4. Poll until Vector Engine is ready.
 	log.Printf("[Gateway] Waiting for Vector Engine to become ready...")
-	if pollErr := waitForEngine(context.Background(), clientStub); pollErr != nil {
+	if pollErr := pollEngine(context.Background(), clientStub); pollErr != nil {
 		return pollErr
 	}
 
@@ -74,7 +75,7 @@ func RunGateway(cfg system.GatewayConfig) error {
 
 	// 6. Build and start the HTTP server.
 	fatalErrChan := make(chan error, 1)
-	pool := proxy.NewWorkerPool(clientStub)
+	pool := core.NewWorkerPool(clientStub, 2*cfg.NumWorkers)
 	sv := newServer(clientStub, l0Cache, fatalErrChan, pool, cfg.APIKey, cfg.Endpoint)
 
 	sigChan := make(chan os.Signal, 1)
@@ -150,7 +151,7 @@ func waitDeathPipe() <-chan struct{} {
 	return ch
 }
 
-func waitForEngine(ctx context.Context, stub pb.SemanticServiceClient) error {
+func pollEngine(ctx context.Context, stub pb.SemanticServiceClient) error {
 	deadline := time.Now().Add(pollTimeout)
 
 	for attempt := 1; time.Now().Before(deadline); attempt++ {

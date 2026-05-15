@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"gateway/internal/middleware"
-	"gateway/internal/proxy"
+	"gateway/internal/core"
+	"gateway/internal/transport"
 	pb "gateway/pb/proto"
 	"log"
 	"net/http"
@@ -29,14 +29,14 @@ type strixServer struct {
 
 func newServer(
 	stub pb.SemanticServiceClient, cache *fastcache.Cache,
-	fatalChan chan error, pool *proxy.WorkerPool,
+	fatalChan chan error, pool *core.WorkerPool,
 	llmAPIKey, llmEndpoint string,
 ) *strixServer {
 	mux := http.NewServeMux()
 	limiter := rate.NewLimiter(rate.Limit(allowedRate), allowedBurstRate)
 
-	mainHandler := proxy.StrixService(stub, cache, fatalChan, pool, llmAPIKey, llmEndpoint)
-	mux.HandleFunc(gatewayEndpoint, middleware.RateLimiter(limiter, mainHandler))
+	mainHandler := transport.StrixService(stub, cache, fatalChan, pool, llmAPIKey, llmEndpoint)
+	mux.HandleFunc(gatewayEndpoint, transport.RateLimiter(limiter, mainHandler))
 
 	return &strixServer{
 		sv: &http.Server{
