@@ -1,4 +1,4 @@
-package proxy
+package core
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 )
 
 const (
-	numWorkers  = 4
 	jobQueueCap = 5000
 	jobTimeout  = 50 * time.Millisecond
 )
@@ -24,7 +23,7 @@ type WorkerPool struct {
 	wg    sync.WaitGroup
 }
 
-func NewWorkerPool(stub pb.SemanticServiceClient) *WorkerPool {
+func NewWorkerPool(stub pb.SemanticServiceClient, numWorkers int) *WorkerPool {
 	wp := &WorkerPool{
 		queue: make(chan Job, jobQueueCap),
 	}

@@ -1,4 +1,4 @@
-package proxy
+package core
 
 import (
 	"context"
@@ -34,9 +34,9 @@ func getShard(nodeID int32) *promiseShard {
 	return &shards[uint32(nodeID)&(NumShards-1)]
 }
 
-// Pioneering LLM request will create a broadcasting channel
-// inside Promise, then register it to the Shard-array.
-func pioneerRegister(nodeID int32) *Promise {
+// PioneerRegister is called by pioneer LLM request, which will create a
+// broadcasting channel inside Promise, then register it to the Shard-array.
+func PioneerRegister(nodeID int32) *Promise {
 	p := &Promise{
 		ready: make(chan struct{}),
 	}
@@ -48,11 +48,10 @@ func pioneerRegister(nodeID int32) *Promise {
 	return p
 }
 
-// After finish dialing LLM, the pioneer request injects payload,
-// (potential) error, hence broadcasting the result to its
-// audience (herd) by closing the channel.
+// PioneerFulfill injects payload, (potential) error, hence broadcasting
+// the result to its herd by closing the channel.
 // The registered Promise would also be removed.
-func pioneerFulfill(nodeID int32, p *Promise, payload []byte, err error) {
+func PioneerFulfill(nodeID int32, p *Promise, payload []byte, err error) {
 	p.Payload = payload
 	p.Err = err
 
@@ -64,11 +63,11 @@ func pioneerFulfill(nodeID int32, p *Promise, payload []byte, err error) {
 	shard.mu.Unlock()
 }
 
-// The herd use herdAwait to look up the Promise of the
+// HerdAwait called by herd, which will look up the Promise of the
 // corresponding Node ID, then blocks until:
 // a. The pioneer fulfills the Promise.
 // b. Its context is canceled (client disconnect/timeout).
-func herdAwait(
+func HerdAwait(
 	ctx context.Context, nodeID int32,
 ) (payload []byte, pioneerErr error, selfCancelled bool, found bool) {
 	shard := getShard(nodeID)

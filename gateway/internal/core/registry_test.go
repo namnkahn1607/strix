@@ -1,4 +1,4 @@
-package proxy
+package core
 
 import (
 	"context"
@@ -16,7 +16,7 @@ func TestThunderingHerd_SingleLLMCall(t *testing.T) {
 		llmLatency  = 30 * time.Millisecond
 	)
 
-	promise := pioneerRegister(nodeID)
+	promise := PioneerRegister(nodeID)
 
 	var (
 		llmCallCount atomic.Int32
@@ -31,7 +31,7 @@ func TestThunderingHerd_SingleLLMCall(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			payload, err, _, found := herdAwait(context.Background(), nodeID)
+			payload, err, _, found := HerdAwait(context.Background(), nodeID)
 
 			if !found {
 				t.Errorf("herd goroutine: promise not found — registry invariant violated")
@@ -51,7 +51,7 @@ func TestThunderingHerd_SingleLLMCall(t *testing.T) {
 
 	llmCallCount.Add(1)
 	time.Sleep(llmLatency)
-	pioneerFulfill(nodeID, promise, []byte(wantPayload), nil)
+	PioneerFulfill(nodeID, promise, []byte(wantPayload), nil)
 
 	mu.Lock()
 	gotPayload = append(gotPayload, wantPayload)
@@ -92,10 +92,10 @@ func TestThunderingHerd_SingleLLMCall(t *testing.T) {
 func TestHerdAwait_FinishedPioneer(t *testing.T) {
 	const nodeID = int32(99)
 
-	promise := pioneerRegister(nodeID)
-	pioneerFulfill(nodeID, promise, []byte("data"), nil)
+	promise := PioneerRegister(nodeID)
+	PioneerFulfill(nodeID, promise, []byte("data"), nil)
 
-	payload, err, _, found := herdAwait(context.Background(), nodeID)
+	payload, err, _, found := HerdAwait(context.Background(), nodeID)
 	if found {
 		t.Errorf(
 			"expected found=false (Promise already removed), got true - payload=%q err=%v",
@@ -107,13 +107,13 @@ func TestHerdAwait_FinishedPioneer(t *testing.T) {
 func TestHerdAwait_ContextCancellation(t *testing.T) {
 	const nodeID = int32(55)
 
-	promise := pioneerRegister(nodeID)
-	defer pioneerFulfill(nodeID, promise, nil, nil)
+	promise := PioneerRegister(nodeID)
+	defer PioneerFulfill(nodeID, promise, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err, _, found := herdAwait(ctx, nodeID)
+	_, err, _, found := HerdAwait(ctx, nodeID)
 
 	if !found {
 		t.Error("expected found=true (Promise exists in registry), got false")
@@ -133,15 +133,15 @@ func TestLockStriping_SameShardDifferentKeys(t *testing.T) {
 		nodeB = int32(10 + NumShards)
 	)
 
-	pA := pioneerRegister(nodeA)
-	pB := pioneerRegister(nodeB)
+	pA := PioneerRegister(nodeA)
+	pB := PioneerRegister(nodeB)
 
 	var wg sync.WaitGroup
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		payload, err, _, found := herdAwait(context.Background(), nodeA)
+		payload, err, _, found := HerdAwait(context.Background(), nodeA)
 		if !found || err != nil || string(payload) != "payload-A" {
 			t.Errorf("nodeA: got payload=%q found=%v err=%v", payload, found, err)
 		}
@@ -150,7 +150,7 @@ func TestLockStriping_SameShardDifferentKeys(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		payload, err, _, found := herdAwait(context.Background(), nodeB)
+		payload, err, _, found := HerdAwait(context.Background(), nodeB)
 		if !found || err != nil || string(payload) != "payload-B" {
 			t.Errorf("nodeB: got payload=%q found=%v err=%v", payload, found, err)
 		}
@@ -158,8 +158,8 @@ func TestLockStriping_SameShardDifferentKeys(t *testing.T) {
 
 	time.Sleep(10 * time.Millisecond)
 
-	pioneerFulfill(nodeA, pA, []byte("payload-A"), nil)
-	pioneerFulfill(nodeB, pB, []byte("payload-B"), nil)
+	PioneerFulfill(nodeA, pA, []byte("payload-A"), nil)
+	PioneerFulfill(nodeB, pB, []byte("payload-B"), nil)
 
 	wg.Wait()
 }
