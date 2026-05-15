@@ -15,11 +15,23 @@ const (
 	maxGatewayCPUs = 4
 )
 
+// ApplyGoMaxProcs sets GOMAXPROCS to the number of CPUs, capped at 4.
+// Call this from Process B after it has identified itself via STRIX_WORKER=1.
+func ApplyGoMaxProcs(gatewayCores []int) {
+	runtime.GOMAXPROCS(min(maxGatewayCPUs, len(gatewayCores)))
+}
+
 type MaskCPU struct {
 	GatewayCores string
 	EngineCores  string
 }
 
+// GetAffineCPUs reads the CPU set visible to this process via
+// unix.SchedGetAffinity (respects container cpuset), then
+// partitions them according to the following policy:
+//   - 1 CPU            : a performance warning is printed as both processes share the same CPU.
+//   - From 2 to 8 CPUs : 50/50 split; the odd CPU (if any) goes to Engine.
+//   - More than 8 CPUs : Gateway gets the first 4 CPUs; Engine gets the rest.
 func GetAffineCPUs() (MaskCPU, error) {
 	var cpuSet unix.CPUSet
 	if getErr := unix.SchedGetaffinity(os.Getpid(), &cpuSet); getErr != nil {
@@ -71,47 +83,6 @@ func GetAffineCPUs() (MaskCPU, error) {
 			EngineCores:  joinCPUs(available[maxGatewayCPUs:]),
 		}, nil
 	}
-}
-
-// ApplyGoMaxProcs sets GOMAXPROCS to the number of CPUs in the provided
-// taskset -c string, capped at 4.
-// Call this from Process B after it has identified itself via STRIX_WORKER=1.
-func ApplyGoMaxProcs(gatewayCores []int) {
-	runtime.GOMAXPROCS(min(maxGatewayCPUs, len(gatewayCores)))
-}
-
-// CheckRAM checks if the system has sufficient amount of RAM (>= 8GB).
-func CheckRAM() error {
-	memData, readErr := os.ReadFile("/proc/meminfo")
-	if readErr != nil {
-		return fmt.Errorf("cannot read /proc/meminfo: %w", readErr)
-	}
-
-	for _, line := range strings.Split(string(memData), "\n") {
-		if !strings.HasPrefix(line, "MemTotal:") {
-			continue
-		}
-
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			break
-		}
-
-		kb, parseErr := strconv.ParseInt(fields[1], 10, 64)
-		if parseErr != nil {
-			return fmt.Errorf("cannot parse RAM size: %w", parseErr)
-		}
-
-		if totalBytes := kb * 1024; totalBytes < minRAMBytes {
-			return fmt.Errorf(
-				"insufficient RAM. Require at least %dMB", minRAMBytes/(1024*1024),
-			)
-		}
-
-		return nil
-	}
-
-	return fmt.Errorf("MemTotal not found in /proc/meminfo")
 }
 
 func joinCPUs(cpus []int) string {
