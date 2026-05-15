@@ -76,11 +76,8 @@ func GetAffineCPUs() (MaskCPU, error) {
 // ApplyGoMaxProcs sets GOMAXPROCS to the number of CPUs in the provided
 // taskset -c string, capped at 4.
 // Call this from Process B after it has identified itself via STRIX_WORKER=1.
-func ApplyGoMaxProcs(gatewayCores string) int {
-	n := len(strings.Split(gatewayCores, ","))
-	procs := min(maxGatewayCPUs, n)
-	runtime.GOMAXPROCS(procs)
-	return procs
+func ApplyGoMaxProcs(gatewayCores []int) {
+	runtime.GOMAXPROCS(min(maxGatewayCPUs, len(gatewayCores)))
 }
 
 // CheckRAM checks if the system has sufficient amount of RAM (>= 8GB).

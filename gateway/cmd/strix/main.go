@@ -3,6 +3,7 @@ package main
 import (
 	"gateway/internal/cli"
 	"gateway/internal/server"
+	system "gateway/internal/sys"
 	"log"
 	"os"
 )
@@ -11,12 +12,12 @@ func main() {
 	if os.Getenv("STRIX_WORKER") == "1" {
 		// Process B: HTTP Gateway
 		// forked by Supervisor in Process A.
-		gatewayCores := os.Getenv("GATEWAY_CORES")
-		if gatewayCores == "" {
-			log.Fatal("[Gateway] FATAL: GATEWAY_CORES is not set")
+		cfg, configErr := system.Load()
+		if configErr != nil {
+			log.Fatalf("[Gateway] Configuration error: %v\n", configErr)
 		}
 
-		gatewayErr := server.RunGateway(gatewayCores)
+		gatewayErr := server.RunGateway(cfg)
 		if gatewayErr != nil {
 			log.Fatalf("[Gateway] Exited with error: %v\n", gatewayErr)
 		}

@@ -11,7 +11,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/VictoriaMetrics/fastcache"
@@ -48,10 +47,8 @@ type CheckCacheAPIRequest struct {
 func StrixService(
 	stub pb.SemanticServiceClient, l0Cache *fastcache.Cache,
 	fatalErrChan chan<- error, pool *WorkerPool,
+	apiKey, endpoint string,
 ) http.HandlerFunc {
-	apiKey := os.Getenv("GATEWAY_APIKEY")
-	endpoint := os.Getenv("GATEWAY_ENDPOINT")
-
 	if len(apiKey) == 0 || len(endpoint) == 0 {
 		go func() {
 			fatalErrChan <- errMisConfiguredCredential
