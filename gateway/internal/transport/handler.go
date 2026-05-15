@@ -1,4 +1,4 @@
-package proxy
+package transport
 
 import (
 	"bytes"
@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"gateway/internal/core"
 	pb "gateway/pb/proto"
 	"io"
 	"log"
@@ -46,7 +47,7 @@ type CheckCacheAPIRequest struct {
 //  5. Falls through to the Vector Engine for short prompts.
 func StrixService(
 	stub pb.SemanticServiceClient, l0Cache *fastcache.Cache,
-	fatalErrChan chan<- error, pool *WorkerPool,
+	fatalErrChan chan<- error, pool *core.WorkerPool,
 	apiKey, endpoint string,
 ) http.HandlerFunc {
 	if len(apiKey) == 0 || len(endpoint) == 0 {
@@ -154,12 +155,12 @@ func StrixService(
 				return
 			}
 
-			promise := pioneerRegister(nodeID)
+			promise := core.PioneerRegister(nodeID)
 
 			// Guarantee pioneerFulfill getting called exactly ONCE,
 			// hence avoiding leaked herd goroutines.
 			defer func() {
-				pioneerFulfill(nodeID, promise, llmPayload, llmErr)
+				core.PioneerFulfill(nodeID, promise, llmPayload, llmErr)
 			}()
 
 			llmPayload, llmErr = forwardToLLM(
@@ -175,7 +176,7 @@ func StrixService(
 			pool.TryEnqueue(nodeID, llmPayload)
 
 		case pb.CacheState_CACHE_STATE_PENDING:
-			payload, pioneerErr, selfCancelled, found := herdAwait(
+			payload, pioneerErr, selfCancelled, found := core.HerdAwait(
 				r.Context(), grpcRes.GetNodeId(),
 			)
 
