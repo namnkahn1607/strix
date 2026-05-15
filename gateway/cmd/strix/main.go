@@ -2,8 +2,8 @@ package main
 
 import (
 	"gateway/internal/cli"
+	"gateway/internal/config"
 	"gateway/internal/server"
-	system "gateway/internal/sys"
 	"log"
 	"os"
 )
@@ -12,7 +12,7 @@ func main() {
 	if os.Getenv("STRIX_WORKER") == "1" {
 		// Process B: HTTP Gateway
 		// forked by Supervisor in Process A.
-		cfg, configErr := system.Load()
+		cfg, configErr := config.Load()
 		if configErr != nil {
 			log.Fatalf("[Gateway] Configuration error: %v\n", configErr)
 		}
