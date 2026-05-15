@@ -19,7 +19,6 @@ import (
 )
 
 const (
-	maxFD                  = 65536
 	supervisorDrainTimeout = 6 * time.Second
 	gatewayShutdown        = 3 * time.Second
 	engineShutdown         = 5 * time.Second
@@ -64,10 +63,6 @@ func runServe(_ *cobra.Command, _ []string) error {
 
 	if ramErr := system.CheckRAM(); ramErr != nil {
 		return ramErr
-	}
-
-	if fdErr := openMoreFD(); fdErr != nil {
-		return fdErr
 	}
 
 	// 2. Calculate CPU affinity ratio for Process B and C.
@@ -261,28 +256,6 @@ func runServe(_ *cobra.Command, _ []string) error {
 	}
 
 	log.Println("All processes exited. Supervisor shutting down...")
-	return nil
-}
-
-func openMoreFD() error {
-	var rLimit syscall.Rlimit
-	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rLimit); err != nil {
-		return fmt.Errorf("cannot read ulimit: %w", err)
-	}
-
-	if rLimit.Cur < maxFD {
-		rLimit.Cur = maxFD
-		rLimit.Max = max(rLimit.Max, maxFD)
-		if err := syscall.Setrlimit(syscall.RLIMIT_NOFILE, &rLimit); err != nil {
-			log.Printf(
-				"[strix serve] OS refused to raise ulimit - may crash under high load: %v\n",
-				err,
-			)
-		} else {
-			log.Printf("[strix serve] FD limit raised to %d\n", maxFD)
-		}
-	}
-
 	return nil
 }
 

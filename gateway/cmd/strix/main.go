@@ -14,12 +14,12 @@ func main() {
 		// forked by Supervisor in Process A.
 		cfg, configErr := config.Load()
 		if configErr != nil {
-			log.Fatalf("[Gateway] Configuration error: %v\n", configErr)
+			log.Printf("[Gateway] Configuration error: %v\n", configErr)
 		}
 
 		gatewayErr := server.RunGateway(cfg)
 		if gatewayErr != nil {
-			log.Fatalf("[Gateway] Exited with error: %v\n", gatewayErr)
+			log.Printf("[Gateway] Exited with error: %v\n", gatewayErr)
 		}
 
 		return

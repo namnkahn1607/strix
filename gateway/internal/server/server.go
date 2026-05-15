@@ -107,16 +107,16 @@ func RunGateway(cfg config.GatewayConfig) error {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer shutdownCancel()
 
-	log.Println("[gateway] Stopping HTTP server...")
+	log.Println("[Gateway] Stopping HTTP server...")
 	if stopErr := sv.stop(shutdownCtx); stopErr != nil {
-		log.Printf("[gateway] HTTP server stop error: %v\n", stopErr)
+		log.Printf("[Gateway] HTTP server stop error: %v\n", stopErr)
 	}
 
 	defer func() {
 		if poolErr := pool.Stop(shutdownCtx); poolErr != nil {
-			log.Printf("[gateway] Worker Pool stop error: %v\n", poolErr)
+			log.Printf("[Gateway] Worker Pool stop error: %v\n", poolErr)
 		} else {
-			log.Println("[gateway] Worker Pool stopped.")
+			log.Println("[Gateway] Worker Pool stopped.")
 		}
 	}()
 
