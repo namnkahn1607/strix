@@ -4,6 +4,10 @@ import "sync"
 
 const lfuSampleSize = 5
 
+// Lock ordering (MUST follow to prevent deadlock):
+//   Shard.RWMutex → RateWindow.Mutex
+// Never acquire shard lock while holding RateWindow.mu
+
 type Shard struct {
 	sync.RWMutex
 	clients map[string]*RateWindow
