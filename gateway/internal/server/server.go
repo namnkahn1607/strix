@@ -7,6 +7,7 @@ import (
 	"gateway/internal/config"
 	"gateway/internal/core"
 	system "gateway/internal/sys"
+	"gateway/internal/transport"
 	pb "gateway/pb/proto"
 	"io"
 	"log"
@@ -75,8 +76,12 @@ func RunGateway(cfg config.GatewayConfig) error {
 
 	// 6. Build and start the HTTP server.
 	fatalErrChan := make(chan error, 1)
+
+	mdw := transport.NewMiddleware()
+	defer mdw.Stop()
+
 	pool := core.NewWorkerPool(clientStub, 2*cfg.NumWorkers)
-	sv := newServer(clientStub, l0Cache, fatalErrChan, pool, cfg.APIKey, cfg.Endpoint)
+	sv := newServer(clientStub, l0Cache, fatalErrChan, pool, mdw, cfg.APIKey, cfg.Endpoint)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
