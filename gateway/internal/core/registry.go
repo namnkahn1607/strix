@@ -3,6 +3,8 @@ package core
 import (
 	"context"
 	"sync"
+
+	"golang.org/x/sys/cpu"
 )
 
 const NumShards = 256
@@ -19,7 +21,7 @@ type promiseShard struct {
 	registry map[int32]*Promise
 	// Avoid False Sharing between Shards by padding,
 	// fitting each of them well in a CPU Cache line.
-	_ [32]byte
+	_ cpu.CacheLinePad
 }
 
 var shards [NumShards]promiseShard
