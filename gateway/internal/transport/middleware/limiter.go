@@ -117,6 +117,8 @@ func (rl *RateLimiter) sweepLoop() {
 }
 
 func (rl *RateLimiter) sweepAll() {
+	// 'now' is intentionally captured once; staleness across batches;
+	// is bounded by (numBatches * 5ms) which is negligible with TTL
 	now := monoMs()
 	for _, shard := range rl.shards {
 		rl.sweepShard(shard, now)
