@@ -42,15 +42,26 @@ func (m *Middleware) Wrap(next http.Handler) http.HandlerFunc {
 	}
 }
 
+func (m *Middleware) Stop() {
+	m.ipLimiter.Stop()
+}
+
+// extractIP returns the client IP for rate limiting.
+// X-Forwarded-For is trusted unconditionally - this is correct ONLY when
+// Strix runs behind a trusted reverse proxy (Nginx, Cloudflare, etc.)
+// that strips/overwrites XFF before forwarding.
+// If Strix is exposed directly to the Internet, XFF can be spoofed.
 func extractIP(r *http.Request) string {
+	// Prioritize request from another Proxy or Load Balancer
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		if idx := strings.IndexByte(xff, ','); idx > 0 {
-			return xff[:idx]
+			return strings.TrimSpace(xff[:idx])
 		}
 
-		return xff
+		return strings.TrimSpace(xff)
 	}
 
+	// Otherwise fallback to trivial client connection
 	ip, _, parseErr := net.SplitHostPort(r.RemoteAddr)
 	if parseErr != nil {
 		return r.RemoteAddr
