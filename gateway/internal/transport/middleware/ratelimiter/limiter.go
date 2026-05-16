@@ -38,8 +38,9 @@ func (rl *RateLimiter) Allow(key string) bool {
 	defer rw.mu.Unlock()
 
 	elapsed := now - rw.windowStart
-	if elapsed >= rl.windowMs {
-		if elapsed >= 2*rl.windowMs {
+	windowPassed := elapsed / rl.windowMs
+	if windowPassed > 0 {
+		if windowPassed >= 2 {
 			// Reset if IP remains silent more than 2 windows
 			rw.prevCount = 0
 		} else {
@@ -47,8 +48,8 @@ func (rl *RateLimiter) Allow(key string) bool {
 		}
 
 		rw.currCount = 0
-		rw.windowStart = now
-		elapsed = 0
+		rw.windowStart += windowPassed * rl.windowMs
+		elapsed = now - rw.windowStart
 	}
 
 	weight := float64(rl.windowMs-elapsed) / float64(rl.windowMs)
