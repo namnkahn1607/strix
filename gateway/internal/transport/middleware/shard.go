@@ -25,11 +25,9 @@ func (s *Shard) evictOneLFU() {
 	)
 
 	for key, rw := range s.clients {
-		rw.mu.Lock()
 		weight := rw.totalCount
-		rw.mu.Unlock()
-
 		samples[count] = candidate{key, weight}
+
 		count++
 		if count >= lfuSampleSize {
 			break
