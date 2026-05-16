@@ -117,39 +117,38 @@ func (rl *RateLimiter) sweepAll() {
 }
 
 func (rl *RateLimiter) sweepShard(shard *Shard, now int64) {
-	for {
-		expired := make([]string, 0, batchSize)
-		shard.RLock()
-		for key, rw := range shard.clients {
-			if len(expired) >= batchSize {
-				break
-			}
+	var expired []string
 
-			rw.mu.Lock()
-			idle := now - rw.windowStart
-			rw.mu.Unlock()
-			if idle > rl.ttlMs {
-				expired = append(expired, key)
-			}
+	// Phase 1: One-time Read Lock scan
+	shard.RLock()
+	for key, rw := range shard.clients {
+		rw.mu.Lock()
+		idle := now - rw.windowStart
+		rw.mu.Unlock()
+		if idle > rl.ttlMs {
+			expired = append(expired, key)
 		}
-		shard.RUnlock()
+	}
+	shard.RUnlock()
 
-		if len(expired) == 0 {
-			return
-		}
+	if len(expired) == 0 {
+		return
+	}
+
+	// Phase 2: Batch-eviction under Write Lock
+	// -> avoid contending new IP creation
+	for i := 0; i < len(expired); i += batchSize {
+		end := min(i+batchSize, len(expired))
 
 		shard.Lock()
-		for _, key := range expired {
-			rw, exists := shard.clients[key]
-			if !exists {
-				continue
-			}
-
-			rw.mu.Lock()
-			idle := now - rw.windowStart
-			rw.mu.Unlock()
-			if idle > rl.ttlMs {
-				delete(shard.clients, key)
+		for _, key := range expired[i:end] {
+			if rw, exists := shard.clients[key]; exists {
+				rw.mu.Lock()
+				idle := now - rw.windowStart
+				rw.mu.Unlock()
+				if idle > rl.ttlMs {
+					delete(shard.clients, key)
+				}
 			}
 		}
 		shard.Unlock()
