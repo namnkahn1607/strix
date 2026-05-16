@@ -26,10 +26,10 @@ type strixServer struct {
 func newServer(
 	stub pb.SemanticServiceClient, cache *fastcache.Cache,
 	fatalChan chan error, pool *core.WorkerPool,
+	mdw *transport.Middleware,
 	llmAPIKey, llmEndpoint string,
 ) *strixServer {
 	mux := http.NewServeMux()
-	mdw := transport.NewMiddleware()
 	mainHandler := transport.StrixService(stub, cache, fatalChan, pool, llmAPIKey, llmEndpoint)
 	mux.HandleFunc(gatewayEndpoint, mdw.Wrap(mainHandler))
 
