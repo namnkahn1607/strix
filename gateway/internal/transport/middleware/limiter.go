@@ -2,7 +2,10 @@ package middleware
 
 import "time"
 
-const batchSize = 1000
+const (
+	maxCapPerShard = 4096
+	batchSize      = 1000
+)
 
 type RateLimiter struct {
 	shards      [256]*Shard
@@ -39,6 +42,7 @@ func (rl *RateLimiter) Allow(key string) bool {
 
 	elapsed := now - rw.windowStart
 	windowPassed := elapsed / rl.windowMs
+
 	if windowPassed > 0 {
 		if windowPassed >= 2 {
 			// Reset if IP remains silent more than 2 windows
@@ -60,6 +64,7 @@ func (rl *RateLimiter) Allow(key string) bool {
 	}
 
 	rw.currCount++
+	rw.totalCount++
 	return true
 }
 
@@ -79,16 +84,18 @@ func (rl *RateLimiter) getOrCreate(key string) *RateWindow {
 	}
 
 	shard.Lock()
+	defer shard.Unlock()
 	rw, secExists := shard.clients[key]
-	if !secExists {
-		rw = &RateWindow{
-			windowStart: monoMs(),
-		}
-
-		shard.clients[key] = rw
+	if secExists {
+		return rw
 	}
-	shard.Unlock()
 
+	if len(shard.clients) >= maxCapPerShard {
+		shard.evictOneLFU()
+	}
+
+	rw = &RateWindow{windowStart: monoMs()}
+	shard.clients[key] = rw
 	return rw
 }
 
