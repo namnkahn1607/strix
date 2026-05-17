@@ -1,4 +1,4 @@
-package core
+package concurrent
 
 import (
 	"context"
@@ -57,8 +57,8 @@ func (wp *WorkerPool) Stop(ctx context.Context) error {
 		return nil
 	case <-ctx.Done():
 		log.Printf(
-			"[WorkerPool] Stop deadline exceeded (%v): abandoning remaining jobs in queue\n",
-			ctx.Err(),
+			"[WorkerPool] Stop deadline exceeded (%v): "+
+				"abandoning remaining jobs in queue\n", ctx.Err(),
 		)
 
 		return ctx.Err()
@@ -82,4 +82,6 @@ func (wp *WorkerPool) runWorker(stub pb.SemanticServiceClient) {
 			)
 		}
 	}
+
+	wp.wg.Done()
 }

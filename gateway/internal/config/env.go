@@ -62,7 +62,7 @@ func parseCoreList(s string) ([]int, error) {
 	for _, p := range parts {
 		core, convErr := strconv.Atoi(strings.TrimSpace(p))
 		if convErr != nil {
-			return nil, fmt.Errorf("cannot parse core index %q", core)
+			return nil, fmt.Errorf("cannot parse core index %q: %w", p, convErr)
 		}
 
 		if core < 0 {

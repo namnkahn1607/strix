@@ -1,0 +1,52 @@
+package supervisor
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+)
+
+// strix/
+// ├── bin/
+// │   ├── strix          <- os.Executable() — Process A and B share this binary
+// │   └── strix_engine   <- Process C
+// ├── gateway/
+// └── engine/
+//     └── model/
+//         └── strix-minilm-with-tokenizer.onnx
+
+const (
+	engineBinName = "strix_engine"
+	modelFileName = "strix-minilm-with-tokenizer.onnx"
+)
+
+type ProjectPath struct {
+	MainBin   string // strix/bin/strix         - reused to fork Process B
+	EngineBin string // strix/bin/strix_engine  - forked as Process C
+	ModelPath string // strix/engine/model/strix-minilm-with-tokenizer.onnx
+}
+
+func ResolvePaths() (ProjectPath, error) {
+	execPath, pathErr := os.Executable()
+	if pathErr != nil {
+		return ProjectPath{}, fmt.Errorf(
+			"cannot resolve executable path: %w", pathErr,
+		)
+	}
+
+	execPath, symErr := filepath.EvalSymlinks(execPath)
+	if symErr != nil {
+		return ProjectPath{}, fmt.Errorf(
+			"cannot evaluate symlink on executable path: %w", symErr,
+		)
+	}
+
+	// Move one level up from bin/ to strix/
+	projectRoot := filepath.Join(filepath.Dir(execPath), "..")
+
+	return ProjectPath{
+		MainBin:   execPath,
+		EngineBin: filepath.Join(projectRoot, "bin", engineBinName),
+		ModelPath: filepath.Join(projectRoot, "engine", "model", modelFileName),
+	}, nil
+}

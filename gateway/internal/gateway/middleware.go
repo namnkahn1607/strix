@@ -1,49 +1,37 @@
-package transport
+package gateway
 
 import (
-	"gateway/internal/transport/middleware"
+	"gateway/internal/limit"
 	"net"
 	"net/http"
 	"strings"
 )
 
-const (
-	defaultWindowSize = 1000
-	defaultLimit      = 200
-	defaultTTLMs      = 5 * 60 * 1000
-)
-
-var (
-	errTooManyIPReqs = []byte("429 Too Many Requests (IP Limit)\n")
-)
+var errTooManyIPReqs = []byte("429 Too Many Requests (IP Limit)\n")
 
 type Middleware struct {
-	ipLimiter *middleware.RateLimiter
+	ipLimiter *limit.RateLimiter
 }
 
-func NewMiddleware() *Middleware {
-	return &Middleware{
-		ipLimiter: middleware.NewLimiter(
-			defaultWindowSize, defaultLimit, defaultTTLMs,
-		),
-	}
+func NewMiddleware(ipLimiter *limit.RateLimiter) *Middleware {
+	return &Middleware{ipLimiter: ipLimiter}
 }
 
-func (m *Middleware) Wrap(next http.Handler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+func (mdw *Middleware) Wrap(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		clientIP := extractIP(r)
-		if !m.ipLimiter.Allow(clientIP) {
+		if !mdw.ipLimiter.Allow(clientIP) {
 			w.WriteHeader(http.StatusTooManyRequests)
 			_, _ = w.Write(errTooManyIPReqs)
 			return
 		}
 
 		next.ServeHTTP(w, r)
-	}
+	})
 }
 
-func (m *Middleware) Stop() {
-	m.ipLimiter.Stop()
+func (mdw *Middleware) Stop() {
+	mdw.ipLimiter.Stop()
 }
 
 // extractIP returns the client IP for rate limiting.
