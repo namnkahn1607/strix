@@ -1,4 +1,4 @@
-package core
+package gateway
 
 import (
 	"context"
@@ -16,7 +16,8 @@ func TestThunderingHerd_SingleLLMCall(t *testing.T) {
 		llmLatency  = 30 * time.Millisecond
 	)
 
-	promise := PioneerRegister(nodeID)
+	herdCtrl := NewHerdController()
+	promise := herdCtrl.Register(nodeID)
 
 	var (
 		llmCallCount atomic.Int32
@@ -28,14 +29,14 @@ func TestThunderingHerd_SingleLLMCall(t *testing.T) {
 	)
 
 	for i := 1; i < numRequests; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			payload, err, _, found := HerdAwait(context.Background(), nodeID)
+		wg.Go(func() {
+			payload, err, _, found := herdCtrl.Await(context.Background(), nodeID)
 
 			if !found {
-				t.Errorf("herd goroutine: promise not found — registry invariant violated")
-				return
+				t.Errorf(
+					"herd goroutine: promise not found - " +
+						"registry invariant violated",
+				)
 			}
 
 			if err != nil {
@@ -46,12 +47,12 @@ func TestThunderingHerd_SingleLLMCall(t *testing.T) {
 			mu.Lock()
 			gotPayload = append(gotPayload, string(payload))
 			mu.Unlock()
-		}()
+		})
 	}
 
 	llmCallCount.Add(1)
 	time.Sleep(llmLatency)
-	PioneerFulfill(nodeID, promise, []byte(wantPayload), nil)
+	herdCtrl.Fulfill(nodeID, promise, []byte(wantPayload), nil)
 
 	mu.Lock()
 	gotPayload = append(gotPayload, wantPayload)
@@ -67,11 +68,17 @@ func TestThunderingHerd_SingleLLMCall(t *testing.T) {
 	case <-done:
 
 	case <-time.After(5 * time.Second):
-		t.Fatal("test timed out — goroutines leaked or deadlocked in herdAwait")
+		t.Fatal(
+			"test timed out - goroutines leaked or deadlocked in herdAwait",
+		)
 	}
 
-	if got := llmCallCount.Load(); got != 1 {
-		t.Errorf("LLM call count = %d, want 1: thundering herd not prevented", got)
+	got := llmCallCount.Load()
+	if got != 1 {
+		t.Errorf(
+			"LLM call count = %d, want 1: thundering herd not prevented",
+			got,
+		)
 	}
 
 	mu.Lock()
@@ -92,14 +99,15 @@ func TestThunderingHerd_SingleLLMCall(t *testing.T) {
 func TestHerdAwait_FinishedPioneer(t *testing.T) {
 	const nodeID = int32(99)
 
-	promise := PioneerRegister(nodeID)
-	PioneerFulfill(nodeID, promise, []byte("data"), nil)
+	herdCtrl := NewHerdController()
+	promise := herdCtrl.Register(nodeID)
+	herdCtrl.Fulfill(nodeID, promise, []byte("data"), nil)
 
-	payload, err, _, found := HerdAwait(context.Background(), nodeID)
+	payload, err, _, found := herdCtrl.Await(context.Background(), nodeID)
 	if found {
 		t.Errorf(
-			"expected found=false (Promise already removed), got true - payload=%q err=%v",
-			payload, err,
+			"expected found=false (Promise already removed), "+
+				"got true - payload=%q err=%v", payload, err,
 		)
 	}
 }
@@ -107,13 +115,14 @@ func TestHerdAwait_FinishedPioneer(t *testing.T) {
 func TestHerdAwait_ContextCancellation(t *testing.T) {
 	const nodeID = int32(55)
 
-	promise := PioneerRegister(nodeID)
-	defer PioneerFulfill(nodeID, promise, nil, nil)
+	herdCtrl := NewHerdController()
+	promise := herdCtrl.Register(nodeID)
+	defer herdCtrl.Fulfill(nodeID, promise, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err, _, found := HerdAwait(ctx, nodeID)
+	_, err, _, found := herdCtrl.Await(ctx, nodeID)
 
 	if !found {
 		t.Error("expected found=true (Promise exists in registry), got false")
@@ -127,39 +136,44 @@ func TestHerdAwait_ContextCancellation(t *testing.T) {
 	}
 }
 
-func TestLockStriping_SameShardDifferentKeys(t *testing.T) {
+func TestLockStripping_SameShardDifferentKeys(t *testing.T) {
 	const (
 		nodeA = int32(10)
-		nodeB = int32(10 + NumShards)
+		nodeB = int32(10 + numShards)
 	)
 
-	pA := PioneerRegister(nodeA)
-	pB := PioneerRegister(nodeB)
+	herdCtrl := NewHerdController()
+	pA := herdCtrl.Register(nodeA)
+	pB := herdCtrl.Register(nodeB)
 
 	var wg sync.WaitGroup
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		payload, err, _, found := HerdAwait(context.Background(), nodeA)
+		payload, err, _, found := herdCtrl.Await(context.Background(), nodeA)
 		if !found || err != nil || string(payload) != "payload-A" {
-			t.Errorf("nodeA: got payload=%q found=%v err=%v", payload, found, err)
+			t.Errorf(
+				"nodeA: got payload=%q found=%v err=%v", payload, found, err,
+			)
 		}
 	}()
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		payload, err, _, found := HerdAwait(context.Background(), nodeB)
+		payload, err, _, found := herdCtrl.Await(context.Background(), nodeB)
 		if !found || err != nil || string(payload) != "payload-B" {
-			t.Errorf("nodeB: got payload=%q found=%v err=%v", payload, found, err)
+			t.Errorf(
+				"nodeB: got payload=%q found=%v err=%v", payload, found, err,
+			)
 		}
 	}()
 
 	time.Sleep(10 * time.Millisecond)
 
-	PioneerFulfill(nodeA, pA, []byte("payload-A"), nil)
-	PioneerFulfill(nodeB, pB, []byte("payload-B"), nil)
+	herdCtrl.Fulfill(nodeA, pA, []byte("payload-A"), nil)
+	herdCtrl.Fulfill(nodeB, pB, []byte("payload-B"), nil)
 
 	wg.Wait()
 }
