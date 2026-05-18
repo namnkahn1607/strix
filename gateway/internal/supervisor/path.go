@@ -42,7 +42,7 @@ func ResolvePaths() (ProjectPath, error) {
 	}
 
 	// Move one level up from bin/ to strix/
-	projectRoot := filepath.Join(filepath.Dir(execPath), "..")
+	projectRoot := filepath.Clean(filepath.Join(filepath.Dir(execPath), ".."))
 
 	return ProjectPath{
 		MainBin:   execPath,
