@@ -62,11 +62,6 @@ func runInit(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("cannot create %s: %w", env, createErr)
 	}
 
-	// 3. Enforce 0600 regardless manual chmod
-	if chmodErr := os.Chmod(env, envPermission); chmodErr != nil {
-		return fmt.Errorf("SECURITY: Cannot set 0600 on %s due to: %w", env, chmodErr)
-	}
-
 	fmt.Println(
 		"[strix init] Environment ready. Run 'strix config set' to add your credentials.",
 	)

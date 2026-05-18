@@ -22,7 +22,7 @@ type GatewayConfig struct {
 func Load() (GatewayConfig, error) {
 	coreStr := os.Getenv("GATEWAY_CORES")
 	if len(coreStr) == 0 {
-		return GatewayConfig{}, fmt.Errorf("GATEWAY_CORES not set")
+		panic("[Gateway] FATAL: no core allocating for HTTP Gateway")
 	}
 
 	cores, parseErr := parseCoreList(coreStr)
@@ -34,6 +34,10 @@ func Load() (GatewayConfig, error) {
 
 	apiKey := os.Getenv(apiKeyVar)
 	endpoint := os.Getenv(endpointVar)
+
+	if len(apiKey) == 0 || len(endpoint) == 0 {
+		panic("[Gateway] FATAL: misconfigured API Key or Endpoint")
+	}
 
 	defer func() {
 		_ = os.Unsetenv(apiKeyVar)
