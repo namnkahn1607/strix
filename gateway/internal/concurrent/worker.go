@@ -40,6 +40,7 @@ func (wp *WorkerPool) TryEnqueue(nodeID int32, payload []byte) {
 	select {
 	case wp.queue <- Job{NodeID: nodeID, Payload: payload}:
 	default:
+		// Silent drop in case cannot schedule more job
 	}
 }
 
@@ -66,6 +67,7 @@ func (wp *WorkerPool) Stop(ctx context.Context) error {
 }
 
 func (wp *WorkerPool) runWorker(stub pb.SemanticServiceClient) {
+	defer wp.wg.Done()
 	for job := range wp.queue {
 		ctx, cancel := context.WithTimeout(context.Background(), jobTimeout)
 
@@ -82,6 +84,4 @@ func (wp *WorkerPool) runWorker(stub pb.SemanticServiceClient) {
 			)
 		}
 	}
-
-	wp.wg.Done()
 }
