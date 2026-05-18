@@ -20,7 +20,7 @@ var configCmd = &cobra.Command{
 var configSetCmd = &cobra.Command{
 	Use:   "set",
 	Short: "Set credentials in ~/.strix/.env",
-	Long: `Writes (or overwrites) the Endpoint and API Key values into
+	Long: `Writes (or overwrites) the environment variables values into
 	~/.strix/.env. The file must exist (run 'strix init' first) and
 	must have permission 0600.`,
 	RunE: runConfigSet,
@@ -40,9 +40,9 @@ func runConfigSet(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("cannot check server status: %w", checkErr)
 	} else if running {
 		return fmt.Errorf(
-			"[strix config] ERROR: Cannot mutate config while Strix is running (PID: %d). "+
-				"Please stop the server first with 'strix stop'",
-			pid,
+			"[strix config] ERROR: Cannot mutate config while Strix is "+
+				"running (PID: %d). "+
+				"Please stop the server first with 'strix stop'", pid,
 		)
 	}
 
@@ -87,7 +87,7 @@ func runConfigSet(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("cannot write to %s: %w", envPath, writeErr)
 	}
 
-	if chmodErr := os.Chmod(envPath, envPermission); chmodErr != nil {
+	if chmodErr := os.Chmod(envPath, ownPermission); chmodErr != nil {
 		return fmt.Errorf("SECURITY: Cannot enforce 0600 after write: %w", chmodErr)
 	}
 

@@ -12,8 +12,7 @@ import (
 const (
 	strixDir      = ".strix"
 	envFileName   = ".env"
-	pidFileName   = "strix.pid"
-	envPermission = 0600 // rw
+	ownPermission = 0600 // rw
 	mkPermission  = 0700 // rwx
 )
 
@@ -46,7 +45,9 @@ func runInit(_ *cobra.Command, _ []string) error {
 	}
 
 	// 2. Create the environment file ~/.strix/.env.
-	file, createErr := os.OpenFile(env, os.O_CREATE|os.O_EXCL|os.O_WRONLY, envPermission)
+	file, createErr := os.OpenFile(
+		env, os.O_CREATE|os.O_EXCL|os.O_WRONLY, ownPermission,
+	)
 	switch {
 	case createErr == nil && file != nil:
 		fmt.Printf("[strix init] Created %s\n", env)
@@ -63,7 +64,8 @@ func runInit(_ *cobra.Command, _ []string) error {
 	}
 
 	fmt.Println(
-		"[strix init] Environment ready. Run 'strix config set' to add your credentials.",
+		"[strix init] Environment ready. Run 'strix config set' " +
+			"to add your credentials.",
 	)
 	return nil
 }
