@@ -10,6 +10,11 @@ import (
 	"syscall"
 )
 
+const (
+	pidFileName  = "strix.pid"
+	lockFileName = "strix.lock"
+)
+
 // AssertEnvPermissions returns an error if ~/.strix/.env has permissions
 // wider than 0600. Called by 'strix serve' as a boot-time security check.
 func AssertEnvPermissions() error {
@@ -31,17 +36,6 @@ func AssertEnvPermissions() error {
 	}
 
 	return nil
-}
-
-// EnvFilePath returns the canonical path to ~/.strix/.env.
-// Used by other commands to locate the configuration file.
-func EnvFilePath() (string, error) {
-	home, dirErr := os.UserHomeDir()
-	if dirErr != nil {
-		return "", fmt.Errorf("cannot determine home directory: %w", dirErr)
-	}
-
-	return filepath.Join(home, strixDir, envFileName), nil
 }
 
 // IsInstanceRunning reads ~/.strix/strix.pid and checks whether the
@@ -73,6 +67,28 @@ func IsInstanceRunning() (int, bool, error) {
 	}
 
 	return pid, true, nil
+}
+
+// EnvFilePath returns the canonical path to ~/.strix/.env.
+// Used by other commands to locate the configuration file.
+func EnvFilePath() (string, error) {
+	home, dirErr := os.UserHomeDir()
+	if dirErr != nil {
+		return "", fmt.Errorf("cannot determine home directory: %w", dirErr)
+	}
+
+	return filepath.Join(home, strixDir, envFileName), nil
+}
+
+// LockFilePath returns the canonical path to ~/.strix/strix.lock.
+// Called by 'strix serve' to prevent another (accident) fork procedure.
+func LockFilePath() (string, error) {
+	home, dirErr := os.UserHomeDir()
+	if dirErr != nil {
+		return "", fmt.Errorf("cannot determine home directory: %w", dirErr)
+	}
+
+	return filepath.Join(home, strixDir, lockFileName), nil
 }
 
 // PIDFilePath returns the canonical path to ~/.strix/strix.pid.
