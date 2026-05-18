@@ -46,8 +46,6 @@ func (c *Controller) Run() error {
 		return fmt.Errorf("cannot create Engine Death Pipe: %w", pipeErr)
 	}
 
-	defer closePipeEnd(readB, writeB, readC, writeC)
-
 	// 2. Fork process C - running Vector Engine.
 	engineProc, engineErr := forkEngine(
 		c.paths.EngineBin, c.paths.ModelPath, c.mask.EngineCores,
@@ -58,7 +56,7 @@ func (c *Controller) Run() error {
 		return engineErr
 	}
 
-	_ = readC.Close()
+	closePipeEnd(readC)
 	log.Printf("[Supervisor] Vector Engine started (PID %d)\n",
 		engineProc.Process.Pid,
 	)
@@ -74,13 +72,18 @@ func (c *Controller) Run() error {
 		return gatewayErr
 	}
 
-	_ = readB.Close()
+	closePipeEnd(readB)
 	log.Printf("[Supervisor] HTTP Gateway started (PID %d)\n",
 		gatewayProc.Process.Pid,
 	)
 
 	// 4. Wait for any shutdown of child processes.
 	deadChan := make(chan *exec.Cmd, 2)
+	defer func() {
+		for len(deadChan) > 0 {
+			<-deadChan
+		}
+	}()
 
 	go func() {
 		waitErr := engineProc.Wait()
@@ -119,20 +122,19 @@ func (c *Controller) Run() error {
 
 		closePipeEnd(writeB, writeC)
 
-		for i := range 2 {
+		deathConfirmed := 0
+		for range 2 {
 			select {
 			case <-deadChan:
-				// One confirmed death, continue to next
+				deathConfirmed++
 
 			case <-time.After(drainTimeout):
-				log.Println(
-					"[Supervisor] Drain timeout exceeded. Force killing...",
-				)
-
+				log.Println("[Supervisor] Drain timeout. Force killing...")
 				_ = engineProc.Process.Signal(syscall.SIGKILL)
 				_ = gatewayProc.Process.Signal(syscall.SIGKILL)
 
-				for ; i < 2; i++ {
+				remaining := 2 - deathConfirmed
+				for range remaining {
 					<-deadChan
 				}
 
@@ -154,6 +156,7 @@ func (c *Controller) Run() error {
 			select {
 			case <-deadChan:
 				log.Println("[Supervisor] HTTP Gateway finally exited")
+
 			case <-time.After(gatewayTimeout):
 				log.Println(
 					"[Supervisor] HTTP Gateway is taking longer to exit. " +
@@ -175,6 +178,7 @@ func (c *Controller) Run() error {
 			select {
 			case <-deadChan:
 				log.Println("[Supervisor] Vector Engine finally exited")
+
 			case <-time.After(engineTimeout):
 				log.Println(
 					"[Supervisor] Vector Engine is taking longer to exit. " +
@@ -194,7 +198,7 @@ func forkEngine(
 	binPath, modelPath, coreMask string,
 	reader *os.File, configEnv map[string]string,
 ) (*exec.Cmd, error) {
-	cmd := exec.Command("taskset", "-c", binPath)
+	cmd := exec.Command("taskset", "-c", coreMask, binPath)
 	cmd.ExtraFiles = []*os.File{reader}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -220,7 +224,7 @@ func forkGateway(
 	binPath string, coreMask string,
 	reader *os.File, configEnv map[string]string,
 ) (*exec.Cmd, error) {
-	cmd := exec.Command("taskset", "-c", binPath)
+	cmd := exec.Command("taskset", "-c", coreMask, binPath)
 	cmd.ExtraFiles = []*os.File{reader}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -241,7 +245,7 @@ func buildEngineEnv(
 ) []string {
 	env := []string{
 		"INFERENCE_MODEL_PATH=" + modelPath,
-		"ENGINE_CORES" + coreMask,
+		"ENGINE_CORES=" + coreMask,
 	}
 
 	for key, value := range configEnv {
@@ -255,7 +259,7 @@ func buildEngineEnv(
 
 func buildGatewayEnv(coreMask string, configEnv map[string]string) []string {
 	env := []string{
-		"STRIX_WORKER=1",
+		"STRIX_GATEWAY=1",
 		"GATEWAY_CORES=" + coreMask,
 	}
 
