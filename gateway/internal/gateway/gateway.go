@@ -76,7 +76,7 @@ func Execute() {
 	gatewayErr := CreateGateway(Dependencies{
 		Stub:      stub,
 		L0Cache:   l0Cache,
-		Pool:      concurrent.NewWorkerPool(stub, 2*cfg.NumWorkers),
+		Pool:      concurrent.NewWorkerPool(stub, cfg.NumWorkers),
 		HerdCtrl:  NewHerdController(),
 		IPLimiter: limit.NewLimiter(defWindowSize, defRateLimit, defTTLMs),
 		DeadChan:  deadChan,
