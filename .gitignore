@@ -1,15 +1,17 @@
-/gateway/.idea
-/gateway/build
+/.venv
+/bin
+/data
 
 /engine/.cache
 /engine/.idea
 /engine/build
 /engine/build-release
 
-/.venv
-/bin
+/gateway/.idea
+/gateway/build
 
-buf.yaml
+scripts/bake_tokenizer.py
+scripts/base_model_test.py
+
 buf.gen.yaml
-requirements.txt
-scripts/*.py
+buf.yaml
