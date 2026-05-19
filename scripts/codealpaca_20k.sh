@@ -8,6 +8,7 @@ DATA_DIR="$PROJECT_ROOT/data"
 MODEL_DIR="$PROJECT_ROOT/model"
 PREPROCESS_SCRIPT="$SCRIPT_DIR/pp_codealpaca.py"
 FETCH_TOKENIZER_SCRIPT="$SCRIPT_DIR/fetch_tokenizer.sh"
+VERIFIER_SCRIPT="$SCRIPT_DIR/verification.py"
 TOKENIZER_PATH="$MODEL_DIR/tokenizer.json"
 
 # Dataset configurations
@@ -48,18 +49,18 @@ mkdir -p "$DATA_DIR"
 
 # Step 1: Ensure 'tokenizer.json' is present
 if [[ ! -f "$TOKENIZER_PATH" ]]; then
-    echo "[1/4] tokenizer.json not found — fetching..."
+    echo "[1/5] tokenizer.json not found — fetching..."
     bash "$FETCH_TOKENIZER_SCRIPT"
 else
-    echo "[1/4] tokenizer.json already present, skipping download."
+    echo "[1/5] tokenizer.json already present, skipping download."
 fi
 
 # Step 2: Download dataset
-echo "[2/4] Downloading $FILE_NAME..."
+echo "[2/5] Downloading $FILE_NAME..."
 curl -fSL --progress-bar -o "$RAW_PATH" "$DOWNLOAD_URL"
 
 # Step 3: Validating integrity
-echo "[3/4] Verifying JSON integrity..."
+echo "[3/5] Verifying JSON integrity..."
 if python3 -c "import json; json.load(open('$RAW_PATH'))" 2>/dev/null; then
     echo "  Integrity OK."
 else
@@ -69,10 +70,17 @@ else
 fi
 
 # Step 4: Dataset preprocessing
-echo "[4/4] Preprocessing dataset..."
+echo "[4/5] Preprocessing dataset..."
 python3 "$PREPROCESS_SCRIPT" "$RAW_PATH" "$PROCESSED_PATH" "$TOKENIZER_PATH"
 
-rm -rf "$RAW_PATH"
+# Step 5: Verify output
+echo "[5/5] Verifying output dataset..."
+if python3 "$VERIFIER_SCRIPT" "$PROCESSED_PATH"; then
+    rm -f "$RAW_PATH"
+else
+    echo "  Raw file preserved for debugging: $RAW_PATH" >&2
+    exit 1
+fi
 
 echo ""
 echo "Done. Output file has been written to $PROCESSED_PATH"
