@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Reformat databricks-dolly-15k.jsonl
+Preprocess (reformat) databricks-dolly-15k.jsonl
  
-Input schema:  { instruction, context, response, ... }
+Input schema:  { instruction, context, response, category }
 Output schema: { prompt, payload }
  
 Prompt construction & filtering logic:
-  1. Try prompt = instruction + ". " + context (stripped)
+  1. Try prompt = instruction + " " + context (stripped)
   2. If len(tokens) <= 256 -> emit
   3. Else try prompt = instruction only
   4. If len(tokens) <= 256 -> emit (payload = response, context dropped)
@@ -15,7 +15,7 @@ Prompt construction & filtering logic:
 Tokenizer: loaded from a local tokenizer.json (sentence-transformers/all-MiniLM-L6-v2).
  
 Usage:
-    python3 preprocess_dolly.py <input.jsonl> <output.jsonl>
+    python3 pp_dolly.py <input.jsonl> <output.jsonl> <tokenizer.json>
 """
 
 import sys
@@ -52,7 +52,7 @@ def build_prompt(instruction: str, context: str) -> str:
     context = context.strip()
 
     if context:
-        return f"{instruction}. {context}"
+        return f"{instruction} {context}"
     
     return instruction
 
