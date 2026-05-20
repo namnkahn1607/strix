@@ -11,19 +11,25 @@ import (
 // │   ├── strix          <- os.Executable() — Process A and B share this binary
 // │   └── strix_engine   <- Process C
 // ├── gateway/
-// └── engine/
-//     └── model/
-//         └── strix-minilm-with-tokenizer.onnx
+// ├── engine/
+// └── model/
+//     ├── tokenizer.onnx     <- Tokenizer
+//     ├── transformer.onnx   <- BERT model
+//     └── tokenizer.json     <- Dictionary
 
 const (
 	engineBinName = "strix_engine"
-	modelFileName = "strix-minilm-with-tokenizer.onnx"
+	tokFileName   = "tokenizer.onnx"
+	bertFileName  = "transformer.onnx"
+	dictFileName  = "tokenizer.json"
 )
 
 type ProjectPath struct {
 	MainBin   string // strix/bin/strix         - reused to fork Process B
 	EngineBin string // strix/bin/strix_engine  - forked as Process C
-	ModelPath string // strix/engine/model/strix-minilm-with-tokenizer.onnx
+	TokPath   string // strix/model/tokenizer.onnx
+	BertPath  string // strix/model/transfomer.onnx
+	DictPath  string // strix/model/tokenizer.json
 }
 
 func ResolvePaths() (ProjectPath, error) {
@@ -43,10 +49,13 @@ func ResolvePaths() (ProjectPath, error) {
 
 	// Move one level up from bin/ to strix/
 	projectRoot := filepath.Clean(filepath.Join(filepath.Dir(execPath), ".."))
+	modelFolder := filepath.Join(projectRoot, "model")
 
 	return ProjectPath{
 		MainBin:   execPath,
 		EngineBin: filepath.Join(projectRoot, "bin", engineBinName),
-		ModelPath: filepath.Join(projectRoot, "engine", "model", modelFileName),
+		TokPath:   filepath.Join(modelFolder, tokFileName),
+		BertPath:  filepath.Join(modelFolder, bertFileName),
+		DictPath:  filepath.Join(modelFolder, dictFileName),
 	}, nil
 }

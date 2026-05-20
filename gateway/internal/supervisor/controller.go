@@ -48,8 +48,7 @@ func (c *Controller) Run() error {
 
 	// 2. Fork process C - running Vector Engine.
 	engineProc, engineErr := forkEngine(
-		c.paths.EngineBin, c.paths.ModelPath, c.mask.EngineCores,
-		readC, c.configEnv,
+		c.paths, c.mask.EngineCores, readC, c.configEnv,
 	)
 	if engineErr != nil {
 		closePipeEnd(readB, writeB, readC, writeC)
@@ -63,8 +62,7 @@ func (c *Controller) Run() error {
 
 	// 3. Fork process B - running HTTP Gateway.
 	gatewayProc, gatewayErr := forkGateway(
-		c.paths.MainBin, c.mask.GatewayCores,
-		readB, c.configEnv,
+		c.paths, c.mask.GatewayCores, readB, c.configEnv,
 	)
 	if gatewayErr != nil {
 		closePipeEnd(readB, writeB, readC, writeC)
@@ -194,37 +192,37 @@ func (c *Controller) Run() error {
 	return nil
 }
 
-func forkEngine(
-	binPath, modelPath, coreMask string,
-	reader *os.File, configEnv map[string]string,
-) (*exec.Cmd, error) {
-	cmd := exec.Command("taskset", "-c", coreMask, binPath)
-	cmd.ExtraFiles = []*os.File{reader}
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Env = buildEngineEnv(modelPath, coreMask, configEnv)
-
-	startErr := cmd.Start()
-	if startErr != nil {
-		return nil, fmt.Errorf(
-			"cannot start Vector Engine at %q: %w", binPath, startErr,
-		)
-	}
-
-	return cmd, nil
-}
-
 func closePipeEnd(pipeEnds ...*os.File) {
 	for _, end := range pipeEnds {
 		_ = end.Close()
 	}
 }
 
-func forkGateway(
-	binPath string, coreMask string,
+func forkEngine(
+	paths ProjectPath, coreMask string,
 	reader *os.File, configEnv map[string]string,
 ) (*exec.Cmd, error) {
-	cmd := exec.Command("taskset", "-c", coreMask, binPath)
+	cmd := exec.Command("taskset", "-c", coreMask, paths.EngineBin)
+	cmd.ExtraFiles = []*os.File{reader}
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Env = buildEngineEnv(paths, coreMask, configEnv)
+
+	startErr := cmd.Start()
+	if startErr != nil {
+		return nil, fmt.Errorf(
+			"cannot start Vector Engine at %q: %w", paths.EngineBin, startErr,
+		)
+	}
+
+	return cmd, nil
+}
+
+func forkGateway(
+	paths ProjectPath, coreMask string,
+	reader *os.File, configEnv map[string]string,
+) (*exec.Cmd, error) {
+	cmd := exec.Command("taskset", "-c", coreMask, paths.MainBin)
 	cmd.ExtraFiles = []*os.File{reader}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -233,7 +231,7 @@ func forkGateway(
 	startErr := cmd.Start()
 	if startErr != nil {
 		return nil, fmt.Errorf(
-			"cannot start HTTP Gateway at %q: %w", binPath, startErr,
+			"cannot start HTTP Gateway at %q: %w", paths.MainBin, startErr,
 		)
 	}
 
@@ -241,10 +239,12 @@ func forkGateway(
 }
 
 func buildEngineEnv(
-	modelPath, coreMask string, configEnv map[string]string,
+	paths ProjectPath, coreMask string, configEnv map[string]string,
 ) []string {
 	env := []string{
-		"INFERENCE_MODEL_PATH=" + modelPath,
+		"TOKENIZER_PATH=" + paths.TokPath,
+		"INFERENCE_MODEL_PATH=" + paths.BertPath,
+		"DICTIONARY_PATH=" + paths.DictPath,
 		"ENGINE_CORES=" + coreMask,
 	}
 
