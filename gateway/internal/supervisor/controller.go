@@ -243,8 +243,7 @@ func buildEngineEnv(
 ) []string {
 	env := []string{
 		"TOKENIZER_PATH=" + paths.TokPath,
-		"INFERENCE_MODEL_PATH=" + paths.BertPath,
-		"DICTIONARY_PATH=" + paths.DictPath,
+		"TRANSFORMER_PATH=" + paths.BertPath,
 		"ENGINE_CORES=" + coreMask,
 	}
 
