@@ -160,9 +160,14 @@ grpc::Status CacheServiceImpl::CheckCache(
         response->set_node_id(-1);
         return grpc::Status::OK;
 
+    } catch ([[maybe_unused]] const TokenLimitException& e) {
+        response->set_check_state(proto::CACHE_STATE_EXCEEDED);
+        return grpc::Status::OK;
+
     } catch (const std::exception& e) {
         return {grpc::StatusCode::INTERNAL,
                 std::string("Encounter error: ") + e.what()};
+
     } catch (...) {
         return {grpc::StatusCode::INTERNAL, "Unknown Fatal error"};
     }

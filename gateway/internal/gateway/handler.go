@@ -16,7 +16,7 @@ const (
 	serviceTimeout = 50 * time.Millisecond
 
 	maxReaderSize    = 1024 * 1024 // 1MB
-	maxPromptLen     = 512         // 512B
+	maxPromptLen     = 1536        // 1536B
 	maxL0PayloadSize = 64 * 1024   // 64KB
 )
 
@@ -70,7 +70,7 @@ func (g *Gateway) Handle(w http.ResponseWriter, r *http.Request) {
 		return payload, nil
 	}
 
-	// 4. Prompts longer than 512 bytes are forward to LLM Provider.
+	// 4. Prompts longer than 1536 bytes are forward to LLM Provider.
 	if len(apiReq.Prompt) > maxPromptLen {
 		_, _ = fallbackToLLM()
 		return
