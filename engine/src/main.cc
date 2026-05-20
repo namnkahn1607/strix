@@ -44,7 +44,7 @@ void RunServer(const Embedder& embedder, MemoryArena& arena) {
     unlink(socket_directory);
 
     // Service is only allowed to reference for reading and writing data.
-    SemanticServiceImpl service(embedder, arena);
+    CacheServiceImpl service(embedder, arena);
 
     grpc::ServerBuilder builder;
     builder.AddListeningPort(
@@ -118,13 +118,14 @@ int main() {
         g_shutdown_requested.store(true, std::memory_order_release);
     });
 
-    const char* model_path{std::getenv("INFERENCE_MODEL_PATH")};
-    if (model_path == nullptr) {
+    const char* tok_path{std::getenv("TOKENIZER_PATH")};
+    const char* bert_path{std::getenv("TRANSFORMER_PATH")};
+    if (tok_path == nullptr || bert_path == nullptr) {
         throw std::runtime_error(
-            "Environment variable INFERENCE_MODEL_PATH is not set");
+            "Env-var TOKENIZER_PATH or TRANSFORMER_PATH is not set");
     }
 
-    const Embedder embedder(model_path);
+    const Embedder embedder(tok_path, bert_path);
 
     // Main Thread is responsible for construct & deconstruct Memory Arena.
     const auto memory_arena = std::make_unique<MemoryArena>();
