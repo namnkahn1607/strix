@@ -12,7 +12,7 @@ const (
 	SocketAddress = "unix:///tmp/strix.sock"
 )
 
-func CreateRPCStub() (pb.SemanticServiceClient, *grpc.ClientConn, error) {
+func CreateRPCStub() (pb.CacheServiceClient, *grpc.ClientConn, error) {
 	conn, connErr := grpc.NewClient(
 		SocketAddress, grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
@@ -21,6 +21,6 @@ func CreateRPCStub() (pb.SemanticServiceClient, *grpc.ClientConn, error) {
 		return nil, nil, fmt.Errorf("gRPC connection error: %w", connErr)
 	}
 
-	stub := pb.NewSemanticServiceClient(conn)
+	stub := pb.NewCacheServiceClient(conn)
 	return stub, conn, nil
 }

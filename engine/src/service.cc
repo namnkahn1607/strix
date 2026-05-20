@@ -10,11 +10,10 @@
 #include "embedder.hh"
 #include "raii_vector.hh"
 
-SemanticServiceImpl::SemanticServiceImpl(const Embedder& embedder,
-                                         MemoryArena& arena)
+CacheServiceImpl::CacheServiceImpl(const Embedder& embedder, MemoryArena& arena)
     : embedder_(embedder), memory_arena(arena) {}
 
-grpc::Status SemanticServiceImpl::CheckCache(
+grpc::Status CacheServiceImpl::CheckCache(
     [[maybe_unused]] grpc::ServerContext* context,
     const proto::CheckCacheRequest* request,
     proto::CheckCacheResponse* response) {
@@ -169,7 +168,7 @@ grpc::Status SemanticServiceImpl::CheckCache(
     }
 }
 
-grpc::Status SemanticServiceImpl::SetCache(
+grpc::Status CacheServiceImpl::SetCache(
     [[maybe_unused]] grpc::ServerContext* context,
     const proto::SetCacheRequest* request, proto::SetCacheResponse* response) {
     try {

@@ -10,12 +10,12 @@
 
 class MemoryArena;
 
-class SemanticServiceImpl final : public proto::SemanticService::Service {
+class CacheServiceImpl final : public proto::CacheService::Service {
 public:
-    explicit SemanticServiceImpl(const Embedder& embedder, MemoryArena& arena);
+    explicit CacheServiceImpl(const Embedder& embedder, MemoryArena& arena);
 
     // No Copy/Move constructor
-    SemanticServiceImpl(const SemanticServiceImpl&) = delete;
+    CacheServiceImpl(const CacheServiceImpl&) = delete;
 
     // The READ gRPC method
     grpc::Status CheckCache(grpc::ServerContext* context,

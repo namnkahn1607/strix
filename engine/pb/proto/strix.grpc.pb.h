@@ -28,10 +28,10 @@
 
 namespace proto {
 
-class SemanticService final {
+class CacheService final {
  public:
   static constexpr char const* service_full_name() {
-    return "proto.SemanticService";
+    return "proto.CacheService";
   }
   class StubInterface {
    public:

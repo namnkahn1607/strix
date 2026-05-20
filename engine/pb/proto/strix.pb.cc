@@ -191,20 +191,21 @@ const char descriptor_table_protodef_strix_2eproto[] ABSL_ATTRIBUTE_SECTION_VARI
     "\017\n\007node_id\030\002 \001(\005\022\026\n\016cached_payload\030\003 \001(\014"
     "\"<\n\017SetCacheRequest\022\017\n\007node_id\030\001 \001(\005\022\030\n\020"
     "uncached_payload\030\002 \001(\014\"#\n\020SetCacheRespon"
-    "se\022\017\n\007success\030\001 \001(\010*m\n\nCacheState\022\033\n\027CAC"
-    "HE_STATE_UNSPECIFIED\020\000\022\023\n\017CACHE_STATE_HI"
-    "T\020\001\022\024\n\020CACHE_STATE_MISS\020\002\022\027\n\023CACHE_STATE"
-    "_PENDING\020\0032\221\001\n\017SemanticService\022A\n\nCheckC"
-    "ache\022\030.proto.CheckCacheRequest\032\031.proto.C"
-    "heckCacheResponse\022;\n\010SetCache\022\026.proto.Se"
-    "tCacheRequest\032\027.proto.SetCacheResponseB\022"
-    "Z\020strix/gateway/pbb\006proto3"
+    "se\022\017\n\007success\030\001 \001(\010*\207\001\n\nCacheState\022\033\n\027CA"
+    "CHE_STATE_UNSPECIFIED\020\000\022\023\n\017CACHE_STATE_H"
+    "IT\020\001\022\024\n\020CACHE_STATE_MISS\020\002\022\027\n\023CACHE_STAT"
+    "E_PENDING\020\003\022\030\n\024CACHE_STATE_EXCEEDED\020\0042\216\001"
+    "\n\014CacheService\022A\n\nCheckCache\022\030.proto.Che"
+    "ckCacheRequest\032\031.proto.CheckCacheRespons"
+    "e\022;\n\010SetCache\022\026.proto.SetCacheRequest\032\027."
+    "proto.SetCacheResponseB\022Z\020strix/gateway/"
+    "pbb\006proto3"
 };
 static ::absl::once_flag descriptor_table_strix_2eproto_once;
 PROTOBUF_CONSTINIT const ::_pbi::DescriptorTable descriptor_table_strix_2eproto = {
     false,
     false,
-    546,
+    570,
     descriptor_table_protodef_strix_2eproto,
     "strix.proto",
     &descriptor_table_strix_2eproto_once,
@@ -223,7 +224,7 @@ const ::google::protobuf::EnumDescriptor* PROTOBUF_NONNULL CacheState_descriptor
   return file_level_enum_descriptors_strix_2eproto[0];
 }
 PROTOBUF_CONSTINIT const uint32_t CacheState_internal_data_[] = {
-    262144u, 0u, };
+    327680u, 0u, };
 // ===================================================================
 
 class CheckCacheRequest::_Internal {

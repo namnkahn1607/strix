@@ -22,84 +22,84 @@
 #include <grpcpp/ports_def.inc>
 namespace proto {
 
-static const char* SemanticService_method_names[] = {
-  "/proto.SemanticService/CheckCache",
-  "/proto.SemanticService/SetCache",
+static const char* CacheService_method_names[] = {
+  "/proto.CacheService/CheckCache",
+  "/proto.CacheService/SetCache",
 };
 
-std::unique_ptr< SemanticService::Stub> SemanticService::NewStub(const std::shared_ptr< ::grpc::ChannelInterface>& channel, const ::grpc::StubOptions& options) {
+std::unique_ptr< CacheService::Stub> CacheService::NewStub(const std::shared_ptr< ::grpc::ChannelInterface>& channel, const ::grpc::StubOptions& options) {
   (void)options;
-  std::unique_ptr< SemanticService::Stub> stub(new SemanticService::Stub(channel, options));
+  std::unique_ptr< CacheService::Stub> stub(new CacheService::Stub(channel, options));
   return stub;
 }
 
-SemanticService::Stub::Stub(const std::shared_ptr< ::grpc::ChannelInterface>& channel, const ::grpc::StubOptions& options)
-  : channel_(channel), rpcmethod_CheckCache_(SemanticService_method_names[0], options.suffix_for_stats(),::grpc::internal::RpcMethod::NORMAL_RPC, channel)
-  , rpcmethod_SetCache_(SemanticService_method_names[1], options.suffix_for_stats(),::grpc::internal::RpcMethod::NORMAL_RPC, channel)
+CacheService::Stub::Stub(const std::shared_ptr< ::grpc::ChannelInterface>& channel, const ::grpc::StubOptions& options)
+  : channel_(channel), rpcmethod_CheckCache_(CacheService_method_names[0], options.suffix_for_stats(),::grpc::internal::RpcMethod::NORMAL_RPC, channel)
+  , rpcmethod_SetCache_(CacheService_method_names[1], options.suffix_for_stats(),::grpc::internal::RpcMethod::NORMAL_RPC, channel)
   {}
 
-::grpc::Status SemanticService::Stub::CheckCache(::grpc::ClientContext* context, const ::proto::CheckCacheRequest& request, ::proto::CheckCacheResponse* response) {
+::grpc::Status CacheService::Stub::CheckCache(::grpc::ClientContext* context, const ::proto::CheckCacheRequest& request, ::proto::CheckCacheResponse* response) {
   return ::grpc::internal::BlockingUnaryCall< ::proto::CheckCacheRequest, ::proto::CheckCacheResponse, ::grpc::protobuf::MessageLite, ::grpc::protobuf::MessageLite>(channel_.get(), rpcmethod_CheckCache_, context, request, response);
 }
 
-void SemanticService::Stub::async::CheckCache(::grpc::ClientContext* context, const ::proto::CheckCacheRequest* request, ::proto::CheckCacheResponse* response, std::function<void(::grpc::Status)> f) {
+void CacheService::Stub::async::CheckCache(::grpc::ClientContext* context, const ::proto::CheckCacheRequest* request, ::proto::CheckCacheResponse* response, std::function<void(::grpc::Status)> f) {
   ::grpc::internal::CallbackUnaryCall< ::proto::CheckCacheRequest, ::proto::CheckCacheResponse, ::grpc::protobuf::MessageLite, ::grpc::protobuf::MessageLite>(stub_->channel_.get(), stub_->rpcmethod_CheckCache_, context, request, response, std::move(f));
 }
 
-void SemanticService::Stub::async::CheckCache(::grpc::ClientContext* context, const ::proto::CheckCacheRequest* request, ::proto::CheckCacheResponse* response, ::grpc::ClientUnaryReactor* reactor) {
+void CacheService::Stub::async::CheckCache(::grpc::ClientContext* context, const ::proto::CheckCacheRequest* request, ::proto::CheckCacheResponse* response, ::grpc::ClientUnaryReactor* reactor) {
   ::grpc::internal::ClientCallbackUnaryFactory::Create< ::grpc::protobuf::MessageLite, ::grpc::protobuf::MessageLite>(stub_->channel_.get(), stub_->rpcmethod_CheckCache_, context, request, response, reactor);
 }
 
-::grpc::ClientAsyncResponseReader< ::proto::CheckCacheResponse>* SemanticService::Stub::PrepareAsyncCheckCacheRaw(::grpc::ClientContext* context, const ::proto::CheckCacheRequest& request, ::grpc::CompletionQueue* cq) {
+::grpc::ClientAsyncResponseReader< ::proto::CheckCacheResponse>* CacheService::Stub::PrepareAsyncCheckCacheRaw(::grpc::ClientContext* context, const ::proto::CheckCacheRequest& request, ::grpc::CompletionQueue* cq) {
   return ::grpc::internal::ClientAsyncResponseReaderHelper::Create< ::proto::CheckCacheResponse, ::proto::CheckCacheRequest, ::grpc::protobuf::MessageLite, ::grpc::protobuf::MessageLite>(channel_.get(), cq, rpcmethod_CheckCache_, context, request);
 }
 
-::grpc::ClientAsyncResponseReader< ::proto::CheckCacheResponse>* SemanticService::Stub::AsyncCheckCacheRaw(::grpc::ClientContext* context, const ::proto::CheckCacheRequest& request, ::grpc::CompletionQueue* cq) {
+::grpc::ClientAsyncResponseReader< ::proto::CheckCacheResponse>* CacheService::Stub::AsyncCheckCacheRaw(::grpc::ClientContext* context, const ::proto::CheckCacheRequest& request, ::grpc::CompletionQueue* cq) {
   auto* result =
     this->PrepareAsyncCheckCacheRaw(context, request, cq);
   result->StartCall();
   return result;
 }
 
-::grpc::Status SemanticService::Stub::SetCache(::grpc::ClientContext* context, const ::proto::SetCacheRequest& request, ::proto::SetCacheResponse* response) {
+::grpc::Status CacheService::Stub::SetCache(::grpc::ClientContext* context, const ::proto::SetCacheRequest& request, ::proto::SetCacheResponse* response) {
   return ::grpc::internal::BlockingUnaryCall< ::proto::SetCacheRequest, ::proto::SetCacheResponse, ::grpc::protobuf::MessageLite, ::grpc::protobuf::MessageLite>(channel_.get(), rpcmethod_SetCache_, context, request, response);
 }
 
-void SemanticService::Stub::async::SetCache(::grpc::ClientContext* context, const ::proto::SetCacheRequest* request, ::proto::SetCacheResponse* response, std::function<void(::grpc::Status)> f) {
+void CacheService::Stub::async::SetCache(::grpc::ClientContext* context, const ::proto::SetCacheRequest* request, ::proto::SetCacheResponse* response, std::function<void(::grpc::Status)> f) {
   ::grpc::internal::CallbackUnaryCall< ::proto::SetCacheRequest, ::proto::SetCacheResponse, ::grpc::protobuf::MessageLite, ::grpc::protobuf::MessageLite>(stub_->channel_.get(), stub_->rpcmethod_SetCache_, context, request, response, std::move(f));
 }
 
-void SemanticService::Stub::async::SetCache(::grpc::ClientContext* context, const ::proto::SetCacheRequest* request, ::proto::SetCacheResponse* response, ::grpc::ClientUnaryReactor* reactor) {
+void CacheService::Stub::async::SetCache(::grpc::ClientContext* context, const ::proto::SetCacheRequest* request, ::proto::SetCacheResponse* response, ::grpc::ClientUnaryReactor* reactor) {
   ::grpc::internal::ClientCallbackUnaryFactory::Create< ::grpc::protobuf::MessageLite, ::grpc::protobuf::MessageLite>(stub_->channel_.get(), stub_->rpcmethod_SetCache_, context, request, response, reactor);
 }
 
-::grpc::ClientAsyncResponseReader< ::proto::SetCacheResponse>* SemanticService::Stub::PrepareAsyncSetCacheRaw(::grpc::ClientContext* context, const ::proto::SetCacheRequest& request, ::grpc::CompletionQueue* cq) {
+::grpc::ClientAsyncResponseReader< ::proto::SetCacheResponse>* CacheService::Stub::PrepareAsyncSetCacheRaw(::grpc::ClientContext* context, const ::proto::SetCacheRequest& request, ::grpc::CompletionQueue* cq) {
   return ::grpc::internal::ClientAsyncResponseReaderHelper::Create< ::proto::SetCacheResponse, ::proto::SetCacheRequest, ::grpc::protobuf::MessageLite, ::grpc::protobuf::MessageLite>(channel_.get(), cq, rpcmethod_SetCache_, context, request);
 }
 
-::grpc::ClientAsyncResponseReader< ::proto::SetCacheResponse>* SemanticService::Stub::AsyncSetCacheRaw(::grpc::ClientContext* context, const ::proto::SetCacheRequest& request, ::grpc::CompletionQueue* cq) {
+::grpc::ClientAsyncResponseReader< ::proto::SetCacheResponse>* CacheService::Stub::AsyncSetCacheRaw(::grpc::ClientContext* context, const ::proto::SetCacheRequest& request, ::grpc::CompletionQueue* cq) {
   auto* result =
     this->PrepareAsyncSetCacheRaw(context, request, cq);
   result->StartCall();
   return result;
 }
 
-SemanticService::Service::Service() {
+CacheService::Service::Service() {
   AddMethod(new ::grpc::internal::RpcServiceMethod(
-      SemanticService_method_names[0],
+      CacheService_method_names[0],
       ::grpc::internal::RpcMethod::NORMAL_RPC,
-      new ::grpc::internal::RpcMethodHandler< SemanticService::Service, ::proto::CheckCacheRequest, ::proto::CheckCacheResponse, ::grpc::protobuf::MessageLite, ::grpc::protobuf::MessageLite>(
-          [](SemanticService::Service* service,
+      new ::grpc::internal::RpcMethodHandler< CacheService::Service, ::proto::CheckCacheRequest, ::proto::CheckCacheResponse, ::grpc::protobuf::MessageLite, ::grpc::protobuf::MessageLite>(
+          [](CacheService::Service* service,
              ::grpc::ServerContext* ctx,
              const ::proto::CheckCacheRequest* req,
              ::proto::CheckCacheResponse* resp) {
                return service->CheckCache(ctx, req, resp);
              }, this)));
   AddMethod(new ::grpc::internal::RpcServiceMethod(
-      SemanticService_method_names[1],
+      CacheService_method_names[1],
       ::grpc::internal::RpcMethod::NORMAL_RPC,
-      new ::grpc::internal::RpcMethodHandler< SemanticService::Service, ::proto::SetCacheRequest, ::proto::SetCacheResponse, ::grpc::protobuf::MessageLite, ::grpc::protobuf::MessageLite>(
-          [](SemanticService::Service* service,
+      new ::grpc::internal::RpcMethodHandler< CacheService::Service, ::proto::SetCacheRequest, ::proto::SetCacheResponse, ::grpc::protobuf::MessageLite, ::grpc::protobuf::MessageLite>(
+          [](CacheService::Service* service,
              ::grpc::ServerContext* ctx,
              const ::proto::SetCacheRequest* req,
              ::proto::SetCacheResponse* resp) {
@@ -107,17 +107,17 @@ SemanticService::Service::Service() {
              }, this)));
 }
 
-SemanticService::Service::~Service() {
+CacheService::Service::~Service() {
 }
 
-::grpc::Status SemanticService::Service::CheckCache(::grpc::ServerContext* context, const ::proto::CheckCacheRequest* request, ::proto::CheckCacheResponse* response) {
+::grpc::Status CacheService::Service::CheckCache(::grpc::ServerContext* context, const ::proto::CheckCacheRequest* request, ::proto::CheckCacheResponse* response) {
   (void) context;
   (void) request;
   (void) response;
   return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED, "");
 }
 
-::grpc::Status SemanticService::Service::SetCache(::grpc::ServerContext* context, const ::proto::SetCacheRequest* request, ::proto::SetCacheResponse* response) {
+::grpc::Status CacheService::Service::SetCache(::grpc::ServerContext* context, const ::proto::SetCacheRequest* request, ::proto::SetCacheResponse* response) {
   (void) context;
   (void) request;
   (void) response;
