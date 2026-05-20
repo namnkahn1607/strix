@@ -14,12 +14,14 @@ static std::unique_ptr<Embedder> emb_;
 
 static Embedder& GetEmbedder() {
     if (!emb_) {
-        const char* model_path = std::getenv("INFERENCE_MODEL_PATH");
-        if (!model_path) {
-            throw std::runtime_error("INFERENCE_MODEL_PATH is not set");
+        const char* tok_path{std::getenv("TOKENIZER_PATH")};
+        const char* bert_path{std::getenv("TRANSFORMER_PATH")};
+        if (tok_path == nullptr || bert_path == nullptr) {
+            throw std::runtime_error(
+                "Env-var TOKENIZER_PATH or TRANSFORMER_PATH is not set");
         }
 
-        emb_ = std::make_unique<Embedder>(model_path);
+        emb_ = std::make_unique<Embedder>(tok_path, bert_path);
     }
 
     return *emb_;
