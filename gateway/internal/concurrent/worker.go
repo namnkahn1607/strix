@@ -23,7 +23,7 @@ type WorkerPool struct {
 	wg    sync.WaitGroup
 }
 
-func NewWorkerPool(stub pb.SemanticServiceClient, numWorkers int) *WorkerPool {
+func NewWorkerPool(stub pb.CacheServiceClient, numWorkers int) *WorkerPool {
 	wp := &WorkerPool{
 		queue: make(chan Job, jobQueueCap),
 	}
@@ -66,7 +66,7 @@ func (wp *WorkerPool) Stop(ctx context.Context) error {
 	}
 }
 
-func (wp *WorkerPool) runWorker(stub pb.SemanticServiceClient) {
+func (wp *WorkerPool) runWorker(stub pb.CacheServiceClient) {
 	defer wp.wg.Done()
 	for job := range wp.queue {
 		ctx, cancel := context.WithTimeout(context.Background(), jobTimeout)

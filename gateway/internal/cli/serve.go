@@ -85,8 +85,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	log.Printf("[strix serve] Strix binary: %s\n", artPaths.MainBin)
 	log.Printf("[strix serve] Strix Engine binary: %s\n", artPaths.EngineBin)
 	log.Printf("[strix serve] Tokenizer: %s\n", artPaths.TokPath)
-	log.Printf("[strix serve] Transformer model: %s\n", artPaths.BertPath)
-	log.Printf("[strix serve] Dictionary: %s\n", artPaths.DictPath)
+	log.Printf("[strix serve] Transformer: %s\n", artPaths.BertPath)
 
 	// 5. Read ~/.strix/.env to get API key and endpoint.
 	envPath, pathErr := EnvFilePath()

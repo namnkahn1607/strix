@@ -115,7 +115,7 @@ func waitDeathPipe() <-chan struct{} {
 	return ch
 }
 
-func pollEngine(ctx context.Context, stub pb.SemanticServiceClient) error {
+func pollEngine(ctx context.Context, stub pb.CacheServiceClient) error {
 	deadline := time.Now().Add(pollTimeout)
 
 	for attempt := 1; time.Now().Before(deadline); attempt++ {
