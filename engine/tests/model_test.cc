@@ -20,8 +20,8 @@ static float CosineSimilarity(const float* a, const float* b) {
 
 class EmbedderConcurrencyTest : public ::testing::Test {
 protected:
-    static std::unique_ptr<Embedder> emb_;
-    static std::vector<float> truth_;
+    static std::unique_ptr<Embedder> emb;
+    static std::vector<float> truth;
 
     static constexpr uint32_t NUM_THREADS = 8;
     static constexpr uint32_t CALLS_PER_THREAD = 20;
@@ -30,24 +30,28 @@ protected:
     const std::string kPrompt = "What is the capital of France?";
 
     static void SetUpTestSuite() {
-        const char* model_path = std::getenv("INFERENCE_MODEL_PATH");
-        ASSERT_NE(model_path, nullptr)
-            << "Environment variable INFERENCE_MODEL_PATH is missing!";
+        const char* tok_path = std::getenv("TOKENIZER_PATH");
+        ASSERT_NE(tok_path, nullptr)
+            << "Environment variable TOKENIZER_PATH is missing!";
 
-        emb_ = std::make_unique<Embedder>(model_path);
+        const char* bert_path = std::getenv("TRANSFORMER_PATH");
+        ASSERT_NE(bert_path, nullptr)
+            << "Environment variable TRANSFORMER_PATH is missing!";
 
-        const auto vec = emb_->Encode("What is the capital of France?");
-        truth_.assign(vec.get(), vec.get() + DIM);
+        emb = std::make_unique<Embedder>(tok_path, bert_path);
+
+        const auto vec = emb->Encode("What is the capital of France?");
+        truth.assign(vec.get(), vec.get() + DIM);
     }
 
-    static void TearDownTestSuite() { emb_.reset(); }
+    static void TearDownTestSuite() { emb.reset(); }
 };
 
-std::unique_ptr<Embedder> EmbedderConcurrencyTest::emb_ = nullptr;
-std::vector<float> EmbedderConcurrencyTest::truth_;
+std::unique_ptr<Embedder> EmbedderConcurrencyTest::emb = nullptr;
+std::vector<float> EmbedderConcurrencyTest::truth;
 
 TEST_F(EmbedderConcurrencyTest, OutputConsistencyUnderConcurrency) {
-    [[maybe_unused]] auto _ = emb_->Encode("warmup");
+    [[maybe_unused]] auto _ = emb->Encode("warmup");
 
     std::atomic correct_count{0};
     std::atomic total_count{0};
@@ -56,8 +60,8 @@ TEST_F(EmbedderConcurrencyTest, OutputConsistencyUnderConcurrency) {
     auto worker = [&]() {
         for (uint32_t i = 0; i < CALLS_PER_THREAD; ++i) {
             try {
-                auto vec = emb_->Encode(kPrompt);
-                const float sim = CosineSimilarity(vec.get(), truth_.data());
+                auto vec = emb->Encode(kPrompt);
+                const float sim = CosineSimilarity(vec.get(), truth.data());
 
                 ++total_count;
                 if (sim >= COSINE_THRESHOLD) {
@@ -94,7 +98,7 @@ TEST_F(EmbedderConcurrencyTest, NoNaNUnderConcurrency) {
 
     auto worker = [&]() {
         for (int i = 0; i < CALLS_PER_THREAD; ++i) {
-            auto vec = emb_->Encode(kPrompt);
+            auto vec = emb->Encode(kPrompt);
             for (size_t j = 0; j < DIM; ++j) {
                 if (std::isnan(vec.get()[j])) {
                     ++nan_count;

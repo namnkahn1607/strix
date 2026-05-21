@@ -16,19 +16,19 @@ fi
 
 mkdir -p "$MODEL_DIR"
 
-# Step 1: Download JSON dataset
+# Step 1: Download dictionary and configuration file
 echo "[1/2] Downloading tokenizer.json..."
 curl -fSL --progress-bar -o "$TOKENIZER_PATH" "$TOKENIZER_URL"
 
 # Step 2: JSON verification
 echo "[2/2] Verifying JSON integrity..."
 if python3 -c "import json; json.load(open('$TOKENIZER_PATH'))" 2>/dev/null; then
-    echo "  Integrity OK."
+    echo "  Integrity OK: 'tokenizer.json'."
 else
     echo "ERROR: tokenizer.json is not valid JSON - file corrupted or truncated." >&2
     rm -f "$TOKENIZER_PATH"
     exit 1
 fi
- 
+
 echo ""
-echo "Done. tokenizer.json → $TOKENIZER_PATH"
+echo "Done. 'tokenizer.json' saved to $TOKENIZER_PATH"

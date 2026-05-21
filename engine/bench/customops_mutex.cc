@@ -10,13 +10,14 @@ static std::once_flag init_flag;
 
 static void BenchConcurrentInference(benchmark::State& state) {
     std::call_once(init_flag, []() {
-        const char* model_path{std::getenv("INFERENCE_MODEL_PATH")};
-        if (model_path == nullptr) {
+        const char* tok_path{std::getenv("TOKENIZER_PATH")};
+        const char* bert_path{std::getenv("TRANSFORMER_PATH")};
+        if (tok_path == nullptr || bert_path == nullptr) {
             throw std::runtime_error(
-                "Environment variable INFERENCE_MODEL_PATH is not set");
+                "Env-var TOKENIZER_PATH or TRANSFORMER_PATH is not set");
         }
 
-        shared_emb = std::make_unique<Embedder>(model_path);
+        shared_emb = std::make_unique<Embedder>(tok_path, bert_path);
     });
 
     const std::string prompt = "The quick brown fox jumps over the lazy dog";

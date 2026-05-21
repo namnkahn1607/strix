@@ -15,7 +15,6 @@ import (
 // └── model/
 //     ├── tokenizer.onnx     <- Tokenizer
 //     ├── transformer.onnx   <- BERT model
-//     └── tokenizer.json     <- Dictionary
 
 const (
 	engineBinName = "strix_engine"
@@ -29,7 +28,6 @@ type ProjectPath struct {
 	EngineBin string // strix/bin/strix_engine  - forked as Process C
 	TokPath   string // strix/model/tokenizer.onnx
 	BertPath  string // strix/model/transfomer.onnx
-	DictPath  string // strix/model/tokenizer.json
 }
 
 func ResolvePaths() (ProjectPath, error) {
@@ -56,6 +54,5 @@ func ResolvePaths() (ProjectPath, error) {
 		EngineBin: filepath.Join(projectRoot, "bin", engineBinName),
 		TokPath:   filepath.Join(modelFolder, tokFileName),
 		BertPath:  filepath.Join(modelFolder, bertFileName),
-		DictPath:  filepath.Join(modelFolder, dictFileName),
 	}, nil
 }

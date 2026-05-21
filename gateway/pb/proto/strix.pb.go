@@ -27,7 +27,8 @@ const (
 	CacheState_CACHE_STATE_UNSPECIFIED CacheState = 0
 	CacheState_CACHE_STATE_HIT         CacheState = 1
 	CacheState_CACHE_STATE_MISS        CacheState = 2
-	CacheState_CACHE_STATE_PENDING     CacheState = 3
+	CacheState_CACHE_STATE_PENDING     CacheState = 3 // Found similar prompt waiting for payload
+	CacheState_CACHE_STATE_EXCEEDED    CacheState = 4 // Prompt token exceeds maximum level (256)
 )
 
 // Enum value maps for CacheState.
@@ -37,12 +38,14 @@ var (
 		1: "CACHE_STATE_HIT",
 		2: "CACHE_STATE_MISS",
 		3: "CACHE_STATE_PENDING",
+		4: "CACHE_STATE_EXCEEDED",
 	}
 	CacheState_value = map[string]int32{
 		"CACHE_STATE_UNSPECIFIED": 0,
 		"CACHE_STATE_HIT":         1,
 		"CACHE_STATE_MISS":        2,
 		"CACHE_STATE_PENDING":     3,
+		"CACHE_STATE_EXCEEDED":    4,
 	}
 )
 
@@ -120,7 +123,7 @@ func (x *CheckCacheRequest) GetPrompt() []byte {
 type CheckCacheResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	CheckState    CacheState             `protobuf:"varint,1,opt,name=check_state,json=checkState,proto3,enum=proto.CacheState" json:"check_state,omitempty"`
-	NodeId        int32                  `protobuf:"varint,2,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`                     // -1 if HIT, otherwise > -1
+	NodeId        int32                  `protobuf:"varint,2,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`                     // always -1 for HIT, occasionally for MISS, otherwise >= 0
 	CachedPayload []byte                 `protobuf:"bytes,3,opt,name=cached_payload,json=cachedPayload,proto3" json:"cached_payload,omitempty"` // empty if MISS or PENDING_HIT
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -179,7 +182,7 @@ func (x *CheckCacheResponse) GetCachedPayload() []byte {
 
 type SetCacheRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	NodeId          int32                  `protobuf:"varint,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	NodeId          int32                  `protobuf:"varint,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"` // always >= 0
 	UncachedPayload []byte                 `protobuf:"bytes,2,opt,name=uncached_payload,json=uncachedPayload,proto3" json:"uncached_payload,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
@@ -289,14 +292,15 @@ const file_proto_strix_proto_rawDesc = "" +
 	"\anode_id\x18\x01 \x01(\x05R\x06nodeId\x12)\n" +
 	"\x10uncached_payload\x18\x02 \x01(\fR\x0funcachedPayload\",\n" +
 	"\x10SetCacheResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess*m\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess*\x87\x01\n" +
 	"\n" +
 	"CacheState\x12\x1b\n" +
 	"\x17CACHE_STATE_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fCACHE_STATE_HIT\x10\x01\x12\x14\n" +
 	"\x10CACHE_STATE_MISS\x10\x02\x12\x17\n" +
-	"\x13CACHE_STATE_PENDING\x10\x032\x91\x01\n" +
-	"\x0fSemanticService\x12A\n" +
+	"\x13CACHE_STATE_PENDING\x10\x03\x12\x18\n" +
+	"\x14CACHE_STATE_EXCEEDED\x10\x042\x8e\x01\n" +
+	"\fCacheService\x12A\n" +
 	"\n" +
 	"CheckCache\x12\x18.proto.CheckCacheRequest\x1a\x19.proto.CheckCacheResponse\x12;\n" +
 	"\bSetCache\x12\x16.proto.SetCacheRequest\x1a\x17.proto.SetCacheResponseB\x12Z\x10strix/gateway/pbb\x06proto3"
@@ -324,10 +328,10 @@ var file_proto_strix_proto_goTypes = []any{
 }
 var file_proto_strix_proto_depIdxs = []int32{
 	0, // 0: proto.CheckCacheResponse.check_state:type_name -> proto.CacheState
-	1, // 1: proto.SemanticService.CheckCache:input_type -> proto.CheckCacheRequest
-	3, // 2: proto.SemanticService.SetCache:input_type -> proto.SetCacheRequest
-	2, // 3: proto.SemanticService.CheckCache:output_type -> proto.CheckCacheResponse
-	4, // 4: proto.SemanticService.SetCache:output_type -> proto.SetCacheResponse
+	1, // 1: proto.CacheService.CheckCache:input_type -> proto.CheckCacheRequest
+	3, // 2: proto.CacheService.SetCache:input_type -> proto.SetCacheRequest
+	2, // 3: proto.CacheService.CheckCache:output_type -> proto.CheckCacheResponse
+	4, // 4: proto.CacheService.SetCache:output_type -> proto.SetCacheResponse
 	3, // [3:5] is the sub-list for method output_type
 	1, // [1:3] is the sub-list for method input_type
 	1, // [1:1] is the sub-list for extension type_name

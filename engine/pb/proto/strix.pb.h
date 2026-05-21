@@ -87,6 +87,7 @@ enum CacheState : int {
   CACHE_STATE_HIT = 1,
   CACHE_STATE_MISS = 2,
   CACHE_STATE_PENDING = 3,
+  CACHE_STATE_EXCEEDED = 4,
   CacheState_INT_MIN_SENTINEL_DO_NOT_USE_ =
       ::std::numeric_limits<::int32_t>::min(),
   CacheState_INT_MAX_SENTINEL_DO_NOT_USE_ =
@@ -97,11 +98,11 @@ extern const uint32_t CacheState_internal_data_[];
 inline constexpr CacheState CacheState_MIN =
     static_cast<CacheState>(0);
 inline constexpr CacheState CacheState_MAX =
-    static_cast<CacheState>(3);
+    static_cast<CacheState>(4);
 inline bool CacheState_IsValid(int value) {
-  return 0 <= value && value <= 3;
+  return 0 <= value && value <= 4;
 }
-inline constexpr int CacheState_ARRAYSIZE = 3 + 1;
+inline constexpr int CacheState_ARRAYSIZE = 4 + 1;
 const ::google::protobuf::EnumDescriptor* PROTOBUF_NONNULL CacheState_descriptor();
 template <typename T>
 const ::std::string& CacheState_Name(T value) {
@@ -112,7 +113,7 @@ const ::std::string& CacheState_Name(T value) {
 }
 template <>
 inline const ::std::string& CacheState_Name(CacheState value) {
-  return ::google::protobuf::internal::NameOfDenseEnum<CacheState_descriptor, 0, 3>(
+  return ::google::protobuf::internal::NameOfDenseEnum<CacheState_descriptor, 0, 4>(
       static_cast<int>(value));
 }
 inline bool CacheState_Parse(

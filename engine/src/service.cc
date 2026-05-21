@@ -10,11 +10,10 @@
 #include "embedder.hh"
 #include "raii_vector.hh"
 
-SemanticServiceImpl::SemanticServiceImpl(const Embedder& embedder,
-                                         MemoryArena& arena)
+CacheServiceImpl::CacheServiceImpl(const Embedder& embedder, MemoryArena& arena)
     : embedder_(embedder), memory_arena(arena) {}
 
-grpc::Status SemanticServiceImpl::CheckCache(
+grpc::Status CacheServiceImpl::CheckCache(
     [[maybe_unused]] grpc::ServerContext* context,
     const proto::CheckCacheRequest* request,
     proto::CheckCacheResponse* response) {
@@ -161,15 +160,20 @@ grpc::Status SemanticServiceImpl::CheckCache(
         response->set_node_id(-1);
         return grpc::Status::OK;
 
+    } catch ([[maybe_unused]] const TokenLimitException& e) {
+        response->set_check_state(proto::CACHE_STATE_EXCEEDED);
+        return grpc::Status::OK;
+
     } catch (const std::exception& e) {
         return {grpc::StatusCode::INTERNAL,
                 std::string("Encounter error: ") + e.what()};
+
     } catch (...) {
         return {grpc::StatusCode::INTERNAL, "Unknown Fatal error"};
     }
 }
 
-grpc::Status SemanticServiceImpl::SetCache(
+grpc::Status CacheServiceImpl::SetCache(
     [[maybe_unused]] grpc::ServerContext* context,
     const proto::SetCacheRequest* request, proto::SetCacheResponse* response) {
     try {

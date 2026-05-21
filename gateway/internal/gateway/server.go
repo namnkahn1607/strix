@@ -17,7 +17,7 @@ const (
 )
 
 type Dependencies struct {
-	Stub      pb.SemanticServiceClient
+	Stub      pb.CacheServiceClient
 	L0Cache   *fastcache.Cache
 	Pool      *concurrent.WorkerPool
 	HerdCtrl  *HerdController
