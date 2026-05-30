@@ -8,13 +8,11 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-const (
-	SocketAddress = "unix:///tmp/strix.sock"
-)
+const socketAddress = "unix:///tmp/strix.sock"
 
 func CreateRPCStub() (pb.CacheServiceClient, *grpc.ClientConn, error) {
 	conn, connErr := grpc.NewClient(
-		SocketAddress, grpc.WithTransportCredentials(insecure.NewCredentials()),
+		socketAddress, grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 
 	if connErr != nil {
