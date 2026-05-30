@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"gateway/internal/supervisor"
 	"gateway/internal/sys"
-	"log"
+	"log/slog"
 	"os"
 	"strconv"
 	"syscall"
@@ -14,131 +14,173 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	flagPrecache bool
+	flagStrict   bool
+)
+
 var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Start the HTTP Gateway as supervisor and Vector Engine",
 	Long: `Loads ~/.strix/.env, forks HTTP Gateway and Vector Engine as 
 	child processes. Acts as a Supervisor: on SIGTERM or SIGINT, it closes both
 	Death Pipes, sending EOF to each child process, causing HTTP Gateway and
-	Vector Engine to exit gracefully on its own.`,
+	Vector Engine to exit gracefully on its own.
+
+	Use --precache (-p), positional arguments are treated as JSONL file paths.
+	Each line must be {"prompt": "...", "payload": "..."}.
+ 
+	Use --strict (-s) to abort on any malformed JSONL line.`,
+	Args: func(cmd *cobra.Command, args []string) error {
+		if flagPrecache && len(args) == 0 {
+			return fmt.Errorf("--precache requires at least one JSONL file")
+		}
+
+		if !flagPrecache && len(args) > 0 {
+			return fmt.Errorf(
+				"unexpected arguments: %v (did you forget --precache?)", args,
+			)
+		}
+
+		return nil
+	},
 	RunE: runServe,
 }
 
-func runServe(_ *cobra.Command, _ []string) error {
-	// 1. Avoid another 'serve' by initiating lock file.
-	lockPath, pathErr := LockFilePath()
-	if pathErr != nil {
-		return pathErr
-	}
-
-	lockFile, fileErr := os.OpenFile(
-		lockPath, os.O_CREATE|syscall.O_CLOEXEC, ownPermission,
+func init() {
+	serveCmd.Flags().BoolVarP(&flagPrecache, "precache", "p", false,
+		"precache entries from JSONL files",
 	)
-	if fileErr != nil {
-		return fmt.Errorf("cannot create lock file: %w", fileErr)
+
+	serveCmd.Flags().BoolVarP(&flagStrict, "strict", "s", false,
+		"abort precaching procedure on malformed JSON line (default: skip)",
+	)
+}
+
+func runServe(_ *cobra.Command, _ []string) error {
+	// 1. Permission check, file lock, RAM check.
+	if err := AssertEnvPermissions(); err != nil {
+		return err
 	}
 
+	lockFile, err := acquireLockFile()
+	if err != nil {
+		return err
+	}
 	defer func() {
 		_ = lockFile.Close()
 	}()
 
-	lockErr := syscall.Flock(
-		int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB,
+	err = system.CheckRAM()
+	if err != nil {
+		return err
+	}
+
+	// 2. Calculate CPU affinity ratio for Process B and C.
+	cpuMask, err := system.GetAffineCPUs()
+	if err != nil {
+		return fmt.Errorf("cannot determine CPU affinity: %w", err)
+	}
+
+	slog.Info("CPU Affinity assigned",
+		slog.String("gateway_cores", cpuMask.GatewayCores),
+		slog.String("engine_cores", cpuMask.EngineCores),
 	)
-	if lockErr != nil {
-		if errors.Is(lockErr, syscall.EWOULDBLOCK) ||
-			errors.Is(lockErr, syscall.EAGAIN) {
-			return fmt.Errorf(
-				"FATAL: Another Strix instance is already running",
+
+	// 3. Resolve artifact paths.
+	artPaths, err := supervisor.ResolvePaths()
+	if err != nil {
+		return err
+	}
+
+	slog.Info("Artifact path resolved",
+		slog.String("main_binary", artPaths.MainBin),
+		slog.String("engine_binary", artPaths.EngineBin),
+		slog.String("tokenizer", artPaths.TokPath),
+		slog.String("transformer", artPaths.BertPath),
+	)
+
+	// 4. Read ~/.strix/.env to get API key and endpoint.
+	envPath, err := EnvFilePath()
+	if err != nil {
+		return err
+	}
+
+	configEnv, err := godotenv.Read(envPath)
+	if err != nil {
+		return fmt.Errorf("cannot read %s: %w", envPath, err)
+	}
+
+	// 5. Write Process A's PID to a file.
+	err = writePIDFile()
+	if err != nil {
+		return err
+	}
+	defer removePIDFile()
+
+	return supervisor.NewController(cpuMask, artPaths, configEnv).Run()
+}
+
+func acquireLockFile() (*os.File, error) {
+	lockPath, err := LockFilePath()
+	if err != nil {
+		return nil, err
+	}
+
+	file, err := os.OpenFile(
+		lockPath, os.O_CREATE|syscall.O_CLOEXEC, ownPermission,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("cannot create lock file: %w", err)
+	}
+
+	err = syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+	if err != nil {
+		_ = file.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) ||
+			errors.Is(err, syscall.EAGAIN) {
+			return nil, fmt.Errorf(
+				"another Strix instance is already running",
 			)
 		}
 
-		return fmt.Errorf("cannot acquire OS lock: %w", lockErr)
+		return nil, fmt.Errorf("cannot acquire OS lock: %w", err)
 	}
 
-	// 2. Perform permission & RAM checking.
-	permErr := AssertEnvPermissions()
-	if permErr != nil {
-		return permErr
-	}
-
-	ramErr := system.CheckRAM()
-	if ramErr != nil {
-		return ramErr
-	}
-
-	// 3. Calculate CPU affinity ratio for Process B and C.
-	mask, maskErr := system.GetAffineCPUs()
-	if maskErr != nil {
-		return fmt.Errorf("cannot determine CPU affinity: %w", maskErr)
-	}
-
-	log.Printf("[strix serve] Gateway cores : %s\n", mask.GatewayCores)
-	log.Printf("[strix serve] Engine cores: %s\n", mask.EngineCores)
-
-	// 4. Resolve artifact paths.
-	artPaths, pathErr := supervisor.ResolvePaths()
-	if pathErr != nil {
-		return pathErr
-	}
-
-	log.Printf("[strix serve] Strix binary: %s\n", artPaths.MainBin)
-	log.Printf("[strix serve] Strix Engine binary: %s\n", artPaths.EngineBin)
-	log.Printf("[strix serve] Tokenizer: %s\n", artPaths.TokPath)
-	log.Printf("[strix serve] Transformer: %s\n", artPaths.BertPath)
-
-	// 5. Read ~/.strix/.env to get API key and endpoint.
-	envPath, pathErr := EnvFilePath()
-	if pathErr != nil {
-		return pathErr
-	}
-
-	configEnv, readErr := godotenv.Read(envPath)
-	if readErr != nil {
-		return fmt.Errorf("cannot read %s: %w", envPath, readErr)
-	}
-
-	// 6. Write Process A's PID to a file.
-	writePIDErr := writePIDFile()
-	if writePIDErr != nil {
-		return writePIDErr
-	}
-
-	defer removePIDFile()
-
-	return supervisor.NewController(mask, artPaths, configEnv).Run()
+	return file, nil
 }
 
 func writePIDFile() error {
-	pidPath, pidPathErr := PIDFilePath()
-	if pidPathErr != nil {
-		return pidPathErr
+	pidPath, err := PIDFilePath()
+	if err != nil {
+		return err
 	}
 
 	pidContent := strconv.Itoa(os.Getpid())
 
-	writeErr := os.WriteFile(pidPath, []byte(pidContent), 0600)
-	if writeErr != nil {
-		return fmt.Errorf("cannot write PID file %s: %w", pidPath, writeErr)
+	err = os.WriteFile(pidPath, []byte(pidContent), 0600)
+	if err != nil {
+		return fmt.Errorf("cannot write PID file %s: %w", pidPath, err)
 	}
 
-	log.Printf(
-		"[strix serve] PID file written: %s (PID %d)\n", pidPath, os.Getpid(),
+	slog.Info("PID file written",
+		slog.String("path", pidPath),
+		slog.Int("pid", os.Getpid()),
 	)
 	return nil
 }
 
 func removePIDFile() {
-	pidPath, pidPathErr := PIDFilePath()
-	if pidPathErr != nil {
+	pidPath, err := PIDFilePath()
+	if err != nil {
 		return
 	}
 
-	rmErr := os.Remove(pidPath)
-	if rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
-		log.Printf(
-			"[strix serve] WARNING: cannot remove PID file %s: %v\n",
-			pidPath, rmErr,
+	err = os.Remove(pidPath)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		slog.Warn("Cannot remove PID file",
+			slog.String("path", pidPath),
+			slog.Any("error", err),
 		)
 	}
 }
