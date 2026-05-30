@@ -3,7 +3,7 @@ package supervisor
 import (
 	"fmt"
 	system "gateway/internal/sys"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -22,73 +22,75 @@ type Controller struct {
 	mask      system.MaskCPU
 	paths     ProjectPath
 	configEnv map[string]string
+	opts      ControllerOptions
 }
 
 func NewController(
-	mask system.MaskCPU, paths ProjectPath, env map[string]string,
+	mask system.MaskCPU,
+	paths ProjectPath,
+	env map[string]string,
+	opts ControllerOptions,
 ) *Controller {
 	return &Controller{
 		mask:      mask,
 		paths:     paths,
 		configEnv: env,
+		opts:      opts,
 	}
 }
 
 func (c *Controller) Run() error {
 	// 1. Create 2 Death Pipes for HTTP Gateway and Vector Engine.
-	readB, writeB, pipeErr := os.Pipe()
-	if pipeErr != nil {
-		return fmt.Errorf("cannot create Gateway Death Pipe: %w", pipeErr)
+	readB, writeB, err := os.Pipe()
+	if err != nil {
+		return fmt.Errorf("cannot create Gateway Death Pipe: %w", err)
 	}
 
-	readC, writeC, pipeErr := os.Pipe()
-	if pipeErr != nil {
-		return fmt.Errorf("cannot create Engine Death Pipe: %w", pipeErr)
+	readC, writeC, err := os.Pipe()
+	if err != nil {
+		return fmt.Errorf("cannot create Engine Death Pipe: %w", err)
 	}
 
 	// 2. Fork process C - running Vector Engine.
-	engineProc, engineErr := forkEngine(
-		c.paths, c.mask.EngineCores, readC, c.configEnv,
-	)
-	if engineErr != nil {
+	engineProc, err := forkEngine(c.paths, c.mask.EngineCores, readC, c.configEnv)
+	if err != nil {
 		closePipeEnd(readB, writeB, readC, writeC)
-		return engineErr
+		return err
 	}
 
 	closePipeEnd(readC)
-	log.Printf("[Supervisor] Vector Engine started (PID %d)\n",
-		engineProc.Process.Pid,
-	)
+	slog.Info("Vector Engine has started", slog.Int("pid", engineProc.Process.Pid))
 
-	// 3. Fork process B - running HTTP Gateway.
-	gatewayProc, gatewayErr := forkGateway(
-		c.paths, c.mask.GatewayCores, readB, c.configEnv,
-	)
-	if gatewayErr != nil {
-		closePipeEnd(readB, writeB, readC, writeC)
+	// 3. Optional precaching procedure
+	if len(c.opts.PrecacheFiles) > 0 {
+		err = c.runPrecache()
+		if err != nil {
+			closePipeEnd(readB, writeB, writeC)
+			_ = engineProc.Wait()
+			return fmt.Errorf("precaching failed: %w", err)
+		}
+	}
+
+	// 4. Fork process B - running HTTP Gateway.
+	gatewayProc, err := forkGateway(c.paths, c.mask.GatewayCores, readB, c.configEnv)
+	if err != nil {
+		closePipeEnd(readB, writeB, writeC)
 		_ = engineProc.Wait()
-		return gatewayErr
+		return err
 	}
 
 	closePipeEnd(readB)
-	log.Printf("[Supervisor] HTTP Gateway started (PID %d)\n",
-		gatewayProc.Process.Pid,
-	)
+	slog.Info("HTTP Gateway has started", slog.Int("pid", gatewayProc.Process.Pid))
 
-	// 4. Wait for any shutdown of child processes.
+	// 5. Wait for any shutdown of child processes.
 	deadChan := make(chan *exec.Cmd, 2)
-	defer func() {
-		for len(deadChan) > 0 {
-			<-deadChan
-		}
-	}()
 
 	go func() {
 		waitErr := engineProc.Wait()
 		if waitErr != nil {
-			log.Printf("[Supervisor] Vector Engine exited: %v\n", waitErr)
+			slog.Error("Vector Engine exited with error.", slog.Any("error", waitErr))
 		} else {
-			log.Println("[Supervisor] Vector Engine shutdown gracefully")
+			slog.Info("Vector Engine shutdown gracefully.")
 		}
 
 		deadChan <- engineProc
@@ -97,98 +99,53 @@ func (c *Controller) Run() error {
 	go func() {
 		waitErr := gatewayProc.Wait()
 		if waitErr != nil {
-			log.Printf("[Supervisor] HTTP Gateway exited: %v\n", waitErr)
+			slog.Error("HTTP Gateway exited with error.", slog.Any("error", waitErr))
 		} else {
-			log.Println("[Supervisor] HTTP Gateway shutdown gracefully")
+			slog.Info("HTTP Gateway shutdown gracefully.")
 		}
 
 		deadChan <- gatewayProc
 	}()
 
-	// 5. Trap SIGINT / SIGTERM from OS.
+	// 6. Trap SIGINT / SIGTERM from OS.
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sigChan)
 
-	// 6. React to first event: OS signal or child death.
+	// 7. React to first event: OS signal or child death.
 	select {
 	case sig := <-sigChan:
 		// Process A received SIGTERM / SIGINT from OS or 'strix stop'
-		log.Printf(
-			"[Supervisor] Received %v. Closing both child processes..\n", sig,
+		slog.Info("Received OS signal. Initiating graceful shutdown...",
+			slog.Any("os_signal", sig),
 		)
 
 		closePipeEnd(writeB, writeC)
-
-		deathConfirmed := 0
-		for range 2 {
-			select {
-			case <-deadChan:
-				deathConfirmed++
-
-			case <-time.After(drainTimeout):
-				log.Println("[Supervisor] Drain timeout. Force killing...")
-				_ = engineProc.Process.Signal(syscall.SIGKILL)
-				_ = gatewayProc.Process.Signal(syscall.SIGKILL)
-
-				remaining := 2 - deathConfirmed
-				for range remaining {
-					<-deadChan
-				}
-
-				return nil
-			}
-		}
+		drainChildProcs(deadChan, engineProc, gatewayProc)
 
 	case first := <-deadChan:
 		switch first {
 		case engineProc:
 			// Vector Engine died -> Init HTTP Gateway shutdown
-			log.Printf(
-				"[Supervisor] Vector Engine shut down. "+
-					"Closing HTTP Gateway in %d...\n", gatewayTimeout,
+			slog.Warn("Vector Engine exited unexpectedly. Shutting down HTTP Gateway...",
+				slog.Duration("timeout", gatewayTimeout),
 			)
 
 			closePipeEnd(writeB)
-
-			select {
-			case <-deadChan:
-				log.Println("[Supervisor] HTTP Gateway finally exited")
-
-			case <-time.After(gatewayTimeout):
-				log.Println(
-					"[Supervisor] HTTP Gateway is taking longer to exit. " +
-						"Forcing shutdown...",
-				)
-
-				_ = gatewayProc.Process.Signal(syscall.SIGKILL)
-			}
+			waitThenKill(gatewayProc, deadChan, gatewayTimeout)
 
 		case gatewayProc:
 			// HTTP Gateway died -> Init Vector Engine shutdown
-			log.Printf(
-				"[Supervisor] HTTP Gateway shut down. "+
-					"Closing Vector Engine in %d...\n", engineTimeout,
+			slog.Warn("HTTP Gateway exited unexpectedly. Shutting down Vector Engine...",
+				slog.Duration("timeout", engineTimeout),
 			)
 
 			closePipeEnd(writeC)
-
-			select {
-			case <-deadChan:
-				log.Println("[Supervisor] Vector Engine finally exited")
-
-			case <-time.After(engineTimeout):
-				log.Println(
-					"[Supervisor] Vector Engine is taking longer to exit. " +
-						"Forcing shutdown...",
-				)
-
-				_ = engineProc.Process.Signal(syscall.SIGKILL)
-			}
+			waitThenKill(engineProc, deadChan, engineTimeout)
 		}
 	}
 
-	log.Println("All processes exited. Supervisor shutting down...")
+	slog.Info("All processes exited. Supervisor shutting down...")
 	return nil
 }
 
@@ -199,8 +156,10 @@ func closePipeEnd(pipeEnds ...*os.File) {
 }
 
 func forkEngine(
-	paths ProjectPath, coreMask string,
-	reader *os.File, configEnv map[string]string,
+	paths ProjectPath,
+	coreMask string,
+	reader *os.File,
+	configEnv map[string]string,
 ) (*exec.Cmd, error) {
 	cmd := exec.Command("taskset", "-c", coreMask, paths.EngineBin)
 	cmd.ExtraFiles = []*os.File{reader}
@@ -219,8 +178,10 @@ func forkEngine(
 }
 
 func forkGateway(
-	paths ProjectPath, coreMask string,
-	reader *os.File, configEnv map[string]string,
+	paths ProjectPath,
+	coreMask string,
+	reader *os.File,
+	configEnv map[string]string,
 ) (*exec.Cmd, error) {
 	cmd := exec.Command("taskset", "-c", coreMask, paths.MainBin)
 	cmd.ExtraFiles = []*os.File{reader}
@@ -239,7 +200,9 @@ func forkGateway(
 }
 
 func buildEngineEnv(
-	paths ProjectPath, coreMask string, configEnv map[string]string,
+	paths ProjectPath,
+	coreMask string,
+	configEnv map[string]string,
 ) []string {
 	env := []string{
 		"TOKENIZER_PATH=" + paths.TokPath,
@@ -256,7 +219,10 @@ func buildEngineEnv(
 	return env
 }
 
-func buildGatewayEnv(coreMask string, configEnv map[string]string) []string {
+func buildGatewayEnv(
+	coreMask string,
+	configEnv map[string]string,
+) []string {
 	env := []string{
 		"STRIX_GATEWAY=1",
 		"GATEWAY_CORES=" + coreMask,
@@ -269,4 +235,46 @@ func buildGatewayEnv(coreMask string, configEnv map[string]string) []string {
 	}
 
 	return env
+}
+
+// drainChildren waits for both children to exit after a graceful shutdown
+// signal, force-killing if drainTimeout is exceeded.
+func drainChildProcs(deadChan <-chan *exec.Cmd, engineProc, gatewayProc *exec.Cmd) {
+	confirmed := 0
+
+	for confirmed < 2 {
+		select {
+		case <-deadChan:
+			confirmed++
+
+		case <-time.After(drainTimeout):
+			slog.Warn("Drain timeout exceeded. Force killing remaining processes...",
+				slog.Duration("timeout", drainTimeout),
+			)
+
+			_ = engineProc.Process.Signal(syscall.SIGKILL)
+			_ = gatewayProc.Process.Signal(syscall.SIGKILL)
+
+			for ; confirmed < 2; confirmed++ {
+				<-deadChan
+			}
+
+			return
+		}
+	}
+}
+
+func waitThenKill(proc *exec.Cmd, deadChan <-chan *exec.Cmd, timeout time.Duration) {
+	select {
+	case <-deadChan:
+
+	case <-time.After(timeout):
+		slog.Warn("Graceful shutdown timeout exceeded. Force killing...",
+			slog.Int("pid", proc.Process.Pid),
+			slog.Duration("timeout", timeout),
+		)
+
+		_ = proc.Process.Signal(syscall.SIGKILL)
+		<-deadChan
+	}
 }

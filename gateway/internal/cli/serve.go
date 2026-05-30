@@ -57,7 +57,7 @@ func init() {
 	)
 }
 
-func runServe(_ *cobra.Command, _ []string) error {
+func runServe(_ *cobra.Command, args []string) error {
 	// 1. Permission check, file lock, RAM check.
 	if err := AssertEnvPermissions(); err != nil {
 		return err
@@ -118,7 +118,12 @@ func runServe(_ *cobra.Command, _ []string) error {
 	}
 	defer removePIDFile()
 
-	return supervisor.NewController(cpuMask, artPaths, configEnv).Run()
+	opts := supervisor.ControllerOptions{
+		PrecacheFiles:  args,
+		PrecacheStrict: flagStrict,
+	}
+
+	return supervisor.NewController(cpuMask, artPaths, configEnv, opts).Run()
 }
 
 func acquireLockFile() (*os.File, error) {
