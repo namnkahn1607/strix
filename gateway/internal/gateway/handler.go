@@ -43,9 +43,17 @@ func (g *Gateway) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 3. Extract user prompt (zero allocation).
-	prompt, _, _, err := jsonparser.Get(reqBody, "prompt")
+	promptPath := g.PromptPath
+	if len(promptPath) == 0 {
+		promptPath = []string{"prompt"}
+	}
+
+	prompt, _, _, err := jsonparser.Get(reqBody, promptPath...)
 	if err != nil || len(prompt) == 0 {
-		slog.Warn("Missing or empty prompt field.", slog.Any("error", err))
+		slog.Warn("Missing or empty prompt field.",
+			slog.Any("path", promptPath),
+			slog.Any("error", err),
+		)
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return
 	}

@@ -28,6 +28,12 @@ var registry = []configField{
 		flagName: "endpoint",
 		isSecret: false,
 	},
+	{
+		envKey:   promptPathVar,
+		label:    "Prompt Path",
+		flagName: "prompt-path",
+		isSecret: false,
+	},
 }
 
 var configGetCmd = &cobra.Command{
@@ -36,20 +42,21 @@ var configGetCmd = &cobra.Command{
 	Long: `Reads ~/.strix/.env and prints configuration values.
  
   	(no flags)        print all fields; secrets are redacted
+	--apikey          print upstream API Key  (value is always redacted)
   	--endpoint        print upstream endpoint
-  	--apikey          print upstream API Key  (value is always redacted)`,
+	--prompt-path     print path to prompt field in request body`,
 	RunE: runConfigGet,
 }
 
 func runConfigGet(cmd *cobra.Command, _ []string) error {
-	envPath, pathErr := EnvFilePath()
-	if pathErr != nil {
-		return pathErr
+	envPath, err := EnvFilePath()
+	if err != nil {
+		return err
 	}
 
-	currEnv, readErr := godotenv.Read(envPath)
-	if readErr != nil {
-		return fmt.Errorf("cannot parse %s: %w", envPath, readErr)
+	currEnv, err := godotenv.Read(envPath)
+	if err != nil {
+		return fmt.Errorf("cannot parse %s: %w", envPath, err)
 	}
 
 	var selected []configField

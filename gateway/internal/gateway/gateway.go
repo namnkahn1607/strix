@@ -34,31 +34,29 @@ func Execute() {
 	// 1.2. Load HTTP Gateway's user configuration.
 	cfg, err := config.Load()
 	if err != nil {
-		slog.Error("An error occurred upon loading configuration.", slog.Any("error", err))
+		slog.Error("Failed to load configuration.", slog.Any("error", err))
 		return
 	}
 
+	slog.Info("Gateway configuration loaded.", slog.String("config", cfg.String()))
+
 	// 2. Apply GOMAXPROCS based on pinned CPU mask.
 	system.ApplyGoMaxProcs(cfg.Cores)
-	slog.Info("Set number of maximum procs for Go runtime.",
-		slog.Int("GOMAXPROCS", cfg.NumWorkers),
-	)
+	slog.Info("Applied GOMAXPROCS.", slog.Int("GOMAXPROCS", cfg.NumWorkers))
 
 	// 3. Connect to Vector Engine over gRPC UNIX Socket.
 	stub, conn, err := rpc.CreateStub()
 	if err != nil {
-		slog.Error("An error occurred upon creating gRPC stub.", slog.Any("error", err))
+		slog.Error("Failed to create gRPC stub.", slog.Any("error", err))
 		return
 	}
 
 	defer func() {
 		closeErr := conn.Close()
 		if closeErr != nil {
-			slog.Error("An error occurred upon closing gRPC connection.",
-				slog.Any("error", closeErr),
-			)
+			slog.Error("Failed to close gRPC connection.", slog.Any("error", closeErr))
 		} else {
-			slog.Info("Successfully closed gRPC connection.")
+			slog.Info("Closed gRPC connection.")
 		}
 	}()
 
@@ -67,9 +65,7 @@ func Execute() {
 
 	err = rpc.PollStub(context.Background(), stub)
 	if err != nil {
-		slog.Error("Failed to poll. Something has happened to Vector Engine.",
-			slog.Any("error", err),
-		)
+		slog.Error("Vector Engine unresponsive after polling.", slog.Any("error", err))
 		return
 	}
 
@@ -78,13 +74,14 @@ func Execute() {
 	defer l0Cache.Reset()
 
 	err = CreateGateway(Dependencies{
-		Stub:      stub,
-		L0Cache:   l0Cache,
-		Pool:      concurrent.NewWorkerPool(stub, cfg.NumWorkers),
-		HerdCtrl:  NewHerdController(),
-		IPLimiter: limit.NewLimiter(defWindowSize, defRateLimit, defTTLMs),
-		DeadChan:  deadChan,
-		LLMClient: llm.CreateClient(cfg.APIKey, cfg.Endpoint, llmReqTimeout),
+		Stub:       stub,
+		L0Cache:    l0Cache,
+		Pool:       concurrent.NewWorkerPool(stub, cfg.NumWorkers),
+		HerdCtrl:   NewHerdController(),
+		IPLimiter:  limit.NewLimiter(defWindowSize, defRateLimit, defTTLMs),
+		DeadChan:   deadChan,
+		LLMClient:  llm.CreateClient(cfg.APIKey, cfg.Endpoint, llmReqTimeout),
+		PromptPath: cfg.PromptPath,
 	}).Run()
 	if err != nil {
 		slog.Error("An error occurred in HTTP Gateway",
@@ -115,7 +112,7 @@ func waitDeathPipe() <-chan struct{} {
 			return
 		}
 
-		slog.Error("An error occurred upon reading Death Pipe", slog.Any("read_error", err))
+		slog.Error("Unexpected error reading Death Pipe", slog.Any("read_error", err))
 	}()
 
 	return ch

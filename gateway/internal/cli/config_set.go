@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	apiKeyVar   = "GATEWAY_UPSTREAM_APIKEY"
-	endpointVar = "GATEWAY_UPSTREAM_ENDPOINT"
+	apiKeyVar     = "GATEWAY_UPSTREAM_APIKEY"
+	endpointVar   = "GATEWAY_UPSTREAM_ENDPOINT"
+	promptPathVar = "GATEWAY_PROMPT_PATH"
 )
 
 var configSetCmd = &cobra.Command{
@@ -24,7 +25,7 @@ var configSetCmd = &cobra.Command{
 	Flags control which fields are updated; at least one flag is required.
 	--apikey                  prompt securely for upstream API Key
   	--endpoint <url>          overwrite upstream endpoint
-  	--endpoint <url> --apikey update both in a single run`,
+	--prompt-path <path>      comma-path to prompt field in request body`,
 	RunE: runConfigSet,
 }
 
@@ -32,31 +33,31 @@ func runConfigSet(cmd *cobra.Command, _ []string) error {
 	// 1. Check for modifying configurations.
 	wantAPIKey := cmd.Flags().Changed("apikey")
 	wantEndpoint := cmd.Flags().Changed("endpoint")
+	wantPromptPath := cmd.Flags().Changed("prompt-path")
 
-	if !wantAPIKey && !wantEndpoint {
+	if !wantAPIKey && !wantEndpoint && !wantPromptPath {
 		return fmt.Errorf("no flags provided - please specify")
 	}
 
 	// 2. Check if service is running or not.
-	if pid, running, checkErr := IsInstanceRunning(); checkErr != nil {
-		return fmt.Errorf("cannot check status: %w", checkErr)
+	if pid, running, err := IsInstanceRunning(); err != nil {
+		return fmt.Errorf("cannot check status: %w", err)
 	} else if running {
 		return fmt.Errorf(
-			"[strix config] ERROR: Cannot mutate config while Strix is "+
-				"running (PID: %d). "+
+			"cannot mutate config while Strix is running (PID: %d). "+
 				"Please stop the server first with 'strix stop'", pid,
 		)
 	}
 
 	// 3. Read env-var map.
-	envPath, pathErr := EnvFilePath()
-	if pathErr != nil {
-		return pathErr
+	envPath, err := EnvFilePath()
+	if err != nil {
+		return err
 	}
 
-	currEnv, readErr := godotenv.Read(envPath)
-	if readErr != nil {
-		return fmt.Errorf("cannot parse %s: %w", envPath, readErr)
+	currEnv, err := godotenv.Read(envPath)
+	if err != nil {
+		return fmt.Errorf("cannot parse %s: %w", envPath, err)
 	}
 
 	// 4. Modify specified configurations.
@@ -67,7 +68,7 @@ func runConfigSet(cmd *cobra.Command, _ []string) error {
 		}
 
 		if apiKey == "" {
-			return fmt.Errorf("API Key must not be empty")
+			return fmt.Errorf("--apikey requires a non-empty key")
 		}
 
 		currEnv[apiKeyVar] = apiKey
@@ -81,13 +82,22 @@ func runConfigSet(cmd *cobra.Command, _ []string) error {
 		currEnv[endpointVar] = flagSetEndpoint
 	}
 
+	if wantPromptPath {
+		promptErr := validatePromptPath(flagSetPromptPath)
+		if promptErr != nil {
+			return fmt.Errorf("invalid Prompt Path: %w", promptErr)
+		}
+
+		currEnv[promptPathVar] = flagSetPromptPath
+	}
+
 	// 5. Write specified configurations to disk.
 	if writeErr := godotenv.Write(currEnv, envPath); writeErr != nil {
 		return fmt.Errorf("cannot write to %s: %w", envPath, writeErr)
 	}
 
 	if chmodErr := os.Chmod(envPath, ownPermission); chmodErr != nil {
-		return fmt.Errorf("SECURITY: cannot enforce 0600 after write: %w", chmodErr)
+		return fmt.Errorf("cannot enforce 0600 after write: %w", chmodErr)
 	}
 
 	fmt.Printf("[strix config] Changes saved to %s\n", envPath)
@@ -106,4 +116,18 @@ func promptSecret(fieldName string) (string, error) {
 	}
 
 	return strings.TrimSpace(string(rawKey)), nil
+}
+
+func validatePromptPath(s string) error {
+	if s == "" {
+		return fmt.Errorf("path must not be empty")
+	}
+
+	for _, part := range strings.Split(s, ",") {
+		if strings.TrimSpace(part) == "" {
+			return fmt.Errorf("empty segment in path %q", s)
+		}
+	}
+
+	return nil
 }
