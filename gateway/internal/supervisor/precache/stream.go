@@ -2,6 +2,7 @@ package precache
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -91,14 +92,10 @@ func (p *Pipeline) parseLine(
 		)
 	}
 
-	rec := &record{
-		Prompt:  make([]byte, len(rawPrompt)),
-		Payload: make([]byte, len(rawPayload)),
-	}
-
-	copy(rec.Prompt, rawPrompt)
-	copy(rec.Payload, rawPayload)
-	return rec, nil
+	return &record{
+		Prompt:  bytes.Clone(rawPrompt),
+		Payload: bytes.Clone(rawPayload),
+	}, nil
 }
 
 func (p *Pipeline) handleMalformed(
