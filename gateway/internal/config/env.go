@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	apiKeyVar   = "GATEWAY_APIKEY"
-	endpointVar = "GATEWAY_ENDPOINT"
+	apiKeyVar   = "GATEWAY_UPSTREAM_APIKEY"
+	endpointVar = "GATEWAY_UPSTREAM_ENDPOINT"
 )
 
 type GatewayConfig struct {

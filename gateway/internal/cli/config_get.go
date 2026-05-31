@@ -17,13 +17,13 @@ type configField struct {
 
 var registry = []configField{
 	{
-		envKey:   "GATEWAY_APIKEY",
+		envKey:   apiKeyVar,
 		label:    "API Key",
 		flagName: "apikey",
 		isSecret: true,
 	},
 	{
-		envKey:   "GATEWAY_ENDPOINT",
+		envKey:   endpointVar,
 		label:    "Endpoint",
 		flagName: "endpoint",
 		isSecret: false,
@@ -36,8 +36,8 @@ var configGetCmd = &cobra.Command{
 	Long: `Reads ~/.strix/.env and prints configuration values.
  
   	(no flags)        print all fields; secrets are redacted
-  	--endpoint        print GATEWAY_ENDPOINT
-  	--apikey          print GATEWAY_APIKEY  (value is always redacted)`,
+  	--endpoint        print upstream endpoint
+  	--apikey          print upstream API Key  (value is always redacted)`,
 	RunE: runConfigGet,
 }
 

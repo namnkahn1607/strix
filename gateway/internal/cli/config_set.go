@@ -10,6 +10,11 @@ import (
 	"golang.org/x/term"
 )
 
+const (
+	apiKeyVar   = "GATEWAY_UPSTREAM_APIKEY"
+	endpointVar = "GATEWAY_UPSTREAM_ENDPOINT"
+)
+
 var configSetCmd = &cobra.Command{
 	Use:   "set",
 	Short: "Set one or more config values in ~/.strix/.env",
@@ -17,8 +22,8 @@ var configSetCmd = &cobra.Command{
 	The file must exist (run 'strix init' first) and must have permission 0600.
  
 	Flags control which fields are updated; at least one flag is required.
-  	--endpoint <url>          overwrite GATEWAY_ENDPOINT
-  	--apikey                  prompt securely for GATEWAY_APIKEY
+	--apikey                  prompt securely for upstream API Key
+  	--endpoint <url>          overwrite upstream endpoint
   	--endpoint <url> --apikey update both in a single run`,
 	RunE: runConfigSet,
 }
@@ -65,7 +70,7 @@ func runConfigSet(cmd *cobra.Command, _ []string) error {
 			return fmt.Errorf("API Key must not be empty")
 		}
 
-		currEnv["GATEWAY_APIKEY"] = apiKey
+		currEnv[apiKeyVar] = apiKey
 	}
 
 	if wantEndpoint {
@@ -73,7 +78,7 @@ func runConfigSet(cmd *cobra.Command, _ []string) error {
 			return fmt.Errorf("--endpoint requires a non-empty URL")
 		}
 
-		currEnv["GATEWAY_ENDPOINT"] = flagSetEndpoint
+		currEnv[endpointVar] = flagSetEndpoint
 	}
 
 	// 5. Write specified configurations to disk.
