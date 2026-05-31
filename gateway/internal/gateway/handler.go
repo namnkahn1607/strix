@@ -3,52 +3,58 @@ package gateway
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	pb "gateway/pb/proto"
-	"log"
+	"io"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/VictoriaMetrics/fastcache"
+	"github.com/buger/jsonparser"
 )
 
 const (
-	serviceTimeout = 50 * time.Millisecond
+	cacheOnlyHeader = "X-Strix-Cache-Only"
 
 	maxReaderSize    = 1024 * 1024 // 1MB
 	maxPromptLen     = 1536        // 1536B
 	maxL0PayloadSize = 64 * 1024   // 64KB
+
+	serviceTimeout = 50 * time.Millisecond
 )
 
-type CheckCacheAPIRequest struct {
-	Prompt  []byte `json:"prompt"`
-	LLMBody []byte `json:"llm_body"`
-}
-
 func (g *Gateway) Handle(w http.ResponseWriter, r *http.Request) {
-	// 1. Validates the request method to be POST.
+	// 1. Validate the request method to be POST.
+	cacheOnly := r.Header.Get(cacheOnlyHeader) == "true"
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// 2. Decode the JSON body
-	var apiReq CheckCacheAPIRequest
+	// 2. Read request body into memory.
 	r.Body = http.MaxBytesReader(w, r.Body, maxReaderSize)
 
-	decErr := json.NewDecoder(r.Body).Decode(&apiReq)
-	if decErr != nil {
-		log.Printf("[Gateway] Decoding error: %v\n", decErr)
+	reqBody, err := io.ReadAll(r.Body)
+	if err != nil {
+		slog.Warn("Failed to read request body.", slog.Any("error", err))
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return
 	}
 
-	// 3.1. Compute SHA-256 hashcode of the prompt.
-	hash := sha256.Sum256(apiReq.Prompt)
+	// 3. Extract user prompt (zero allocation).
+	prompt, _, _, err := jsonparser.Get(reqBody, "prompt")
+	if err != nil || len(prompt) == 0 {
+		slog.Warn("Missing or empty prompt field.", slog.Any("error", err))
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+
+	// 4.1. Compute SHA-256 hashcode of the prompt.
+	hash := sha256.Sum256(prompt)
 	hashKey := hash[:]
 
-	// 3.2. Check on Exact-match Cache using hashcode.
-	// If hit, return immediately.
+	// 5. Exact-match cache check - fastest, no gRPC involved.
 	matchedPayload := g.L0Cache.Get(nil, hashKey)
 	if matchedPayload != nil {
 		writePayload(w, matchedPayload)
@@ -56,11 +62,14 @@ func (g *Gateway) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fallbackToLLM := func() ([]byte, error) {
-		payload, llmErr := g.LLMClient.Generate(
-			r.Context(), apiReq.LLMBody,
-		)
+		if cacheOnly {
+			http.Error(w, "Not Found", http.StatusNotFound)
+			return nil, nil
+		}
+
+		payload, llmErr := g.LLMClient.Generate(r.Context(), reqBody)
 		if llmErr != nil {
-			log.Printf("[Gateway] LLM error: %v\n", llmErr)
+			slog.Warn("Failed to dial LLM Provider.", slog.Any("error", llmErr))
 			http.Error(w, "Bad Gateway", http.StatusBadGateway)
 			return nil, llmErr
 		}
@@ -70,26 +79,24 @@ func (g *Gateway) Handle(w http.ResponseWriter, r *http.Request) {
 		return payload, nil
 	}
 
-	// 4. Prompts longer than 1536 bytes are forward to LLM Provider.
-	if len(apiReq.Prompt) > maxPromptLen {
+	// 5. Prompts exceeding maxPromptLen bypass Vector Engine entirely.
+	if len(prompt) > maxPromptLen {
 		_, _ = fallbackToLLM()
 		return
 	}
 
-	// 5. Short prompts are handled to Vector Engine via gRPC.
+	// 6. Short prompts: semantic cache lookup via gRPC to Vector Engine.
 	ctx, cancel := context.WithTimeout(r.Context(), serviceTimeout)
 	defer cancel()
 
-	grpcRes, rpcErr := g.Stub.CheckCache(
-		ctx, &pb.CheckCacheRequest{Prompt: apiReq.Prompt},
-	)
-	if rpcErr != nil {
-		log.Printf("[Gateway] Read RPC error: %v\n", rpcErr)
+	grpcRes, err := g.Stub.CheckCache(ctx, &pb.CheckCacheRequest{Prompt: prompt})
+	if err != nil {
+		slog.Warn("Failed to read cached payload.", slog.Any("error", err))
 		_, _ = fallbackToLLM()
 		return
 	}
 
-	// 6. Investigate returned state and act correspondingly.
+	// 7. Investigate returned state and act correspondingly.
 	nodeID := grpcRes.GetNodeId()
 
 	switch grpcRes.GetCheckState() {
@@ -97,6 +104,7 @@ func (g *Gateway) Handle(w http.ResponseWriter, r *http.Request) {
 		writePayload(w, grpcRes.GetCachedPayload())
 
 	case pb.CacheState_CACHE_STATE_MISS:
+		// Load shedding from Vector Engine - bypass cache write
 		if nodeID == -1 {
 			_, _ = fallbackToLLM()
 			return
@@ -106,8 +114,7 @@ func (g *Gateway) Handle(w http.ResponseWriter, r *http.Request) {
 		var llmPayload []byte
 		var llmErr error
 
-		// Guarantee pioneerFulfill getting called exactly ONCE,
-		// hence avoiding leaked herd goroutines.
+		// Guarantee Fulfill is called exactly once to avoid herd goroutine leaks
 		defer func() {
 			g.HerdCtrl.Fulfill(nodeID, promise, llmPayload, llmErr)
 		}()
@@ -118,9 +125,7 @@ func (g *Gateway) Handle(w http.ResponseWriter, r *http.Request) {
 		}
 
 	case pb.CacheState_CACHE_STATE_PENDING:
-		payload, pioneerErr, selfCancelled, found := g.HerdCtrl.Await(
-			r.Context(), nodeID,
-		)
+		payload, pioneerErr, selfCancelled, found := g.HerdCtrl.Await(r.Context(), nodeID)
 
 		if selfCancelled {
 			return
@@ -146,9 +151,11 @@ func (g *Gateway) Handle(w http.ResponseWriter, r *http.Request) {
 func writePayload(w http.ResponseWriter, payload []byte) {
 	w.Header().Set("Content-Type", "application/json")
 
-	_, writeErr := w.Write(payload)
-	if writeErr != nil {
-		log.Printf("[Gateway] Response writing error: %v\n", writeErr)
+	_, err := w.Write(payload)
+	if err != nil {
+		slog.Warn("An error occurred upon writing HTTP response.",
+			slog.Any("error", err),
+		)
 	}
 }
 
