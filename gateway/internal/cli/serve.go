@@ -58,11 +58,11 @@ func init() {
 
 func runServe(_ *cobra.Command, args []string) error {
 	// 1. Permission check, file lock, RAM check.
-	if err := AssertEnvPermissions(); err != nil {
+	if err := assertEnvPermissions(); err != nil {
 		return err
 	}
 
-	lockFile, err := AcquireLockFile()
+	lockFile, err := acquireLockFile()
 	if err != nil {
 		return err
 	}
@@ -100,7 +100,7 @@ func runServe(_ *cobra.Command, args []string) error {
 	)
 
 	// 4. Read ~/.strix/.env to get API key and endpoint.
-	envPath, err := EnvFilePath()
+	envPath, err := envFilePath()
 	if err != nil {
 		return err
 	}
@@ -126,7 +126,7 @@ func runServe(_ *cobra.Command, args []string) error {
 }
 
 func writePIDFile() error {
-	pidPath, err := PIDFilePath()
+	pidPath, err := pidFilePath()
 	if err != nil {
 		return err
 	}
@@ -146,7 +146,7 @@ func writePIDFile() error {
 }
 
 func removePIDFile() {
-	pidPath, err := PIDFilePath()
+	pidPath, err := pidFilePath()
 	if err != nil {
 		return
 	}

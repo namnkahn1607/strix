@@ -112,7 +112,7 @@ func buildRequestBody(prompt string) ([]byte, error) {
 }
 
 func loadTemplatePath() (string, error) {
-	envPath, err := EnvFilePath()
+	envPath, err := envFilePath()
 	if err != nil {
 		return "", err
 	}

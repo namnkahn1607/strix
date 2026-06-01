@@ -55,7 +55,7 @@ var configGetCmd = &cobra.Command{
 }
 
 func runConfigGet(cmd *cobra.Command, _ []string) error {
-	envPath, err := EnvFilePath()
+	envPath, err := envFilePath()
 	if err != nil {
 		return err
 	}

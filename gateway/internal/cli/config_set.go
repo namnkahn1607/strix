@@ -46,7 +46,7 @@ func runConfigSet(cmd *cobra.Command, _ []string) error {
 	}
 
 	// 2. Check if Strix is serving or not.
-	lockFile, err := AcquireLockFile()
+	lockFile, err := acquireLockFile()
 	if err != nil {
 		if errors.Is(err, ErrIsServing) {
 			return fmt.Errorf(
@@ -61,7 +61,7 @@ func runConfigSet(cmd *cobra.Command, _ []string) error {
 	_ = lockFile.Close()
 
 	// 3. Read env-var map.
-	envPath, err := EnvFilePath()
+	envPath, err := envFilePath()
 	if err != nil {
 		return err
 	}
