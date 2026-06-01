@@ -2,14 +2,23 @@ package cli
 
 import "github.com/spf13/cobra"
 
-var (
-	flagSetAPIKey     bool
-	flagSetEndpoint   string
-	flagSetPromptPath string
+const (
+	apiKeyFlag       = "apikey"
+	endpointFlag     = "endpoint"
+	promptPathFlag   = "prompt-flag"
+	templatePathFlag = "template-flag"
+)
 
-	flagGetAPIKey     bool
-	flagGetEndpoint   bool
-	flagGetPromptPath bool
+var (
+	flagSetAPIKey       bool
+	flagSetEndpoint     string
+	flagSetPromptPath   string
+	flagSetTemplatePath string
+
+	flagGetAPIKey       bool
+	flagGetEndpoint     bool
+	flagGetPromptPath   bool
+	flagGetTemplatePath bool
 )
 
 var configCmd = &cobra.Command{
@@ -28,6 +37,9 @@ func init() {
 	configSetCmd.Flags().StringVar(&flagSetPromptPath, "prompt-path", "",
 		`comma-separated path to prompt field (e.g. "messages,1,content")`,
 	)
+	configSetCmd.Flags().StringVar(&flagSetTemplatePath, "template-path", "",
+		"path to LLM request template file used by 'strix ask -l'",
+	)
 
 	// get flags
 	configGetCmd.Flags().BoolVar(&flagGetAPIKey, "apikey", false,
@@ -38,6 +50,9 @@ func init() {
 	)
 	configGetCmd.Flags().BoolVar(&flagGetPromptPath, "prompt-path", false,
 		"show configured path to prompt of user request body",
+	)
+	configGetCmd.Flags().BoolVar(&flagGetTemplatePath, "template-path", false,
+		"show configured path to LLM request template",
 	)
 
 	configCmd.AddCommand(configSetCmd)

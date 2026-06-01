@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"strings"
@@ -11,9 +12,10 @@ import (
 )
 
 const (
-	apiKeyVar     = "GATEWAY_UPSTREAM_APIKEY"
-	endpointVar   = "GATEWAY_UPSTREAM_ENDPOINT"
-	promptPathVar = "GATEWAY_PROMPT_PATH"
+	apiKeyVar       = "GATEWAY_UPSTREAM_APIKEY"
+	endpointVar     = "GATEWAY_UPSTREAM_ENDPOINT"
+	promptPathVar   = "GATEWAY_PROMPT_PATH"
+	templatePathVar = "ASK_TEMPLATE_PATH"
 )
 
 var configSetCmd = &cobra.Command{
@@ -25,17 +27,20 @@ var configSetCmd = &cobra.Command{
 	Flags control which fields are updated; at least one flag is required.
 	--apikey                  prompt securely for upstream API Key
   	--endpoint <url>          overwrite upstream endpoint
-	--prompt-path <path>      comma-path to prompt field in request body`,
+	--prompt-path <path>      comma-path to prompt field in request body
+	--template-path <path>    path to LLM request template file for 'strix ask -l'
+							  template must contain {{STRIX_PROMPT}} placeholder`,
 	RunE: runConfigSet,
 }
 
 func runConfigSet(cmd *cobra.Command, _ []string) error {
 	// 1. Check for modifying configurations.
-	wantAPIKey := cmd.Flags().Changed("apikey")
-	wantEndpoint := cmd.Flags().Changed("endpoint")
+	wantAPIKey := cmd.Flags().Changed(apiKeyFlag)
+	wantEndpoint := cmd.Flags().Changed(endpointFlag)
 	wantPromptPath := cmd.Flags().Changed("prompt-path")
+	wantTemplatePath := cmd.Flags().Changed("template-path")
 
-	if !wantAPIKey && !wantEndpoint && !wantPromptPath {
+	if !wantAPIKey && !wantEndpoint && !wantPromptPath && !wantTemplatePath {
 		return fmt.Errorf("no flags provided - please specify")
 	}
 
@@ -91,6 +96,15 @@ func runConfigSet(cmd *cobra.Command, _ []string) error {
 		currEnv[promptPathVar] = flagSetPromptPath
 	}
 
+	if wantTemplatePath {
+		templateErr := validateTemplatePath(flagSetTemplatePath)
+		if templateErr != nil {
+			return fmt.Errorf("invalid Template Path: %w", templateErr)
+		}
+
+		currEnv[templatePathVar] = flagSetTemplatePath
+	}
+
 	// 5. Write specified configurations to disk.
 	if writeErr := godotenv.Write(currEnv, envPath); writeErr != nil {
 		return fmt.Errorf("cannot write to %s: %w", envPath, writeErr)
@@ -118,15 +132,32 @@ func promptSecret(fieldName string) (string, error) {
 	return strings.TrimSpace(string(rawKey)), nil
 }
 
-func validatePromptPath(s string) error {
-	if s == "" {
-		return fmt.Errorf("path must not be empty")
+func validatePromptPath(path string) error {
+	if path == "" {
+		return fmt.Errorf("--prompt-path requires a non-empty path")
 	}
 
-	for _, part := range strings.Split(s, ",") {
+	for _, part := range strings.Split(path, ",") {
 		if strings.TrimSpace(part) == "" {
-			return fmt.Errorf("empty segment in path %q", s)
+			return fmt.Errorf("empty segment in path %q", path)
 		}
+	}
+
+	return nil
+}
+
+func validateTemplatePath(path string) error {
+	if path == "" {
+		return fmt.Errorf("--template-path requires a non-empty path")
+	}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("cannot read %q: %w", path, err)
+	}
+
+	if !bytes.Contains(content, []byte(promptPlaceholder)) {
+		return fmt.Errorf("%q does not contain placeholder %s", path, promptPlaceholder)
 	}
 
 	return nil

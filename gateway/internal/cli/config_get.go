@@ -19,19 +19,25 @@ var registry = []configField{
 	{
 		envKey:   apiKeyVar,
 		label:    "API Key",
-		flagName: "apikey",
+		flagName: apiKeyFlag,
 		isSecret: true,
 	},
 	{
 		envKey:   endpointVar,
 		label:    "Endpoint",
-		flagName: "endpoint",
+		flagName: endpointFlag,
 		isSecret: false,
 	},
 	{
 		envKey:   promptPathVar,
 		label:    "Prompt Path",
-		flagName: "prompt-path",
+		flagName: promptPathFlag,
+		isSecret: false,
+	},
+	{
+		envKey:   templatePathVar,
+		label:    "Template Path",
+		flagName: templatePathFlag,
 		isSecret: false,
 	},
 }
