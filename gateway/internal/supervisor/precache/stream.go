@@ -11,6 +11,8 @@ import (
 	"github.com/buger/jsonparser"
 )
 
+const maxLineSize = 10 * 1024 * 1024
+
 type record struct {
 	Prompt  []byte
 	Payload []byte
@@ -20,9 +22,7 @@ type record struct {
 // records into jobs.
 //   - In normal mode, malformed lines are logged and skipped.
 //   - In strict mode, the first malformed line aborts the entire pipeline.
-func (p *Pipeline) streamRecords(
-	ctx context.Context, jobs chan<- record,
-) error {
+func (p *Pipeline) streamRecords(ctx context.Context, jobs chan<- record) error {
 	for _, filePath := range p.files {
 		err := p.streamFile(ctx, filePath, jobs)
 		if err != nil {
@@ -33,9 +33,7 @@ func (p *Pipeline) streamRecords(
 	return nil
 }
 
-func (p *Pipeline) streamFile(
-	ctx context.Context, filePath string, jobs chan<- record,
-) error {
+func (p *Pipeline) streamFile(ctx context.Context, filePath string, jobs chan<- record) error {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return fmt.Errorf("cannot open %s: %w", filePath, err)
@@ -44,7 +42,10 @@ func (p *Pipeline) streamFile(
 		_ = file.Close()
 	}()
 
+	buf := make([]byte, 64*1024)
 	scanner := bufio.NewScanner(file)
+	scanner.Buffer(buf, maxLineSize)
+
 	lineNum := 0
 
 	for scanner.Scan() {
@@ -63,7 +64,7 @@ func (p *Pipeline) streamFile(
 			return parseErr
 		}
 
-		if rec != nil {
+		if rec == nil {
 			continue
 		}
 
@@ -73,9 +74,7 @@ func (p *Pipeline) streamFile(
 	return scanner.Err()
 }
 
-func (p *Pipeline) parseLine(
-	line []byte, filePath string, lineNum int,
-) (*record, error) {
+func (p *Pipeline) parseLine(line []byte, filePath string, lineNum int) (*record, error) {
 	rawPrompt, _, _, err := jsonparser.Get(line, "prompt")
 	if err != nil {
 		return nil, p.handleMalformed(filePath, lineNum, err)
@@ -98,9 +97,7 @@ func (p *Pipeline) parseLine(
 	}, nil
 }
 
-func (p *Pipeline) handleMalformed(
-	filePath string, lineNum int, err error,
-) error {
+func (p *Pipeline) handleMalformed(filePath string, lineNum int, err error) error {
 	if p.strict {
 		return fmt.Errorf("malformed JSON line at %s:%d", filePath, lineNum)
 	}
