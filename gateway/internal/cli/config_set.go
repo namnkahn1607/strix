@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -44,15 +45,20 @@ func runConfigSet(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("no flags provided - please specify")
 	}
 
-	// 2. Check if service is running or not.
-	if pid, running, err := IsInstanceRunning(); err != nil {
-		return fmt.Errorf("cannot check status: %w", err)
-	} else if running {
-		return fmt.Errorf(
-			"cannot mutate config while Strix is running (PID: %d). "+
-				"Please stop the server first with 'strix stop'", pid,
-		)
+	// 2. Check if Strix is serving or not.
+	lockFile, err := AcquireLockFile()
+	if err != nil {
+		if errors.Is(err, ErrIsServing) {
+			return fmt.Errorf(
+				"cannot mutate config while Strix is running - " +
+					"stop it first with 'strix stop'",
+			)
+		}
+
+		return fmt.Errorf("cannot check server status: %w", err)
 	}
+
+	_ = lockFile.Close()
 
 	// 3. Read env-var map.
 	envPath, err := EnvFilePath()

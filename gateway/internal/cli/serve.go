@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
-	"syscall"
 
 	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
@@ -63,7 +62,7 @@ func runServe(_ *cobra.Command, args []string) error {
 		return err
 	}
 
-	lockFile, err := acquireLockFile()
+	lockFile, err := AcquireLockFile()
 	if err != nil {
 		return err
 	}
@@ -124,35 +123,6 @@ func runServe(_ *cobra.Command, args []string) error {
 	}
 
 	return supervisor.NewController(cpuMask, artPaths, configEnv, opts).Run()
-}
-
-func acquireLockFile() (*os.File, error) {
-	lockPath, err := LockFilePath()
-	if err != nil {
-		return nil, err
-	}
-
-	file, err := os.OpenFile(
-		lockPath, os.O_CREATE|syscall.O_CLOEXEC, ownPermission,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("cannot create lock file: %w", err)
-	}
-
-	err = syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
-	if err != nil {
-		_ = file.Close()
-		if errors.Is(err, syscall.EWOULDBLOCK) ||
-			errors.Is(err, syscall.EAGAIN) {
-			return nil, fmt.Errorf(
-				"another Strix instance is already running",
-			)
-		}
-
-		return nil, fmt.Errorf("cannot acquire OS lock: %w", err)
-	}
-
-	return file, nil
 }
 
 func writePIDFile() error {

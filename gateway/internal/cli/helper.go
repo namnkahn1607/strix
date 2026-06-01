@@ -15,6 +15,8 @@ const (
 	lockFileName = "strix.lock"
 )
 
+var ErrIsServing = errors.New("another strix serve is running")
+
 // AssertEnvPermissions returns an error if ~/.strix/.env has permissions
 // wider than 0600. Called by 'strix serve' as a boot-time security check.
 func AssertEnvPermissions() error {
@@ -36,6 +38,35 @@ func AssertEnvPermissions() error {
 	}
 
 	return nil
+}
+
+// AcquireLockFile opens ~/.strix/strix.lock and attempts to acquire an
+// exclusive non-blocking flock on it. Returns:
+// * (file, nil) on success - caller must close the file to release
+// the lock (typically via defer).
+// * (nil, ErrInstanceRunning) if the lock is already held by another
+// 'strix serve' process (EWOULDBLOCK / EAGAIN).
+// * (nil, err) for any other I/O failure.
+func AcquireLockFile() (*os.File, error) {
+	lockPath, err := LockFilePath()
+	if err != nil {
+		return nil, err
+	}
+
+	file, err := os.OpenFile(lockPath, os.O_CREATE|syscall.O_CLOEXEC, ownPermission)
+	if err != nil {
+		return nil, fmt.Errorf("cannot open/create lock file %s: %w", lockPath, err)
+	}
+
+	err = syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+	if err != nil {
+		_ = file.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+			return nil, ErrIsServing
+		}
+	}
+
+	return file, nil
 }
 
 // IsInstanceRunning reads ~/.strix/strix.pid and checks whether the
