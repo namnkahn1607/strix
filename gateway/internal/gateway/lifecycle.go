@@ -3,7 +3,7 @@ package gateway
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -17,9 +17,7 @@ func (g *Gateway) Run() error {
 	serverErrChan := make(chan error, 1)
 
 	go func() {
-		log.Printf(
-			"[Gateway] HTTP Server listening on %s\n", g.httpServer.Addr,
-		)
+		slog.Info("HTTP Server is listening", slog.String("address", g.httpServer.Addr))
 
 		serveErr := g.httpServer.ListenAndServe()
 		if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
@@ -34,33 +32,29 @@ func (g *Gateway) Run() error {
 
 	select {
 	case <-g.DeadChan:
-		log.Println("[Gateway] Death Pipe EOF. Initiating shutdown...")
+		slog.Info("Death Pipe EOF. HTTP Gateway shutting down...")
 
 	case serverErr := <-serverErrChan:
 		runErr = serverErr
-		log.Printf("[Gateway] HTTP Server crashed: %v\n", serverErr)
+		slog.Warn("HTTP Server crashed.", slog.Any("error", serverErr))
 
 	case sig := <-sigChan:
-		log.Printf(
-			"[Gateway] Received signal %v. Initiating shutdown...\n", sig,
+		slog.Info("Received OS signal. HTTP Gateway shutting down...",
+			slog.Any("os_signal", sig),
 		)
 	}
 
-	shutdownCtx, shutdownCancel := context.WithTimeout(
-		context.Background(), shutdownTimeout,
-	)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer shutdownCancel()
 
-	log.Println("[Gateway] Stopping HTTP Server...")
-
-	stopErr := g.httpServer.Shutdown(shutdownCtx)
-	if stopErr != nil {
-		log.Printf("[Gateway] HTTP Server stop error: %v\n", stopErr)
+	err := g.httpServer.Shutdown(shutdownCtx)
+	if err != nil {
+		slog.Warn("Failed to stop HTTP Server.", slog.Any("error", err))
 	}
 
-	poolErr := g.Pool.Stop(shutdownCtx)
-	if poolErr != nil {
-		log.Printf("[Gateway] Worker Pool stop error: %v\n", poolErr)
+	err = g.Pool.Stop(shutdownCtx)
+	if err != nil {
+		slog.Warn("Failed to stop Worker Pool.", slog.Any("error", err))
 	}
 
 	g.IPLimiter.Stop()

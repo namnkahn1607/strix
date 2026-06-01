@@ -3,7 +3,7 @@ package concurrent
 import (
 	"context"
 	pb "gateway/pb/proto"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 )
@@ -39,6 +39,7 @@ func NewWorkerPool(stub pb.CacheServiceClient, numWorkers int) *WorkerPool {
 func (wp *WorkerPool) TryEnqueue(nodeID int32, payload []byte) {
 	select {
 	case wp.queue <- Job{NodeID: nodeID, Payload: payload}:
+
 	default:
 		// Silent drop in case cannot schedule more job
 	}
@@ -56,10 +57,10 @@ func (wp *WorkerPool) Stop(ctx context.Context) error {
 	select {
 	case <-drained:
 		return nil
+
 	case <-ctx.Done():
-		log.Printf(
-			"[WorkerPool] Stop deadline exceeded (%v): "+
-				"abandoning remaining jobs in queue\n", ctx.Err(),
+		slog.Warn("Stop deadline exceeded, abandoning remaining jobs in queue",
+			slog.Any("error", ctx.Err()),
 		)
 
 		return ctx.Err()
@@ -71,16 +72,17 @@ func (wp *WorkerPool) runWorker(stub pb.CacheServiceClient) {
 	for job := range wp.queue {
 		ctx, cancel := context.WithTimeout(context.Background(), jobTimeout)
 
-		_, rpcErr := stub.SetCache(ctx, &pb.SetCacheRequest{
+		_, err := stub.SetCache(ctx, &pb.SetCacheRequest{
 			NodeId:          job.NodeID,
 			UncachedPayload: job.Payload,
 		})
 
 		cancel()
 
-		if rpcErr != nil {
-			log.Printf("[WorkerPool] RPC Write failed for nodeID = %d: %v\n",
-				job.NodeID, rpcErr,
+		if err != nil {
+			slog.Warn("Failed to write uncached payload",
+				slog.Int("node_id", int(job.NodeID)),
+				slog.Any("error", err),
 			)
 		}
 	}
