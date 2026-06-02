@@ -204,11 +204,12 @@ func buildEngineEnv(
 	coreMask string,
 	configEnv map[string]string,
 ) []string {
-	env := []string{
-		"TOKENIZER_PATH=" + paths.TokPath,
-		"TRANSFORMER_PATH=" + paths.BertPath,
-		"ENGINE_CORES=" + coreMask,
-	}
+	env := os.Environ()
+	env = append(env,
+		"TOKENIZER_PATH="+paths.TokPath,
+		"TRANSFORMER_PATH="+paths.BertPath,
+		"ENGINE_CORES="+coreMask,
+	)
 
 	for key, value := range configEnv {
 		if strings.HasPrefix(key, "ENGINE_") {
@@ -223,10 +224,11 @@ func buildGatewayEnv(
 	coreMask string,
 	configEnv map[string]string,
 ) []string {
-	env := []string{
+	env := os.Environ()
+	env = append(env,
 		"STRIX_GATEWAY=1",
-		"GATEWAY_CORES=" + coreMask,
-	}
+		"GATEWAY_CORES="+coreMask,
+	)
 
 	for key, value := range configEnv {
 		if strings.HasPrefix(key, "GATEWAY_") {
