@@ -15,7 +15,7 @@ type ControllerOptions struct {
 
 // runPrecache creates a gRPC stub, polls until the Vector Engine is ready,
 // then runs the precache pipeline.
-func (c *Controller) runPrecache() error {
+func (c *Controller) runPrecache(ctx context.Context) error {
 	stub, conn, err := rpc.CreateStub()
 	if err != nil {
 		return fmt.Errorf("cannot create gRPC stub for precache: %w", err)
@@ -35,5 +35,5 @@ func (c *Controller) runPrecache() error {
 	)
 
 	pipeline := precache.NewPipeLine(stub, c.opts.PrecacheFiles, c.opts.PrecacheStrict)
-	return pipeline.Run(context.Background())
+	return pipeline.Run(ctx)
 }

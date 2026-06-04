@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"context"
 	"fmt"
 	system "gateway/internal/sys"
 	"log/slog"
@@ -28,19 +29,39 @@ type Controller struct {
 func NewController(
 	mask system.MaskCPU,
 	paths ProjectPath,
-	env map[string]string,
+	configEnv map[string]string,
 	opts ControllerOptions,
 ) *Controller {
 	return &Controller{
 		mask:      mask,
 		paths:     paths,
-		configEnv: env,
+		configEnv: configEnv,
 		opts:      opts,
 	}
 }
 
 func (c *Controller) Run() error {
-	// 1. Create 2 Death Pipes for HTTP Gateway and Vector Engine.
+	// 1. Trap SIGINT / SIGTERM from OS
+	ctx, cancelCtx := context.WithCancel(context.Background())
+	defer cancelCtx()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigChan)
+
+	go func() {
+		select {
+		case <-sigChan:
+			cancelCtx()
+
+		case <-ctx.Done():
+			// Run() is returning normally - exit cleanly
+		}
+	}()
+
+	deadChan := make(chan *exec.Cmd, 2)
+
+	// 2. Create 2 Death Pipes for HTTP Gateway and Vector Engine.
 	readB, writeB, err := os.Pipe()
 	if err != nil {
 		return fmt.Errorf("cannot create Gateway Death Pipe: %w", err)
@@ -51,40 +72,14 @@ func (c *Controller) Run() error {
 		return fmt.Errorf("cannot create Engine Death Pipe: %w", err)
 	}
 
-	// 2. Fork process C - running Vector Engine.
+	// 3. Fork process C - running Vector Engine.
 	engineProc, err := forkEngine(c.paths, c.mask.EngineCores, readC, c.configEnv)
 	if err != nil {
 		closePipeEnd(readB, writeB, readC, writeC)
 		return err
 	}
 
-	closePipeEnd(readC)
-	slog.Info("Vector Engine has started", slog.Int("pid", engineProc.Process.Pid))
-
-	// 3. Optional precaching procedure
-	if len(c.opts.PrecacheFiles) > 0 {
-		err = c.runPrecache()
-		if err != nil {
-			closePipeEnd(readB, writeB, writeC)
-			_ = engineProc.Wait()
-			return fmt.Errorf("precaching failed: %w", err)
-		}
-	}
-
-	// 4. Fork process B - running HTTP Gateway.
-	gatewayProc, err := forkGateway(c.paths, c.mask.GatewayCores, readB, c.configEnv)
-	if err != nil {
-		closePipeEnd(readB, writeB, writeC)
-		_ = engineProc.Wait()
-		return err
-	}
-
-	closePipeEnd(readB)
-	slog.Info("HTTP Gateway has started", slog.Int("pid", gatewayProc.Process.Pid))
-
-	// 5. Wait for any shutdown of child processes.
-	deadChan := make(chan *exec.Cmd, 2)
-
+	// Spawn death-waiting goroutine on successful fork
 	go func() {
 		waitErr := engineProc.Wait()
 		if waitErr != nil {
@@ -96,6 +91,31 @@ func (c *Controller) Run() error {
 		deadChan <- engineProc
 	}()
 
+	// readC now belongs to the child process, the parent one no longer need it
+	closePipeEnd(readC)
+	slog.Info("Vector Engine has started", slog.Int("pid", engineProc.Process.Pid))
+
+	// 4. Optional precaching procedure
+	if len(c.opts.PrecacheFiles) > 0 {
+		err = c.runPrecache(ctx)
+		if err != nil {
+			closePipeEnd(readB, writeB, writeC)
+			waitThenKill(engineProc, deadChan, engineTimeout)
+
+			return fmt.Errorf("precaching failed: %w", err)
+		}
+	}
+
+	// 5. Fork process B - running HTTP Gateway.
+	gatewayProc, err := forkGateway(c.paths, c.mask.GatewayCores, readB, c.configEnv)
+	if err != nil {
+		closePipeEnd(readB, writeB, writeC)
+		waitThenKill(engineProc, deadChan, engineTimeout)
+
+		return err
+	}
+
+	// Spawn death-waiting goroutine on successful fork
 	go func() {
 		waitErr := gatewayProc.Wait()
 		if waitErr != nil {
@@ -107,18 +127,15 @@ func (c *Controller) Run() error {
 		deadChan <- gatewayProc
 	}()
 
-	// 6. Trap SIGINT / SIGTERM from OS.
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	defer signal.Stop(sigChan)
+	// readB now belongs to the child process, the parent one no longer need it
+	closePipeEnd(readB)
+	slog.Info("HTTP Gateway has started", slog.Int("pid", gatewayProc.Process.Pid))
 
-	// 7. React to first event: OS signal or child death.
+	// 6. React to first event: OS signal or child death.
 	select {
-	case sig := <-sigChan:
+	case <-ctx.Done():
 		// Process A received SIGTERM / SIGINT from OS or 'strix stop'
-		slog.Info("Received OS signal. Initiating graceful shutdown...",
-			slog.Any("os_signal", sig),
-		)
+		slog.Info("Received OS signal. Initiating graceful shutdown...")
 
 		closePipeEnd(writeB, writeC)
 		drainChildProcs(deadChan, engineProc, gatewayProc)
