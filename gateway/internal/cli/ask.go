@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -76,9 +77,26 @@ func runAsk(_ *cobra.Command, args []string) error {
 		req.Header.Set(cacheOnlyHeader, "true")
 	}
 
+	askClient := &http.Client{
+		// Must be longer than Gateway to LLM timeout (currently 30 secs)
+		Timeout: 40 * time.Second,
+		Transport: &http.Transport{
+			// No need to keep TCP connection alive
+			DisableKeepAlives: true,
+
+			// Dialing localhost, TCP handshake should take less than 1 sec
+			DialContext: (&net.Dialer{
+				Timeout: 2 * time.Second,
+			}).DialContext,
+
+			// Avoid I/O hanging from HTTP Gateway
+			ResponseHeaderTimeout: 5 * time.Second,
+		},
+	}
+
 	start := time.Now()
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := askClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("cannot reach HTTP Gateway at %s: %w", gatewayEndpoint, err)
 	}

@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"net"
 	"net/http"
 	"time"
 )
@@ -20,7 +21,15 @@ func CreateClient(apiKey, endpoint string, timeout time.Duration) *Client {
 			Transport: &http.Transport{
 				MaxIdleConns:        100,
 				MaxIdleConnsPerHost: 100,
-				IdleConnTimeout:     90 * time.Second,
+				IdleConnTimeout:     60 * time.Second,
+
+				DialContext: (&net.Dialer{
+					Timeout:   10 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).DialContext,
+
+				TLSHandshakeTimeout:   10 * time.Second,
+				ResponseHeaderTimeout: timeout,
 			},
 		},
 	}
