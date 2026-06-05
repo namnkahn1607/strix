@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -45,6 +47,17 @@ func init() {
 }
 
 func runAsk(_ *cobra.Command, args []string) error {
+	lockFile, err := acquireLockFile()
+	if err == nil {
+		_ = lockFile.Close()
+		return fmt.Errorf(
+			"daemon process is not running - " +
+				"please run it using strix serve",
+		)
+	} else if !errors.Is(err, ErrIsServing) {
+		return fmt.Errorf("cannot check daemon status: %w", err)
+	}
+
 	prompt := args[0]
 
 	reqBody, err := buildRequestBody(prompt)
@@ -107,7 +120,14 @@ func buildRequestBody(prompt string) ([]byte, error) {
 		)
 	}
 
-	result := bytes.Replace(templateBytes, []byte(promptPlaceholder), []byte(prompt), 1)
+	escapedBytes, err := json.Marshal(prompt)
+	if err != nil {
+		return nil, fmt.Errorf("")
+	}
+
+	escapedBytes = escapedBytes[1 : len(escapedBytes)-1]
+	result := bytes.Replace(templateBytes, []byte(promptPlaceholder), []byte(escapedBytes), 1)
+
 	return result, nil
 }
 

@@ -50,12 +50,12 @@ func runConfigSet(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		if errors.Is(err, ErrIsServing) {
 			return fmt.Errorf(
-				"cannot mutate config while Strix is running - " +
+				"cannot mutate configuration while daemon process is running - " +
 					"stop it first with 'strix stop'",
 			)
 		}
 
-		return fmt.Errorf("cannot check server status: %w", err)
+		return fmt.Errorf("cannot check daemon status: %w", err)
 	}
 
 	_ = lockFile.Close()
