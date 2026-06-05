@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -94,12 +95,17 @@ func runConfigSet(cmd *cobra.Command, _ []string) error {
 	}
 
 	if wantPromptPath {
-		promptErr := validatePromptPath(flagSetPromptPath)
+		absPath, pathErr := filepath.Abs(flagSetTemplatePath)
+		if pathErr != nil {
+			return fmt.Errorf("cannot resolve --template-path %q: %w", flagSetTemplatePath, err)
+		}
+
+		promptErr := validatePromptPath(absPath)
 		if promptErr != nil {
 			return fmt.Errorf("invalid Prompt Path: %w", promptErr)
 		}
 
-		currEnv[promptPathVar] = flagSetPromptPath
+		currEnv[promptPathVar] = absPath
 	}
 
 	if wantTemplatePath {
