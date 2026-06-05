@@ -20,7 +20,7 @@ import (
 const (
 	l0CacheSize = 256 * 1024 * 1024 // 256MB
 
-	llmReqTimeout = 90 * time.Second
+	llmReqTimeout = 30 * time.Second
 
 	defWindowSize = 1000
 	defRateLimit  = 200
@@ -84,7 +84,7 @@ func Execute() {
 		PromptPath: cfg.PromptPath,
 	}).Run()
 	if err != nil {
-		slog.Error("An error occurred in HTTP Gateway",
+		slog.Error("A fatal error occurred in HTTP Gateway.",
 			slog.Any("error", err),
 		)
 	}
@@ -112,7 +112,7 @@ func waitDeathPipe() <-chan struct{} {
 			return
 		}
 
-		slog.Error("Unexpected error reading Death Pipe", slog.Any("read_error", err))
+		slog.Error("Failed to read Death Pipe.", slog.Any("error", err))
 	}()
 
 	return ch

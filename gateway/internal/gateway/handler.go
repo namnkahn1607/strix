@@ -69,13 +69,13 @@ func (g *Gateway) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fallbackToLLM := func() ([]byte, error) {
+	fallbackToLLM := func(ctx context.Context) ([]byte, error) {
 		if cacheOnly {
 			http.Error(w, "Not Found", http.StatusNotFound)
 			return nil, nil
 		}
 
-		payload, llmErr := g.LLMClient.Generate(r.Context(), reqBody)
+		payload, llmErr := g.LLMClient.Generate(ctx, reqBody)
 		if llmErr != nil {
 			slog.Warn("Failed to dial LLM Provider.", slog.Any("error", llmErr))
 			http.Error(w, "Bad Gateway", http.StatusBadGateway)
@@ -89,7 +89,7 @@ func (g *Gateway) Handle(w http.ResponseWriter, r *http.Request) {
 
 	// 5. Prompts exceeding maxPromptLen bypass Vector Engine entirely.
 	if len(prompt) > maxPromptLen {
-		_, _ = fallbackToLLM()
+		_, _ = fallbackToLLM(r.Context())
 		return
 	}
 
@@ -100,7 +100,7 @@ func (g *Gateway) Handle(w http.ResponseWriter, r *http.Request) {
 	grpcRes, err := g.Stub.CheckCache(ctx, &pb.CheckCacheRequest{Prompt: prompt})
 	if err != nil {
 		slog.Warn("Failed to read cached payload.", slog.Any("error", err))
-		_, _ = fallbackToLLM()
+		_, _ = fallbackToLLM(r.Context())
 		return
 	}
 
@@ -114,7 +114,7 @@ func (g *Gateway) Handle(w http.ResponseWriter, r *http.Request) {
 	case pb.CacheState_CACHE_STATE_MISS:
 		// Load shedding from Vector Engine - bypass cache write
 		if nodeID == -1 {
-			_, _ = fallbackToLLM()
+			_, _ = fallbackToLLM(r.Context())
 			return
 		}
 
@@ -127,7 +127,10 @@ func (g *Gateway) Handle(w http.ResponseWriter, r *http.Request) {
 			g.HerdCtrl.Fulfill(nodeID, promise, llmPayload, llmErr)
 		}()
 
-		llmPayload, llmErr = fallbackToLLM()
+		pioneerCtx, pioneerCancel := context.WithTimeout(context.Background(), llmReqTimeout)
+		defer pioneerCancel()
+
+		llmPayload, llmErr = fallbackToLLM(pioneerCtx)
 		if llmErr == nil {
 			g.Pool.TryEnqueue(nodeID, llmPayload)
 		}
@@ -140,7 +143,7 @@ func (g *Gateway) Handle(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if !found || pioneerErr != nil {
-			llmPayload, llmErr := fallbackToLLM()
+			llmPayload, llmErr := fallbackToLLM(r.Context())
 			if llmErr == nil {
 				g.Pool.TryEnqueue(nodeID, llmPayload)
 			}
@@ -152,7 +155,7 @@ func (g *Gateway) Handle(w http.ResponseWriter, r *http.Request) {
 		trySetL0(g.L0Cache, hashKey, payload)
 
 	default:
-		_, _ = fallbackToLLM()
+		_, _ = fallbackToLLM(r.Context())
 	}
 }
 
