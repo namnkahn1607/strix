@@ -27,7 +27,7 @@ var stopCmd = &cobra.Command{
 }
 
 func runStop(_ *cobra.Command, _ []string) error {
-	pid, running, checkErr := IsInstanceRunning()
+	pid, running, checkErr := isInstanceRunning()
 	if checkErr != nil {
 		return fmt.Errorf("cannot read PID file: %w", checkErr)
 	}

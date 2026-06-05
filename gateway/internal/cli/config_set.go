@@ -1,13 +1,23 @@
 package cli
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
+)
+
+const (
+	apiKeyVar       = "GATEWAY_UPSTREAM_APIKEY"
+	endpointVar     = "GATEWAY_UPSTREAM_ENDPOINT"
+	promptPathVar   = "GATEWAY_PROMPT_PATH"
+	templatePathVar = "ASK_TEMPLATE_PATH"
 )
 
 var configSetCmd = &cobra.Command{
@@ -17,41 +27,49 @@ var configSetCmd = &cobra.Command{
 	The file must exist (run 'strix init' first) and must have permission 0600.
  
 	Flags control which fields are updated; at least one flag is required.
-  	--endpoint <url>          overwrite GATEWAY_ENDPOINT
-  	--apikey                  prompt securely for GATEWAY_APIKEY
-  	--endpoint <url> --apikey update both in a single run`,
+	--apikey                  prompt securely for upstream API Key
+  	--endpoint <url>          overwrite upstream endpoint
+	--prompt-path <path>      comma-path to prompt field in request body
+	--template-path <path>    path to LLM request template file for 'strix ask -l'
+							  template must contain {{STRIX_PROMPT}} placeholder`,
 	RunE: runConfigSet,
 }
 
 func runConfigSet(cmd *cobra.Command, _ []string) error {
 	// 1. Check for modifying configurations.
-	wantAPIKey := cmd.Flags().Changed("apikey")
-	wantEndpoint := cmd.Flags().Changed("endpoint")
+	wantAPIKey := cmd.Flags().Changed(apiKeyFlag)
+	wantEndpoint := cmd.Flags().Changed(endpointFlag)
+	wantPromptPath := cmd.Flags().Changed("prompt-path")
+	wantTemplatePath := cmd.Flags().Changed("template-path")
 
-	if !wantAPIKey && !wantEndpoint {
+	if !wantAPIKey && !wantEndpoint && !wantPromptPath && !wantTemplatePath {
 		return fmt.Errorf("no flags provided - please specify")
 	}
 
-	// 2. Check if service is running or not.
-	if pid, running, checkErr := IsInstanceRunning(); checkErr != nil {
-		return fmt.Errorf("cannot check status: %w", checkErr)
-	} else if running {
-		return fmt.Errorf(
-			"[strix config] ERROR: Cannot mutate config while Strix is "+
-				"running (PID: %d). "+
-				"Please stop the server first with 'strix stop'", pid,
-		)
+	// 2. Check if Strix is serving or not.
+	lockFile, err := acquireLockFile()
+	if err != nil {
+		if errors.Is(err, ErrIsServing) {
+			return fmt.Errorf(
+				"cannot mutate configuration while daemon process is running - " +
+					"stop it first with 'strix stop'",
+			)
+		}
+
+		return fmt.Errorf("cannot check daemon status: %w", err)
 	}
+
+	_ = lockFile.Close()
 
 	// 3. Read env-var map.
-	envPath, pathErr := EnvFilePath()
-	if pathErr != nil {
-		return pathErr
+	envPath, err := envFilePath()
+	if err != nil {
+		return err
 	}
 
-	currEnv, readErr := godotenv.Read(envPath)
-	if readErr != nil {
-		return fmt.Errorf("cannot parse %s: %w", envPath, readErr)
+	currEnv, err := godotenv.Read(envPath)
+	if err != nil {
+		return fmt.Errorf("cannot parse %s: %w", envPath, err)
 	}
 
 	// 4. Modify specified configurations.
@@ -62,10 +80,10 @@ func runConfigSet(cmd *cobra.Command, _ []string) error {
 		}
 
 		if apiKey == "" {
-			return fmt.Errorf("API Key must not be empty")
+			return fmt.Errorf("--apikey requires a non-empty key")
 		}
 
-		currEnv["GATEWAY_APIKEY"] = apiKey
+		currEnv[apiKeyVar] = apiKey
 	}
 
 	if wantEndpoint {
@@ -73,7 +91,30 @@ func runConfigSet(cmd *cobra.Command, _ []string) error {
 			return fmt.Errorf("--endpoint requires a non-empty URL")
 		}
 
-		currEnv["GATEWAY_ENDPOINT"] = flagSetEndpoint
+		currEnv[endpointVar] = flagSetEndpoint
+	}
+
+	if wantPromptPath {
+		absPath, pathErr := filepath.Abs(flagSetTemplatePath)
+		if pathErr != nil {
+			return fmt.Errorf("cannot resolve --template-path %q: %w", flagSetTemplatePath, err)
+		}
+
+		promptErr := validatePromptPath(absPath)
+		if promptErr != nil {
+			return fmt.Errorf("invalid Prompt Path: %w", promptErr)
+		}
+
+		currEnv[promptPathVar] = absPath
+	}
+
+	if wantTemplatePath {
+		templateErr := validateTemplatePath(flagSetTemplatePath)
+		if templateErr != nil {
+			return fmt.Errorf("invalid Template Path: %w", templateErr)
+		}
+
+		currEnv[templatePathVar] = flagSetTemplatePath
 	}
 
 	// 5. Write specified configurations to disk.
@@ -82,7 +123,7 @@ func runConfigSet(cmd *cobra.Command, _ []string) error {
 	}
 
 	if chmodErr := os.Chmod(envPath, ownPermission); chmodErr != nil {
-		return fmt.Errorf("SECURITY: cannot enforce 0600 after write: %w", chmodErr)
+		return fmt.Errorf("cannot enforce 0600 after write: %w", chmodErr)
 	}
 
 	fmt.Printf("[strix config] Changes saved to %s\n", envPath)
@@ -101,4 +142,35 @@ func promptSecret(fieldName string) (string, error) {
 	}
 
 	return strings.TrimSpace(string(rawKey)), nil
+}
+
+func validatePromptPath(path string) error {
+	if path == "" {
+		return fmt.Errorf("--prompt-path requires a non-empty path")
+	}
+
+	for _, part := range strings.Split(path, ",") {
+		if strings.TrimSpace(part) == "" {
+			return fmt.Errorf("empty segment in path %q", path)
+		}
+	}
+
+	return nil
+}
+
+func validateTemplatePath(path string) error {
+	if path == "" {
+		return fmt.Errorf("--template-path requires a non-empty path")
+	}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("cannot read %q: %w", path, err)
+	}
+
+	if !bytes.Contains(content, []byte(promptPlaceholder)) {
+		return fmt.Errorf("%q does not contain placeholder %s", path, promptPlaceholder)
+	}
+
+	return nil
 }

@@ -14,13 +14,12 @@ import (
 // ├── engine/
 // └── model/
 //     ├── tokenizer.onnx     <- Tokenizer
-//     ├── transformer.onnx   <- BERT model
+//     └── transformer.onnx   <- BERT model
 
 const (
 	engineBinName = "strix_engine"
 	tokFileName   = "tokenizer.onnx"
 	bertFileName  = "transformer.onnx"
-	dictFileName  = "tokenizer.json"
 )
 
 type ProjectPath struct {

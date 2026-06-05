@@ -8,22 +8,24 @@ enum CacheState {
   CACHE_STATE_UNSPECIFIED = 0;
   CACHE_STATE_HIT = 1;
   CACHE_STATE_MISS = 2;
-  CACHE_STATE_PENDING = 3;    // Found similar prompt waiting for payload
-  CACHE_STATE_EXCEEDED = 4;   // Prompt token exceeds maximum level (256)
+  CACHE_STATE_PENDING = 3; // Found similar prompt waiting for payload
+  CACHE_STATE_EXCEEDED = 4; // Prompt token exceeds maximum level (256)
 }
 
 message CheckCacheRequest {
+  // Raw prompt bytes as received from the HTTP request body
+  // Intentionally NOT unescaped or normalized
   bytes prompt = 1;
 }
 
 message CheckCacheResponse {
   CacheState check_state = 1;
-  int32 node_id = 2;          // always -1 for HIT, occasionally for MISS, otherwise >= 0
-  bytes cached_payload = 3;   // empty if MISS or PENDING_HIT
+  int32 node_id = 2; // always -1 for HIT, occasionally for MISS, otherwise >= 0
+  bytes cached_payload = 3; // empty if MISS or PENDING_HIT
 }
 
 message SetCacheRequest {
-  int32 node_id = 1;          // always >= 0
+  int32 node_id = 1; // always >= 0
   bytes uncached_payload = 2;
 }
 
@@ -32,6 +34,6 @@ message SetCacheResponse {
 }
 
 service CacheService {
-  rpc CheckCache(CheckCacheRequest) returns (CheckCacheResponse);   // READ
-  rpc SetCache(SetCacheRequest) returns (SetCacheResponse);         // WRITE
+  rpc CheckCache(CheckCacheRequest) returns (CheckCacheResponse); // READ
+  rpc SetCache(SetCacheRequest) returns (SetCacheResponse); // WRITE
 }

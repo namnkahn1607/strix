@@ -15,10 +15,12 @@ const (
 	lockFileName = "strix.lock"
 )
 
-// AssertEnvPermissions returns an error if ~/.strix/.env has permissions
+var ErrIsServing = errors.New("another strix serve is running")
+
+// assertEnvPermissions returns an error if ~/.strix/.env has permissions
 // wider than 0600. Called by 'strix serve' as a boot-time security check.
-func AssertEnvPermissions() error {
-	envPath, dirErr := EnvFilePath()
+func assertEnvPermissions() error {
+	envPath, dirErr := envFilePath()
 	if dirErr != nil {
 		return dirErr
 	}
@@ -38,10 +40,39 @@ func AssertEnvPermissions() error {
 	return nil
 }
 
-// IsInstanceRunning reads ~/.strix/strix.pid and checks whether the
+// acquireLockFile opens ~/.strix/strix.lock and attempts to acquire an
+// exclusive non-blocking flock on it. Returns:
+// * (file, nil) on success - caller must close the file to release
+// the lock (typically via defer).
+// * (nil, ErrInstanceRunning) if the lock is already held by another
+// 'strix serve' process (EWOULDBLOCK / EAGAIN).
+// * (nil, err) for any other I/O failure.
+func acquireLockFile() (*os.File, error) {
+	lockPath, err := lockFilePath()
+	if err != nil {
+		return nil, err
+	}
+
+	file, err := os.OpenFile(lockPath, os.O_CREATE|syscall.O_CLOEXEC, ownPermission)
+	if err != nil {
+		return nil, fmt.Errorf("cannot open/create lock file %s: %w", lockPath, err)
+	}
+
+	err = syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+	if err != nil {
+		_ = file.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+			return nil, ErrIsServing
+		}
+	}
+
+	return file, nil
+}
+
+// isInstanceRunning reads ~/.strix/strix.pid and checks whether the
 // recorded process is still alive via Signal(0).
-func IsInstanceRunning() (int, bool, error) {
-	pidPath, dirErr := PIDFilePath()
+func isInstanceRunning() (int, bool, error) {
+	pidPath, dirErr := pidFilePath()
 	if dirErr != nil {
 		return 0, false, dirErr
 	}
@@ -69,9 +100,9 @@ func IsInstanceRunning() (int, bool, error) {
 	return pid, true, nil
 }
 
-// EnvFilePath returns the canonical path to ~/.strix/.env.
+// envFilePath returns the canonical path to ~/.strix/.env.
 // Used by other commands to locate the configuration file.
-func EnvFilePath() (string, error) {
+func envFilePath() (string, error) {
 	home, dirErr := os.UserHomeDir()
 	if dirErr != nil {
 		return "", fmt.Errorf("cannot determine home directory: %w", dirErr)
@@ -80,9 +111,9 @@ func EnvFilePath() (string, error) {
 	return filepath.Join(home, strixDir, envFileName), nil
 }
 
-// LockFilePath returns the canonical path to ~/.strix/strix.lock.
+// lockFilePath returns the canonical path to ~/.strix/strix.lock.
 // Called by 'strix serve' to prevent another (accident) fork procedure.
-func LockFilePath() (string, error) {
+func lockFilePath() (string, error) {
 	home, dirErr := os.UserHomeDir()
 	if dirErr != nil {
 		return "", fmt.Errorf("cannot determine home directory: %w", dirErr)
@@ -91,8 +122,8 @@ func LockFilePath() (string, error) {
 	return filepath.Join(home, strixDir, lockFileName), nil
 }
 
-// PIDFilePath returns the canonical path to ~/.strix/strix.pid.
-func PIDFilePath() (string, error) {
+// pidFilePath returns the canonical path to ~/.strix/strix.pid.
+func pidFilePath() (string, error) {
 	home, dirErr := os.UserHomeDir()
 	if dirErr != nil {
 		return "", fmt.Errorf("cannot determine home directory: %w", dirErr)

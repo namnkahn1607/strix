@@ -17,15 +17,27 @@ type configField struct {
 
 var registry = []configField{
 	{
-		envKey:   "GATEWAY_APIKEY",
+		envKey:   apiKeyVar,
 		label:    "API Key",
-		flagName: "apikey",
+		flagName: apiKeyFlag,
 		isSecret: true,
 	},
 	{
-		envKey:   "GATEWAY_ENDPOINT",
+		envKey:   endpointVar,
 		label:    "Endpoint",
-		flagName: "endpoint",
+		flagName: endpointFlag,
+		isSecret: false,
+	},
+	{
+		envKey:   promptPathVar,
+		label:    "Prompt Path",
+		flagName: promptPathFlag,
+		isSecret: false,
+	},
+	{
+		envKey:   templatePathVar,
+		label:    "Template Path",
+		flagName: templatePathFlag,
 		isSecret: false,
 	},
 }
@@ -36,20 +48,21 @@ var configGetCmd = &cobra.Command{
 	Long: `Reads ~/.strix/.env and prints configuration values.
  
   	(no flags)        print all fields; secrets are redacted
-  	--endpoint        print GATEWAY_ENDPOINT
-  	--apikey          print GATEWAY_APIKEY  (value is always redacted)`,
+	--apikey          print upstream API Key  (value is always redacted)
+  	--endpoint        print upstream endpoint
+	--prompt-path     print path to prompt field in request body`,
 	RunE: runConfigGet,
 }
 
 func runConfigGet(cmd *cobra.Command, _ []string) error {
-	envPath, pathErr := EnvFilePath()
-	if pathErr != nil {
-		return pathErr
+	envPath, err := envFilePath()
+	if err != nil {
+		return err
 	}
 
-	currEnv, readErr := godotenv.Read(envPath)
-	if readErr != nil {
-		return fmt.Errorf("cannot parse %s: %w", envPath, readErr)
+	currEnv, err := godotenv.Read(envPath)
+	if err != nil {
+		return fmt.Errorf("cannot parse %s: %w", envPath, err)
 	}
 
 	var selected []configField
