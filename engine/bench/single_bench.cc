@@ -19,7 +19,19 @@
 
 namespace {
 
-constexpr size_t DIM = 384;
+inline constexpr size_t DIM = 384;
+
+// A realistic long prompt that perhaps reaching MAX_TOKENS (256).
+inline constexpr const char* LONG_PROMT =
+    "Artificial intelligence has transformed many industries over the past "
+    "decade. From natural language processing to computer vision, machine "
+    "learning models are now capable of performing tasks that once required "
+    "significant human expertise. Large language models in particular have "
+    "demonstrated remarkable abilities in text generation, summarization, "
+    "question answering, and code completion. However, challenges remain in "
+    "areas such as reasoning, factual accuracy, and computational efficiency. "
+    "Researchers continue to explore new architectures and training techniques "
+    "to address these limitations and push the boundaries of what is possible.";
 
 std::unique_ptr<Embedder> glob_emb;
 
@@ -88,18 +100,6 @@ void SanityCheck() {
               << "\n";
 }
 
-// A realistic long prompt that perhaps reaching MAX_TOKENS (256).
-constexpr const char* kLongPrompt =
-    "Artificial intelligence has transformed many industries over the past "
-    "decade. From natural language processing to computer vision, machine "
-    "learning models are now capable of performing tasks that once required "
-    "significant human expertise. Large language models in particular have "
-    "demonstrated remarkable abilities in text generation, summarization, "
-    "question answering, and code completion. However, challenges remain in "
-    "areas such as reasoning, factual accuracy, and computational efficiency. "
-    "Researchers continue to explore new architectures and training techniques "
-    "to address these limitations and push the boundaries of what is possible.";
-
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -140,7 +140,7 @@ static void BenchEncode_LongSingle(benchmark::State& state) {
     benchmark::DoNotOptimize(emb.Encode("please dont love somebody else"));
 
     for ([[maybe_unused]] auto _ : state) {
-        auto result = emb.Encode(kLongPrompt);
+        auto result = emb.Encode(LONG_PROMT);
         benchmark::DoNotOptimize(result);
     }
 }
