@@ -87,7 +87,7 @@ __attribute__((target("avx2,fma"))) inline void DotProductL0_Batch4(
 
 #include "../common/config.hh"
 
-inline void DotProductL0_Batch(const float* __restrict__ query,
+inline void DotProductL0_Batch4(const float* __restrict__ query,
                                const float* __restrict__ node_batch,
                                float* __restrict__ scores) noexcept {
     for (size_t i = 0; i < VECTOR_DIM; ++i) {
