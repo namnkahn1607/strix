@@ -2,11 +2,6 @@
 /bin
 /data
 
-/engine/.cache
-/engine/.idea
-/engine/build
-/engine/build-release
-
 /gateway/.idea
 /gateway/build
 
