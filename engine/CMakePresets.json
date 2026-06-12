@@ -1,0 +1,54 @@
+{
+    "version": 3,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 22,
+        "patch": 1
+    },
+    "configurePresets": [
+        {
+            "name": "base-wsl",
+            "hidden": true,
+            "generator": "Ninja",
+            "environment": {
+                "VCPKG_MAX_CONCURRENCY": "4"
+            },
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "/usr/bin/clang-17",
+                "CMAKE_CXX_COMPILER": "/usr/bin/clang++-17",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+                "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+            }
+        },
+        {
+            "name": "debug",
+            "inherits": "base-wsl",
+            "displayName": "Debug (Clang-17)",
+            "binaryDir": "${sourceDir}/out/debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "release",
+            "inherits": "base-wsl",
+            "displayName": "Release (Clang-17)",
+            "binaryDir": "${sourceDir}/out/release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "debug",
+            "configurePreset": "debug",
+            "jobs": 4
+        },
+        {
+            "name": "release",
+            "configurePreset": "release",
+            "jobs": 4
+        }
+    ]
+}
