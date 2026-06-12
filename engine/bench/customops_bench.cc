@@ -24,6 +24,22 @@
 
 namespace {
 
+// A realistic long prompt that perhaps reaching MAX_TOKENS (256)
+inline constexpr const char* LONG_PROMPT =
+    "Artificial intelligence has transformed many industries over the past "
+    "decade. From natural language processing to computer vision, machine "
+    "learning models are now capable of performing tasks that once required "
+    "significant human expertise. Large language models in particular have "
+    "demonstrated remarkable abilities in text generation, summarization, "
+    "question answering, and code completion. However, challenges remain in "
+    "areas such as reasoning, factual accuracy, and computational efficiency. "
+    "Researchers continue to explore new architectures and training techniques "
+    "to address these limitations and push the boundaries of what is possible.";
+
+// A typical short prompt that reaches ~10 tokens
+inline constexpr const char* SHORT_PROMPT =
+    "The quick brown fox jumps over the lazy dog";
+
 // Shared 'Embedder' instance, initialized once across all benchmark threads.
 // Mirrors production usage: one Embedder, N concurrent gRPC handler threads.
 static std::unique_ptr<Embedder> shared_emb;
@@ -42,10 +58,10 @@ void LoadEnv() {
     });
 }
 
-};  // namespace
+}  // namespace
 
 // ---------------------------------------------------------------------------
-// BenchConcurrentInference
+// BenchConcurrentInference_ShortPrompt
 // Runs at thread counts: 1, 2, 4, 8, 50, 100.
 // UseRealTime() measures wall-clock time so that thread serialization
 // (mutex contention) shows up as reduced items/sec, not reduced CPU time.
@@ -53,26 +69,51 @@ void LoadEnv() {
 // thread counts where individual calls are fast.
 // ---------------------------------------------------------------------------
 
-static void BenchConcurrentInference(benchmark::State& state) {
+static void BenchConcurrentInference_ShortPrompt(benchmark::State& state) {
     LoadEnv();
 
-    const std::string prompt = "The quick brown fox jumps over the lazy dog";
-
     for ([[maybe_unused]] auto _ : state) {
-        auto vec = shared_emb->Encode(prompt);
+        auto vec = shared_emb->Encode(SHORT_PROMPT);
 
         benchmark::DoNotOptimize(vec);
         benchmark::ClobberMemory();
     }
 }
 
-BENCHMARK(BenchConcurrentInference)
+BENCHMARK(BenchConcurrentInference_ShortPrompt)
     ->Threads(1)
     ->Threads(2)
     ->Threads(4)
     ->Threads(8)
     ->Threads(50)
     ->Threads(100)
+    ->UseRealTime()
+    ->MinTime(3.0);
+
+// ---------------------------------------------------------------------------
+// BenchConcurrentInference_LongPrompt
+// Runs at thread counts: 2, 4, 8, and 16.
+// Reveals the worst-case bottleneck if the Inference model receives
+// more (really) longer prompts than usual.
+// Still uses the same UseRealTime() and MinTime(3.0).
+// ---------------------------------------------------------------------------
+
+static void BenchConcurrentInference_LongPrompt(benchmark::State& state) {
+    LoadEnv();
+
+    for ([[maybe_unused]] auto _ : state) {
+        auto vec = shared_emb->Encode(LONG_PROMPT);
+
+        benchmark::DoNotOptimize(vec);
+        benchmark::ClobberMemory();
+    }
+}
+
+BENCHMARK(BenchConcurrentInference_LongPrompt)
+    ->Threads(2)
+    ->Threads(4)
+    ->Threads(8)
+    ->Threads(16)
     ->UseRealTime()
     ->MinTime(3.0);
 
