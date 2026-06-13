@@ -192,8 +192,9 @@ int main() {
     }
 
     try {
-        const Embedder    embedder(tok_path, bert_path);
-        const auto        memory_arena = std::make_unique<MemoryArena>();
+        const Embedder embedder(tok_path, bert_path);
+        const auto     memory_arena =
+            std::make_unique<MemoryArena>(ArenaConfig::Production());
         std::atomic<bool> g_shutdown_req{false};
 
         WarmupEngine(embedder);

@@ -9,7 +9,7 @@
 
 #include "meta_node.hh"
 
-// --- PayloadHeader ---
+// PayloadHeader.
 // 12-byte header prepended to every payload in the ring buffer.
 // Enables O(1) reverse-lookup from ring buffer position -> MetaNode.
 struct alignas(4) PayloadHeader {
@@ -18,18 +18,42 @@ struct alignas(4) PayloadHeader {
     uint32_t length;
 };
 
-inline constexpr uint64_t PAYLOAD_BUFFER_SIZE =
-    4ULL * 1024 * 1024 * 1024;  // 4GB
+// ArenaConfig.
+// Controls memory layout of MemoryArena at construction time.
+//
+// 1. max_slots          : total number of slots to allocate - non-zero & a
+//                         multiple of 4.
+// 2. payload_buffer_size: size of the ring buffer in bytes - a power of 2.
+//
+// Pass 0 to omit the payload ring buffer (also made it nullptr).
+// Non-null assertions will be made on relevant methods.
+struct ArenaConfig {
+    size_t max_slots;
+    size_t payload_buf_size;
+    bool   lazy_mapping;
+
+    // Production-grade config:
+    // 524'288 + 1'024 slots, 4GB payload buffer, populated.
+    static ArenaConfig Production();
+
+    // SearchL0 benchmark config:
+    // 1'024 slots, no payload buffer, populated.
+    static ArenaConfig BenchSearchL0();
+
+    // SearchL0 testing config:
+    // 1'024 slots, no payload buffer, lazy.
+    static ArenaConfig TestSearchL0();
+};
 
 // Lifespan of a PENDING node in second(s)
 inline constexpr uint32_t PENDING_LIFESPAN = 30;
 
-// --- MemoryArena ---
+// MemoryArena.
 // Owns all memory: vector arena, payload ring buffer, and metadata array.
 // Has trigger-once Garbage Collector. Single ownership.
 class MemoryArena {
 public:
-    MemoryArena();
+    explicit MemoryArena(const ArenaConfig& config);
     ~MemoryArena();
 
     // No Copy/Move semantics
@@ -64,17 +88,22 @@ public:
 private:
     constexpr static size_t VECTOR_DIM_ARENA = 384;
 
+    // Runtime dimensions
+    size_t max_slots;
+    size_t payload_buf_size;
+
     // Vector arena
     MetaNode* metadata;
     float*    vectors;
 
-    // Payload ring buffer
-    uint8_t*              buffer_payload;
+    // Payload ring buffer (nullptr when payload_buf_size == 0)
+    uint8_t*              payload_buf;
     std::atomic<uint64_t> write_head;
     std::atomic<uint64_t> read_tail;
 
-    static uint64_t ActualIndex(const uint64_t offset) {
-        return offset & (PAYLOAD_BUFFER_SIZE - 1);
+    // Actual index of specified offset in ring buffer
+    uint64_t ActualIndex(const uint64_t offset) const {
+        return offset & (payload_buf_size - 1);
     }
 
     // Allocate helper
