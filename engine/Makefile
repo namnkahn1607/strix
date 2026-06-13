@@ -71,3 +71,6 @@ test: build-d
 
 	@echo "=== Unit-testing Control Block operations ==="
 	./out/debug/ctrl_test
+
+	@echo "=== Unit-testing Vector searching on L0 Buffer ==="
+	./out/debug/searchl0_test

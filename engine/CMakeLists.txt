@@ -163,10 +163,21 @@ target_link_libraries(ctrl_test PRIVATE
     GTest::gtest
 )
 
+# Test Vector searching on L0 Buffer
+add_executable(searchl0_test tests/searchl0_test.cc)
+target_link_libraries(searchl0_test PRIVATE
+    engine_common
+    engine_memory
+    engine_index
+    GTest::gtest_main
+    GTest::gtest
+)
+
 include(GoogleTest)
 gtest_discover_tests(avx2_test)
 gtest_discover_tests(model_test)
 gtest_discover_tests(ctrl_test)
+gtest_discover_tests(searchl0_test)
 
 # ===========================================================================
 # 7. BENCHMARK EXECUTABLE(S)
