@@ -210,3 +210,12 @@ target_link_libraries(customops_bench PRIVATE
     engine_inference
     benchmark::benchmark
 )
+
+add_executable(searchl0_bench bench/searchl0_bench.cc)
+target_link_libraries(searchl0_bench PRIVATE
+    engine_options
+    engine_memory
+    engine_common
+    engine_index
+    benchmark::benchmark
+)

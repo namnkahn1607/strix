@@ -44,6 +44,9 @@ bench: build-r
 	@echo "=== Benchmark Inference model (Custom Ops) ==="
 	./out/release/customops_bench
 
+	@echo "=== Benchmark Vector searching on L0 Buffer ==="
+	./out/release/searchl0_bench
+
 # ===========================================================================
 # DEBUG profile Recipes
 # ===========================================================================
