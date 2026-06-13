@@ -15,15 +15,15 @@
 #include <atomic>
 #include <cstdint>
 
-// --- NodeState ---
+// State machine for Metadata Node:
+//
 // DEAD      : Slot is free, available for claiming.
-// CLAIMED   : A writer won the CAS(DEAD -> CLAIMED) race and is currently
-//             copying vector data into the slot. SearchL0 and GC must skip.
-// PENDING   : Vector data is fully written. Waiting for SetCache to commit
+// CLAIMED   : A writer is currently copying vector data into the slot.
+// PENDING   : Vector data is fully written. Waiting to commit
 //             the payload and transition to READY.
 // READY     : Fully committed. Searchable and readable.
-// MIGRATING : A compaction op has claimed this node for L0 -> L1 migration.
-//             Readers may still serve it (data intact). GC must skip.
+// MIGRATING : A compaction operation has claimed this node for L0 -> L1
+//             migration. Readers may still serve it (data intact). GC skips.
 enum class NodeState {
     DEAD = 0,
     CLAIMED = 1,
