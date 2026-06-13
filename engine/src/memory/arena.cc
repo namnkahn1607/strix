@@ -20,6 +20,10 @@ namespace {
 
 inline constexpr uint32_t VALID_IDENTIFIER = 0xDEADBEEF;
 
+// Default size of the Payload ring buffer
+inline constexpr uint64_t PAYLOAD_BUFFER_SIZE =
+    4ULL * 1024 * 1024 * 1024;  // 4GB
+
 inline constexpr uint64_t LOW_WATERMARK = 2ULL * 1024 * 1024 * 1024;  // 2GB
 inline constexpr uint64_t HIGH_WATERMARK =
     (3ULL * 1024 + 512ULL) * 1024 * 1024;  // 3.5GB
@@ -32,10 +36,9 @@ inline constexpr uint32_t HIGH_GC_SLEEP = 1;
 // How often a stale sweeper runs in millsecond(s)
 inline constexpr uint32_t SWEEP_INTERVAL = 5'000;
 
-// --- MmapAllocate ---
-// Performs mmap an anonymous (MAP_ANONYMOUS) private (MAP_PRIVATE) region,
+// Allocates an anonymous (MAP_ANONYMOUS) private (MAP_PRIVATE) region,
 // MAP_POPULATE instructs the kernel to pre-faults all pages inside the syscall.
-void* MmapAllocate(const size_t size) {
+void* MmapPopulate(const size_t size) {
     void* ptr = mmap(nullptr, size, PROT_READ | PROT_WRITE,
                      MAP_ANONYMOUS | MAP_PRIVATE | MAP_POPULATE, -1, 0);
     if (ptr == MAP_FAILED) {
@@ -45,24 +48,82 @@ void* MmapAllocate(const size_t size) {
     return ptr;
 }
 
+// Allocates without MAP_POPULATE - pages fault lazily on first access.
+// Used for test configs where pre-faulting the full buffer is unnecessary.
+void* MmapLazy(const size_t size) {
+    void* ptr = mmap(nullptr, size, PROT_READ | PROT_WRITE,
+                     MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+    if (ptr == MAP_FAILED) {
+        throw std::runtime_error("mmap failed for MemoryArena");
+    }
+
+    return ptr;
+}
+
 }  // namespace
+
+// ---------------------------------------------------------------------------
+// ArenaConfig Factory methods
+// ---------------------------------------------------------------------------
+
+ArenaConfig ArenaConfig::Production() {
+    return {TOTAL_MAX_SLOTS, PAYLOAD_BUFFER_SIZE, false};
+}
+
+ArenaConfig ArenaConfig::BenchSearchL0() {
+    return {1'024, 0, false};
+}
+
+ArenaConfig ArenaConfig::TestSearchL0() {
+    return {1'024, 0, true};
+}
 
 // ------------------------------------------------------------
 // Constructor / Destructor
 // ------------------------------------------------------------
 
-MemoryArena::MemoryArena() : write_head(0), read_tail(0) {
-    metadata = static_cast<MetaNode*>(
-        MmapAllocate(TOTAL_MAX_SLOTS * sizeof(MetaNode)));
-    vectors =
-        static_cast<float*>(MmapAllocate(TOTAL_MAX_SLOTS * sizeof(float)));
-    buffer_payload = static_cast<uint8_t*>(MmapAllocate(PAYLOAD_BUFFER_SIZE));
+MemoryArena::MemoryArena(const ArenaConfig& config)
+    : max_slots(config.max_slots)
+    , payload_buf_size(config.payload_buf_size)
+    , write_head(0)
+    , read_tail(0) {
+    // --- Configuration validating ---
+    if (!(max_slots != 0 && max_slots % 4 == 0)) {
+        throw std::invalid_argument(
+            "Arena slots must be non-zero and multiple of 4");
+    }
+
+    if (payload_buf_size > 0 &&
+        (payload_buf_size & (payload_buf_size - 1)) != 0) {
+        throw std::invalid_argument("Payload buffer size must be a power of 2");
+    }
+
+    auto mmap_fn = config.lazy_mapping ? MmapLazy : MmapPopulate;
+
+    // --- Arena allocation ---
+    metadata = static_cast<MetaNode*>(mmap_fn(max_slots * sizeof(MetaNode)));
+    vectors = static_cast<float*>(
+        mmap_fn(max_slots * VECTOR_DIM_ARENA * sizeof(float)));
+
+    if (payload_buf_size > 0) {
+        payload_buf = static_cast<uint8_t*>(mmap_fn(payload_buf_size));
+    } else {
+        payload_buf = nullptr;
+    }
+
+    std::cout << "[Vector Engine] Initialized Memory Arena (" << max_slots
+              << " slots, " << payload_buf_size / (1024 * 1024) << "MB,"
+              << " pre-fault=" << (config.lazy_mapping ? "false" : "true")
+              << ")\n";
 }
 
 MemoryArena::~MemoryArena() {
-    munmap(metadata, TOTAL_MAX_SLOTS * sizeof(MetaNode));
-    munmap(vectors, TOTAL_MAX_SLOTS * sizeof(float));
-    munmap(buffer_payload, PAYLOAD_BUFFER_SIZE);
+    munmap(metadata, max_slots * sizeof(MetaNode));
+    munmap(vectors, max_slots * sizeof(float));
+
+    if (payload_buf != nullptr) {
+        munmap(payload_buf, payload_buf_size);
+    }
 }
 
 // ------------------------------------------------------------
@@ -107,14 +168,14 @@ void MemoryArena::RunGarbageCollector(const std::atomic<bool>& g_shutdown_req) {
             const uint64_t tail_index = ActualIndex(tail);
 
             // Leaping in case not enough room for a valid Payload Header
-            if (const uint64_t padding = PAYLOAD_BUFFER_SIZE - tail_index;
+            if (const uint64_t padding = payload_buf_size - tail_index;
                 padding < sizeof(PayloadHeader)) {
                 read_tail.fetch_add(padding, std::memory_order_relaxed);
                 continue;
             }
 
             const auto* header = reinterpret_cast<const PayloadHeader*>(
-                buffer_payload + tail_index);
+                payload_buf + tail_index);
 
             // Reluctantly advancing read tail until found a valid header
             if (header->identifier != VALID_IDENTIFIER) {
@@ -161,7 +222,7 @@ void MemoryArena::RunGarbageCollector(const std::atomic<bool>& g_shutdown_req) {
 
                 const PayloadHeader new_header{VALID_IDENTIFIER, node_id,
                                                text_len};
-                std::memcpy(buffer_payload + rescued_index, &new_header,
+                std::memcpy(payload_buf + rescued_index, &new_header,
                             sizeof(PayloadHeader));
 
                 uint64_t src_idx = ActualIndex(tail + sizeof(PayloadHeader));
@@ -170,13 +231,13 @@ void MemoryArena::RunGarbageCollector(const std::atomic<bool>& g_shutdown_req) {
 
                 uint64_t bytes_left = text_len;
                 while (bytes_left > 0) {
-                    const uint64_t src_cont = PAYLOAD_BUFFER_SIZE - src_idx;
-                    const uint64_t dst_cont = PAYLOAD_BUFFER_SIZE - dst_idx;
+                    const uint64_t src_cont = payload_buf_size - src_idx;
+                    const uint64_t dst_cont = payload_buf_size - dst_idx;
                     const uint64_t chunk =
                         std::min({bytes_left, src_cont, dst_cont});
 
-                    std::memcpy(buffer_payload + dst_idx,
-                                buffer_payload + src_idx, chunk);
+                    std::memcpy(payload_buf + dst_idx, payload_buf + src_idx,
+                                chunk);
 
                     bytes_left -= chunk;
                     src_idx = ActualIndex(src_idx + chunk);
@@ -252,13 +313,13 @@ void MemoryArena::ReadPayload(const uint64_t v_offset, const uint32_t length,
     const uint64_t text_index = ActualIndex(v_offset + sizeof(PayloadHeader));
     char*          dst = out_payload->data();
 
-    if (PAYLOAD_BUFFER_SIZE - text_index >= length) {
-        std::memcpy(dst, buffer_payload + text_index, length);
+    if (payload_buf_size - text_index >= length) {
+        std::memcpy(dst, payload_buf + text_index, length);
     } else {
-        const size_t chunk1 = PAYLOAD_BUFFER_SIZE - text_index;
+        const size_t chunk1 = payload_buf_size - text_index;
         const size_t chunk2 = length - chunk1;
-        std::memcpy(dst, buffer_payload + text_index, chunk1);
-        std::memcpy(dst, buffer_payload, chunk2);
+        std::memcpy(dst, payload_buf + text_index, chunk1);
+        std::memcpy(dst, payload_buf, chunk2);
     }
 }
 
@@ -269,18 +330,18 @@ uint64_t MemoryArena::WritePayload(const uint32_t node_id,
     const uint64_t header_index = ActualIndex(header_offset);
 
     const PayloadHeader header{VALID_IDENTIFIER, node_id, length};
-    std::memcpy(buffer_payload + header_index, &header, sizeof(PayloadHeader));
+    std::memcpy(payload_buf + header_index, &header, sizeof(PayloadHeader));
 
     const uint64_t text_index =
         ActualIndex(header_index + sizeof(PayloadHeader));
 
-    if (PAYLOAD_BUFFER_SIZE - text_index >= length) {
-        std::memcpy(buffer_payload + text_index, in_payload, length);
+    if (payload_buf_size - text_index >= length) {
+        std::memcpy(payload_buf + text_index, in_payload, length);
     } else {
-        const size_t chunk1 = PAYLOAD_BUFFER_SIZE - text_index;
+        const size_t chunk1 = payload_buf_size - text_index;
         const size_t chunk2 = length - chunk1;
-        std::memcpy(buffer_payload + text_index, in_payload, chunk1);
-        std::memcpy(buffer_payload, in_payload + chunk1, chunk2);
+        std::memcpy(payload_buf + text_index, in_payload, chunk1);
+        std::memcpy(payload_buf, in_payload + chunk1, chunk2);
     }
 
     return header_offset;
@@ -297,15 +358,15 @@ uint64_t MemoryArena::AllocatePayload(const uint32_t length) {
     while (true) {
         if (curr_write + total_size -
                 read_tail.load(std::memory_order_relaxed) >=
-            PAYLOAD_BUFFER_SIZE) {
+            payload_buf_size) {
             throw std::runtime_error("Resource Exhausted");
         }
 
         const uint64_t actual_index = ActualIndex(curr_write);
         uint64_t       padding = 0;
 
-        if (PAYLOAD_BUFFER_SIZE - actual_index < sizeof(PayloadHeader)) {
-            padding = PAYLOAD_BUFFER_SIZE - actual_index;
+        if (payload_buf_size - actual_index < sizeof(PayloadHeader)) {
+            padding = payload_buf_size - actual_index;
         }
 
         const uint64_t allocated_offset = curr_write + padding;
