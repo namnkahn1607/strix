@@ -320,7 +320,7 @@ void MemoryArena::ReadPayload(const uint64_t v_offset, const uint32_t length,
         const size_t chunk1 = payload_buf_size - text_index;
         const size_t chunk2 = length - chunk1;
         std::memcpy(dst, payload_buf + text_index, chunk1);
-        std::memcpy(dst, payload_buf, chunk2);
+        std::memcpy(dst + chunk1, payload_buf, chunk2);
     }
 }
 
