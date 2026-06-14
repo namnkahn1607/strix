@@ -1,32 +1,36 @@
 //
-// Created by nlnk on Apr 20, 26.
+// index/avx2_math.hh
 //
 
-#ifndef STRIX_ENGINE_AVX_MATH_HH
-#define STRIX_ENGINE_AVX_MATH_HH
+#pragma once
 
-/* AMD/Intel x86 */
+// ------------------------------------------------------------
+// AMD/Intel x86
+// ------------------------------------------------------------
+
 #if defined(__x86_64__) || defined(_M_X64)
+
 #include <immintrin.h>
 
-#include "constant.hh"
+#include "constants.hh"
 
-__attribute__((target("avx2,fma"))) inline void CosineL0_Batch4(
+constexpr size_t BATCH_SIZE = 4;
+
+__attribute__((target("avx2,fma"))) inline void DotProductL0_Batch4(
     const float* __restrict__ query, const float* __restrict__ node_batch,
     float* __restrict__ scores) noexcept {
-    constexpr size_t DIM = engine::VECTOR_DIM;
-
     const float* __restrict__ n0 = node_batch;
-    const float* __restrict__ n1 = node_batch + DIM;
-    const float* __restrict__ n2 = node_batch + DIM * 2;
-    const float* __restrict__ n3 = node_batch + DIM * 3;
+    const float* __restrict__ n1 = node_batch + VECTOR_DIM;
+    const float* __restrict__ n2 = node_batch + VECTOR_DIM * 2;
+    const float* __restrict__ n3 = node_batch + VECTOR_DIM * 3;
 
     __m256 sA0 = _mm256_setzero_ps(), sA1 = _mm256_setzero_ps();
     __m256 sB0 = _mm256_setzero_ps(), sB1 = _mm256_setzero_ps();
     __m256 sC0 = _mm256_setzero_ps(), sC1 = _mm256_setzero_ps();
     __m256 sD0 = _mm256_setzero_ps(), sD1 = _mm256_setzero_ps();
 
-    for (size_t i = 0; i < DIM; i += 16) {
+    constexpr size_t JUMP = 16;
+    for (size_t i = 0; i < VECTOR_DIM; i += JUMP) {
         const __m256 q0 = _mm256_load_ps(query + i);
         const __m256 q1 = _mm256_load_ps(query + i + 8);
 
@@ -75,22 +79,22 @@ __attribute__((target("avx2,fma"))) inline void CosineL0_Batch4(
     _mm_storeu_ps(scores, _mm_add_ps(lo, hi));  // NOLINT(*-simd-intrinsics)
 }
 
-/* Scalar Fallback */
+// ------------------------------------------------------------
+// Scalar Fallback
+// ------------------------------------------------------------
+
 #else
-#include "constant.hh"
 
-inline void CosineL0_Batch4(const float* __restrict__ query,
-                            const float* __restrict__ node_batch,
-                            float* __restrict__ scores) noexcept {
-    constexpr size_t DIM = engine::VECTOR_DIM;
+#include "../common/config.hh"
 
-    for (size_t i = 0; i < DIM; ++i) {
+inline void DotProductL0_Batch4(const float* __restrict__ query,
+                               const float* __restrict__ node_batch,
+                               float* __restrict__ scores) noexcept {
+    for (size_t i = 0; i < VECTOR_DIM; ++i) {
         for (int k = 0; k < 4; ++k) {
-            scores[k] += query[i] * node_batch[k * DIM + i];
+            scores[k] += query[i] * node_batch[k * VECTOR_DIM + i];
         }
     }
 }
 
 #endif
-
-#endif  // STRIX_ENGINE_AVX_MATH_HH

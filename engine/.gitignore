@@ -1,0 +1,6 @@
+/.cache
+/.idea
+/.vscode
+/out
+
+.clangd

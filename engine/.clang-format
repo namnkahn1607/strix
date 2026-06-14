@@ -4,6 +4,10 @@ IndentWidth:     4
 TabWidth:        4
 UseTab:          Never
 AccessModifierOffset: -4
+AlignConsecutiveDeclarations:
+  Enabled: true
+  AcrossEmptyLines: false
+  AcrossComments: false
 AllowShortFunctionsOnASingleLine: Inline
 SpacesInParentheses: false
 BreakConstructorInitializers: BeforeComma
