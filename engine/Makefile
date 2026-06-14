@@ -47,6 +47,9 @@ bench: rbuild
 	@echo "=== Benchmark Vector searching on L0 Buffer ==="
 	./out/release/searchl0_bench
 
+	@echo "=== Benchmark Arena's Payload Read/Write ==="
+	./out/release/payloadrw_bench
+
 # ===========================================================================
 # DEBUG profile Recipes
 # ===========================================================================
@@ -78,5 +81,5 @@ test: dbuild
 	@echo "=== Unit-testing Vector searching on L0 Buffer ==="
 	./out/debug/searchl0_test
 
-	@echo "=== Unit-testing Payload Read/Write ==="
+	@echo "=== Unit-testing Arena's Payload Read/Write ==="
 	./out/debug/payloadrw_test

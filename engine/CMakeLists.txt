@@ -35,6 +35,7 @@ set(PROTO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../api/proto")
 set(PROTO_FILE "${PROTO_DIR}/strix.proto")
 set(PROTO_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
+# Pre-make directory in case of non-existing
 file(MAKE_DIRECTORY ${PROTO_GEN_DIR})
 
 # Get protoc and grpc_cpp_plugin from vcpkg
@@ -221,11 +222,21 @@ target_link_libraries(customops_bench PRIVATE
     benchmark::benchmark
 )
 
+# Benchmark Vector searching on L0 Buffer
 add_executable(searchl0_bench bench/searchl0_bench.cc)
 target_link_libraries(searchl0_bench PRIVATE
     engine_options
-    engine_memory
     engine_common
+    engine_memory
     engine_index
+    benchmark::benchmark
+)
+
+# Benchmark Payload Read/Write of Memory Arena
+add_executable(payloadrw_bench bench/payloadrw_bench.cc)
+target_link_libraries(payloadrw_bench PRIVATE
+    engine_options
+    engine_common
+    engine_memory
     benchmark::benchmark
 )
