@@ -3,11 +3,11 @@
 export TOKENIZER_PATH   := $(shell echo ~/Alder/strix/model/tokenizer.onnx)
 export TRANSFORMER_PATH := $(shell echo ~/Alder/strix/model/transformer.onnx)
 
-.PHONY: all config build run bench clean
+.PHONY: all checkenv clean bench test
 
-all: build
+all: rbuild
 
-check-env:
+checkenv:
 	@echo "Tokenizer Absolute path: ${TOKENIZER_PATH}"
 	@echo "Transformer Absolute path: ${TRANSFORMER_PATH}"
 
@@ -19,22 +19,22 @@ clean:
 # ===========================================================================
 # RELEASE profile Recipes
 # ===========================================================================
-config-r:
+rconfig:
 	@echo "=== Loading CMake project (Release) ==="
 	cmake --preset release
 
-contract-r: config
+rcontract: rconfig
 	cmake --build --preset release --target engine_contract
 
-build-r: config-r
+rbuild: rconfig
 	@echo "=== Building executables (Release) ==="
 	cmake --build --preset release
 
-run-r: build-r
+rrun: rbuild
 	@echo "=== Running Vector Engine (Release) ==="
 	./out/release/strix_engine
 
-bench: build-r
+bench: rbuild
 	@echo "=== Benchmark AVX2 Dot Product ==="
 	./out/release/avx2_bench
 
@@ -50,22 +50,22 @@ bench: build-r
 # ===========================================================================
 # DEBUG profile Recipes
 # ===========================================================================
-config-d:
+dconfig:
 	@echo "=== Loading CMake project (Debug) ==="
 	cmake --preset debug
 
-contract-d: config
+dcontract: dconfig
 	cmake --build --preset debug --target engine_contract
 
-build-d: config-d
+dbuild: dconfig
 	@echo "=== Building executables (Debug) ==="
 	cmake --build --preset debug
 
-run-d: build-d
+drun: dbuild
 	@echo "=== Running Vector Engine (Debug) ==="
 	./out/debug/strix_engine
 
-test: build-d
+test: dbuild
 	@echo "=== Unit-testing AVX2 Dot Product ==="
 	./out/debug/avx2_test
 
@@ -77,3 +77,6 @@ test: build-d
 
 	@echo "=== Unit-testing Vector searching on L0 Buffer ==="
 	./out/debug/searchl0_test
+
+	@echo "=== Unit-testing Payload Read/Write ==="
+	./out/debug/payloadrw_test

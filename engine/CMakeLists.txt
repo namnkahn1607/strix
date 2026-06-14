@@ -173,11 +173,21 @@ target_link_libraries(searchl0_test PRIVATE
     GTest::gtest
 )
 
+# Test Payload Read/Write of Memory Arena
+add_executable(payloadrw_test tests/payloadrw_test.cc)
+target_link_libraries(payloadrw_test PRIVATE
+    engine_common
+    engine_memory
+    GTest::gtest_main
+    GTest::gtest
+)
+
 include(GoogleTest)
 gtest_discover_tests(avx2_test)
 gtest_discover_tests(model_test)
 gtest_discover_tests(ctrl_test)
 gtest_discover_tests(searchl0_test)
+gtest_discover_tests(payloadrw_test)
 
 # ===========================================================================
 # 7. BENCHMARK EXECUTABLE(S)
