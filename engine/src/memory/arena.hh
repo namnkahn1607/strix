@@ -21,16 +21,19 @@ struct alignas(4) PayloadHeader {
 // ArenaConfig.
 // Controls memory layout of MemoryArena at construction time.
 //
-// 1. max_slots          : total number of slots to allocate - non-zero & a
-//                         multiple of 4.
-// 2. payload_buffer_size: size of the ring buffer in bytes - a power of 2.
+// 1. max_slots        : total number of slots to allocate - non-zero & a
+//                       multiple of 4.
+// 2. payload_buf_size : size of the ring buffer in bytes - a power of 2.
+// 3. lazy_mapping     : whether to use MAP_POPULATE in mmap or not. Set
+//                       false to use it.
 //
 // Pass 0 to omit the payload ring buffer (also made it nullptr).
 // Non-null assertions will be made on relevant methods.
 struct ArenaConfig {
-    size_t max_slots;
-    size_t payload_buf_size;
-    bool   lazy_mapping;
+    size_t   max_slots;
+    size_t   payload_buf_size;
+    bool     lazy_mapping;
+    uint64_t start_point = 0;
 
     // Production-grade config:
     // 524'288 + 1'024 slots, 4GB payload buffer, populated.

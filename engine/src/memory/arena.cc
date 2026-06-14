@@ -37,22 +37,12 @@ inline constexpr uint32_t HIGH_GC_SLEEP = 1;
 inline constexpr uint32_t SWEEP_INTERVAL = 5'000;
 
 // Allocates an anonymous (MAP_ANONYMOUS) private (MAP_PRIVATE) region,
-// MAP_POPULATE instructs the kernel to pre-faults all pages inside the syscall.
-void* MmapPopulate(const size_t size) {
-    void* ptr = mmap(nullptr, size, PROT_READ | PROT_WRITE,
-                     MAP_ANONYMOUS | MAP_PRIVATE | MAP_POPULATE, -1, 0);
-    if (ptr == MAP_FAILED) {
-        throw std::runtime_error("mmap failed for MemoryArena");
-    }
+// MAP_POPULATE instructs the kernel to pre-faults all pages inside the syscall,
+// and is used depends on 'lazy' (true means not using).
+void* MmapRegion(const size_t size, const bool lazy) {
+    const int flags = MAP_ANONYMOUS | MAP_PRIVATE | (lazy ? 0 : MAP_POPULATE);
 
-    return ptr;
-}
-
-// Allocates without MAP_POPULATE - pages fault lazily on first access.
-// Used for test configs where pre-faulting the full buffer is unnecessary.
-void* MmapLazy(const size_t size) {
-    void* ptr = mmap(nullptr, size, PROT_READ | PROT_WRITE,
-                     MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+    void* ptr = mmap(nullptr, size, PROT_READ | PROT_WRITE, flags, -1, 0);
     if (ptr == MAP_FAILED) {
         throw std::runtime_error("mmap failed for MemoryArena");
     }
@@ -85,36 +75,47 @@ ArenaConfig ArenaConfig::TestSearchL0() {
 MemoryArena::MemoryArena(const ArenaConfig& config)
     : max_slots(config.max_slots)
     , payload_buf_size(config.payload_buf_size)
-    , write_head(0)
-    , read_tail(0) {
+    , write_head(config.start_point)
+    , read_tail(config.start_point) {
     // --- Configuration validating ---
     if (!(max_slots != 0 && max_slots % 4 == 0)) {
         throw std::invalid_argument(
             "Arena slots must be non-zero and multiple of 4");
     }
 
-    if (payload_buf_size > 0 &&
-        (payload_buf_size & (payload_buf_size - 1)) != 0) {
-        throw std::invalid_argument("Payload buffer size must be a power of 2");
+    if (payload_buf_size > 0) {
+        if ((payload_buf_size & (payload_buf_size - 1)) != 0) {
+            throw std::invalid_argument(
+                "Payload buffer size must be a power of 2");
+        }
+
+        if (config.start_point >= payload_buf_size) {
+            throw std::invalid_argument(
+                "Start point must be smaller than Payload buffer size");
+        }
+
+    } else if (config.start_point != 0) {
+        throw std::invalid_argument(
+            "Start point must be 0 when there's no Payload buffer");
     }
 
-    auto mmap_fn = config.lazy_mapping ? MmapLazy : MmapPopulate;
-
     // --- Arena allocation ---
-    metadata = static_cast<MetaNode*>(mmap_fn(max_slots * sizeof(MetaNode)));
-    vectors = static_cast<float*>(
-        mmap_fn(max_slots * VECTOR_DIM_ARENA * sizeof(float)));
+    metadata = static_cast<MetaNode*>(
+        MmapRegion(max_slots * sizeof(MetaNode), config.lazy_mapping));
+    vectors = static_cast<float*>(MmapRegion(
+        max_slots * VECTOR_DIM_ARENA * sizeof(float), config.lazy_mapping));
 
     if (payload_buf_size > 0) {
-        payload_buf = static_cast<uint8_t*>(mmap_fn(payload_buf_size));
+        payload_buf = static_cast<uint8_t*>(
+            MmapRegion(payload_buf_size, config.lazy_mapping));
     } else {
         payload_buf = nullptr;
     }
 
     std::cout << "[Vector Engine] Initialized Memory Arena (" << max_slots
               << " slots, " << payload_buf_size / (1024 * 1024) << "MB,"
-              << " pre-fault=" << (config.lazy_mapping ? "false" : "true")
-              << ")\n";
+              << " pre-fault=" << (config.lazy_mapping ? "false," : "true,")
+              << " start" << (config.start_point > 0 ? "!=0" : "=0") << ")\n";
 }
 
 MemoryArena::~MemoryArena() {
