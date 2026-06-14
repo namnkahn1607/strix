@@ -88,6 +88,11 @@ public:
         return read_tail.load(std::memory_order_acquire);
     }
 
+    // Prefault page for payload buffer in case mmap did not populate
+    // MemoryArena. Eliminate the cost of page fault in benchmarks.
+    // Use with cautious.
+    void Cautious_PrefaultBuffer() const noexcept;
+
 private:
     constexpr static size_t VECTOR_DIM_ARENA = 384;
 

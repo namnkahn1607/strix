@@ -7,6 +7,7 @@
 #include <sys/mman.h>
 
 #include <atomic>
+#include <cassert>
 #include <chrono>
 #include <cstring>
 #include <iostream>
@@ -111,11 +112,6 @@ MemoryArena::MemoryArena(const ArenaConfig& config)
     } else {
         payload_buf = nullptr;
     }
-
-    std::cout << "[Vector Engine] Initialized Memory Arena (" << max_slots
-              << " slots, " << payload_buf_size / (1024 * 1024) << "MB,"
-              << " pre-fault=" << (config.lazy_mapping ? "false," : "true,")
-              << " start" << (config.start_point > 0 ? "!=0" : "=0") << ")\n";
 }
 
 MemoryArena::~MemoryArena() {
@@ -132,6 +128,9 @@ MemoryArena::~MemoryArena() {
 // ------------------------------------------------------------
 
 void MemoryArena::RunGarbageCollector(const std::atomic<bool>& g_shutdown_req) {
+    assert(payload_buf != nullptr &&
+           "Memory Arena is missing payload buffer for related operations");
+
     try {
         auto last_sweep = std::chrono::steady_clock::now();
 
@@ -305,6 +304,9 @@ void MemoryArena::SweepStalePending(const uint64_t curr_time) noexcept {
 
 void MemoryArena::ReadPayload(const uint64_t v_offset, const uint32_t length,
                               std::string* out_payload) const {
+    assert(payload_buf != nullptr &&
+           "Memory Arena is missing payload buffer for related operations");
+
     if (length == 0) {
         out_payload->clear();
         return;
@@ -327,6 +329,9 @@ void MemoryArena::ReadPayload(const uint64_t v_offset, const uint32_t length,
 uint64_t MemoryArena::WritePayload(const uint32_t node_id,
                                    const uint8_t* in_payload,
                                    const uint32_t length) {
+    assert(payload_buf != nullptr &&
+           "Memory Arena is missing payload buffer for related operations");
+
     const uint64_t header_offset = AllocatePayload(length);
     const uint64_t header_index = ActualIndex(header_offset);
 
@@ -353,6 +358,9 @@ uint64_t MemoryArena::WritePayload(const uint32_t node_id,
 // ------------------------------------------------------------
 
 uint64_t MemoryArena::AllocatePayload(const uint32_t length) {
+    assert(payload_buf != nullptr &&
+           "Memory Arena is missing payload buffer for related operations");
+
     const size_t total_size = sizeof(PayloadHeader) + length;
     uint64_t     curr_write = write_head.load(std::memory_order_relaxed);
 
@@ -378,4 +386,16 @@ uint64_t MemoryArena::AllocatePayload(const uint32_t length) {
             return allocated_offset;
         }
     }
+}
+
+// ------------------------------------------------------------
+// Danger Zone (Bench/Test methods)
+// ------------------------------------------------------------
+
+void MemoryArena::Cautious_PrefaultBuffer() const noexcept {
+    assert(payload_buf != nullptr &&
+           "Memory Arena is missing payload buffer for related operations");
+
+    payload_buf[write_head] = 0;
+    payload_buf[0] = 0;
 }

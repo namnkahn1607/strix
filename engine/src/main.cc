@@ -193,8 +193,12 @@ int main() {
 
     try {
         const Embedder embedder(tok_path, bert_path);
-        const auto     memory_arena =
+        std::cout << "[Vector Engine] Initialized Inference model.";
+
+        const auto memory_arena =
             std::make_unique<MemoryArena>(ArenaConfig::Production());
+        std::cout << "[Vector Engine] Initialized Memory Arena.\n";
+
         std::atomic<bool> g_shutdown_req{false};
 
         WarmupEngine(embedder);
