@@ -10,6 +10,7 @@
 #include <cassert>
 #include <chrono>
 #include <cstring>
+#include <exception>
 #include <iostream>
 #include <stdexcept>
 #include <thread>
@@ -130,11 +131,10 @@ MemoryArena::~MemoryArena() {
 void MemoryArena::RunGarbageCollector(const std::atomic<bool>& g_shutdown_req) {
     assert(payload_buf != nullptr &&
            "Memory Arena is missing payload buffer for related operations");
+    auto last_sweep = std::chrono::steady_clock::now();
 
-    try {
-        auto last_sweep = std::chrono::steady_clock::now();
-
-        while (!g_shutdown_req.load(std::memory_order_relaxed)) {
+    while (!g_shutdown_req.load(std::memory_order_relaxed)) {
+        try {
             // Trigger stale Node sweeper periodically
             const auto now = std::chrono::steady_clock::now();
             if (std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -256,10 +256,9 @@ void MemoryArena::RunGarbageCollector(const std::atomic<bool>& g_shutdown_req) {
             }
 
             read_tail.fetch_add(total_size, std::memory_order_relaxed);
+        } catch (const std::exception& e) {
+            std::cerr << "[Engine] GC WARNING: " << e.what() << "\n";
         }
-
-    } catch (const std::exception& e) {
-        std::cerr << "[Engine] GC WARNING: " << e.what() << "\n";
     }
 }
 
