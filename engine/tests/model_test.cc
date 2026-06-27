@@ -1,5 +1,4 @@
-//
-// tests/model_test.cpp
+// Author: namnkahn1607
 //
 // Integration tests for Embedder::Encode() under concurrent load.
 //
@@ -14,7 +13,6 @@
 // Prerequisites:
 //   export TOKENIZER_PATH=<absolute path to tokenizer.onnx>
 //   export TRANSFORMER_PATH=<absolute path to model.onnx>
-//
 
 #include <gtest/gtest.h>
 
@@ -25,38 +23,38 @@
 #include <thread>
 #include <vector>
 
-#include "inference.hh"
+#include "inference.h"
 
 namespace {
 
-constexpr size_t DIM = 384;
+inline constexpr int32_t kDim = 384;
 
-// Dot Product of two L2-normalized vectors equals Cosine Similarity.
-float CosineSimilarity(const float* a, const float* b) {
-    float dot = 0.0f;
+// DotProduct(): computes dot product between 2 normalized vectors.
+float DotProduct(const float* query, const float* node_vector) {
+    float sum = 0.0f;
 
-    for (size_t i = 0; i < DIM; ++i) {
-        dot += a[i] * b[i];
+    for (int32_t i = 0; i < kDim; ++i) {
+        sum += (query[i] * node_vector[i]);
     }
 
-    return dot;
+    return sum;
 }
 
 }  // namespace
 
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // Test fixture
 // SetUpTestSuite() initializes the Embedder once and encodes the ground-truth
 // vector on the main thread. All tests share the same Embedder instance to
 // reflect real production usage (one Embedder, many concurrent requests).
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 
 class EmbedderConcurrencyTest : public ::testing::Test {
 protected:
     static std::unique_ptr<Embedder> emb;
     static std::vector<float>        truth;
 
-    static constexpr uint32_t NUM_THREADS = 8;
+    static constexpr uint32_t NUM_THREADS      = 8;
     static constexpr uint32_t CALLS_PER_THREAD = 20;
 
     // Threshold for Cosine Similarity between two runs of the same prompt.
@@ -67,7 +65,7 @@ protected:
     const std::string kPrompt = "What is the capital of France?";
 
     static void SetUpTestSuite() {
-        const char* tok_path = std::getenv("TOKENIZER_PATH");
+        const char* tok_path  = std::getenv("TOKENIZER_PATH");
         const char* bert_path = std::getenv("TRANSFORMER_PATH");
 
         ASSERT_NE(tok_path, nullptr) << "TOKENIZER_PATH is not set";
@@ -79,21 +77,24 @@ protected:
         auto result = emb->Encode("What is the capital of France?");
         ASSERT_TRUE(result.ok()) << "Ground truth encode failed";
         const float* ptr = result.value().get();
-        truth.assign(ptr, ptr + DIM);
+        truth.assign(ptr, ptr + kDim);
     }
 
-    static void TearDownTestSuite() { emb.reset(); }
+    static void TearDownTestSuite() {
+        emb.reset();
+    }
 };
 
 std::unique_ptr<Embedder> EmbedderConcurrencyTest::emb = nullptr;
 std::vector<float>        EmbedderConcurrencyTest::truth;
 
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // OutputConsistencyUnderConcurrency
 // 8 threads x 20 calls = 160 concurrent Encode() calls with the same prompt.
 // Each result must have cosine similarity >= 0.9999 against the ground truth.
 // Detects session state corruption or data races inside ORT.
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+
 TEST_F(EmbedderConcurrencyTest, OutputConsistencyUnderConcurrency) {
     // Single warm-up call to let ORT JIT-compile any lazy paths.
     [[maybe_unused]] auto _ = emb->Encode("Mom I love you");
@@ -111,7 +112,7 @@ TEST_F(EmbedderConcurrencyTest, OutputConsistencyUnderConcurrency) {
                 }
 
                 const float sim =
-                    CosineSimilarity(result.value().get(), truth.data());
+                    DotProduct(result.value().get(), truth.data());
                 ++total_count;
 
                 if (sim >= COSINE_THRESHOLD) {
@@ -144,13 +145,14 @@ TEST_F(EmbedderConcurrencyTest, OutputConsistencyUnderConcurrency) {
         << ")";
 }
 
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // NoNaNUnderConcurrency
 // 8 threads x 20 calls. Each output vector must contain no NaN values.
 // NaN can appear if the L2 normalization step divides by a near-zero norm -
 // Encode() should return Err(DEGENERATE_VECTOR) before that happens, but
 // this test verifies no NaN escapes through any code path.
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+
 TEST_F(EmbedderConcurrencyTest, NoNaNUnderConcurrency) {
     std::atomic<int32_t> nan_count{0};
     std::atomic<bool>    any_exception{false};
@@ -164,7 +166,7 @@ TEST_F(EmbedderConcurrencyTest, NoNaNUnderConcurrency) {
                 }
 
                 const float* ptr = result.value().get();
-                for (size_t j = 0; j < DIM; ++j) {
+                for (size_t j = 0; j < kDim; ++j) {
                     if (std::isnan(ptr[j])) {
                         ++nan_count;
                     }

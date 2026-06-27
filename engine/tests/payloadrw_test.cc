@@ -1,5 +1,4 @@
-//
-// tests/payloadrw_test.cc
+// Author: namnkahn1607
 //
 // Unit tests for MemoryArena::WritePayload() and ReadPayload().
 //
@@ -19,29 +18,27 @@
 //     [2] Wrap       : data straddles the boundary (two memcpy calls).
 //
 // All configs use lazy_mapping = true (no MAP_POPULATE).
-//
 
 #include <gtest/gtest.h>
 
 #include <stdexcept>
 #include <string>
 
-#include "arena.hh"
+#include "arena.h"
 
 namespace {
 
-inline constexpr size_t SLOTS = 4;
-inline constexpr size_t BUF = 256;                            // 256 bytes
-inline constexpr size_t HEADER_SIZE = sizeof(PayloadHeader);  // 12 bytes
-inline constexpr size_t NODE = 0;
+inline constexpr size_t kSlots      = 4;
+inline constexpr size_t kBuf        = 256;                    // 256 bytes
+inline constexpr size_t kHeaderSize = sizeof(PayloadHeader);  // 12 bytes
+inline constexpr size_t kNode       = 0;
 
-// Payload Read/Write testing config:
-// 4 slots, 256 bytes payload buffer, lazy.
+// PayloadTestConfig(): 4 slots, 256 bytes payload buffer, lazy mapping.
 ArenaConfig PayloadTestConfig(const uint64_t start_point = 0) {
-    return ArenaConfig{SLOTS, BUF, true, start_point};
+    return ArenaConfig{kSlots, kBuf, true, start_point};
 }
 
-// Generates a deterministic payload of specified byte-size.
+// GenPayload(): generates a deterministic payload of specified byte-size.
 std::string GenPayload(const size_t len) {
     std::string str(len, '\0');
     for (size_t i = 0; i < len; ++i) {
@@ -54,7 +51,7 @@ std::string GenPayload(const size_t len) {
 
 }  // namespace
 
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // SequentialWriteRead
 // No payload wrapping involved
 //
@@ -65,16 +62,17 @@ std::string GenPayload(const size_t len) {
 //
 // ReadPayload reads from text_index=12, length=100.
 // BUF - text_index = 244 >= 100 -> NON-WRAP.
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+
 TEST(PayloadRWTest, SequentialWriteRead) {
     MemoryArena arena{PayloadTestConfig(0)};
 
-    const std::string in = GenPayload(100);
+    const std::string in     = GenPayload(100);
     const uint32_t    length = static_cast<uint32_t>(in.size());
     const uint64_t    offset = arena.WritePayload(
-        NODE, reinterpret_cast<const uint8_t*>(in.data()), length);
+        kNode, reinterpret_cast<const uint8_t*>(in.data()), length);
 
-    EXPECT_EQ(arena.GetWriteHead(), HEADER_SIZE + 100);
+    EXPECT_EQ(arena.GetWriteHead(), kHeaderSize + 100);
 
     std::string out;
     arena.ReadPayload(offset, length, &out);
@@ -82,7 +80,7 @@ TEST(PayloadRWTest, SequentialWriteRead) {
     EXPECT_EQ(out, in);
 }
 
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // DataWrapAround
 // Place write_head = read_tail = BUF - 50 = 206.
 //
@@ -100,15 +98,16 @@ TEST(PayloadRWTest, SequentialWriteRead) {
 //   BUF - 218 = 38 < 100 -> WRAP.
 //     chunk1 = 38 bytes from [218..255]
 //     chunk2 = 62 bytes from [0..61]
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+
 TEST(PayloadRWTest, DataWrapAround) {
-    constexpr uint64_t START = BUF - 50;
+    constexpr uint64_t START = kBuf - 50;
     MemoryArena        arena{PayloadTestConfig(START)};
 
-    const std::string in = GenPayload(100);
+    const std::string in     = GenPayload(100);
     const uint32_t    length = static_cast<uint32_t>(in.size());
     const uint64_t    offset = arena.WritePayload(
-        NODE, reinterpret_cast<const uint8_t*>(in.data()), length);
+        kNode, reinterpret_cast<const uint8_t*>(in.data()), length);
 
     std::string out;
     arena.ReadPayload(offset, length, &out);
@@ -117,7 +116,7 @@ TEST(PayloadRWTest, DataWrapAround) {
         << "data split across ring buffer boundary must reassemble correctly";
 }
 
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // HeaderWrapPaddingInserted
 // Place write_head = read_tail = BUF - 8 = 248.
 //
@@ -133,17 +132,18 @@ TEST(PayloadRWTest, DataWrapAround) {
 // ReadPayload(offset=256, 100):
 //   text_index = (256 + 12) & 255 = 12.
 //   BUF - 12 = 244 >= 100 -> NON-WRAP.
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+
 TEST(PayloadRWTest, HeaderWrapPaddingInserted) {
-    constexpr uint64_t START = BUF - 8;
+    constexpr uint64_t START = kBuf - 8;
     MemoryArena        arena{PayloadTestConfig(START)};
 
-    const std::string in = GenPayload(100);
+    const std::string in     = GenPayload(100);
     const uint32_t    length = static_cast<uint32_t>(in.size());
     const uint64_t    offset = arena.WritePayload(
-        NODE, reinterpret_cast<const uint8_t*>(in.data()), length);
+        kNode, reinterpret_cast<const uint8_t*>(in.data()), length);
 
-    EXPECT_EQ(offset & (BUF - 1), 0ULL)
+    EXPECT_EQ(offset & (kBuf - 1), 0ULL)
         << "header must start at physical index 0 after padding";
 
     std::string out;
@@ -152,7 +152,7 @@ TEST(PayloadRWTest, HeaderWrapPaddingInserted) {
     EXPECT_EQ(out, in) << "header-wrapped payload must read back correctly";
 }
 
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // ExhaustionThrows
 // GC never runs, so read_tail is pinned at start_point.
 // Write until used_space >= BUF.
@@ -160,28 +160,30 @@ TEST(PayloadRWTest, HeaderWrapPaddingInserted) {
 // Each WritePayload(len=50) consumes HEADER(12) + 50 = 62 bytes.
 // With 4 writes consumes total of 4 * 62 = 248 bytes.
 // 5th write would need 62 more bytes: 248 + 62 = 310 > 256 -> THROW.
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+
 TEST(PayloadRWTest, ExhaustionThrows) {
     constexpr uint32_t LEN = 50;
     MemoryArena        arena{PayloadTestConfig(0)};
 
-    const std::string in = GenPayload(LEN);
+    const std::string in   = GenPayload(LEN);
     const auto*       data = reinterpret_cast<const uint8_t*>(in.data());
 
     for (int32_t i = 0; i < 4; ++i) {
-        ASSERT_NO_THROW(arena.WritePayload(NODE, data, LEN))
+        ASSERT_NO_THROW(arena.WritePayload(kNode, data, LEN))
             << "write " << i << " should succeed";
     }
 
-    EXPECT_THROW(arena.WritePayload(NODE, data, LEN), std::runtime_error)
+    EXPECT_THROW(arena.WritePayload(kNode, data, LEN), std::runtime_error)
         << "5th write must throw when buffer is full";
 }
 
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // MultipleSequentialWrites
 // Multiple sequential writes, all read back correctly.
 // Verifies write_head accounting across consecutive calls.
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+
 TEST(PayloadRWTest, MultipleSequentialWrites) {
     MemoryArena arena{PayloadTestConfig(0)};
 
