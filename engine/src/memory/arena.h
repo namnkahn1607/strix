@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include <functional>
+
 #include "constants.h"
 #include "meta_node.h"
 
@@ -88,14 +90,14 @@ public:
     MemoryArena(MemoryArena&&)                 = delete;
     MemoryArena& operator=(MemoryArena&&)      = delete;
 
-    // Copies `length` bytes starting at virtual offset `v_offset` from the
+    // ReadPayload(): copies `length` bytes starting at `v_offset` from the
     // ring buffer into `out_payload`. Asserts that `payload_buf` is non-null.
     void ReadPayload(uint64_t v_offset, uint32_t length,
                      std::string* out_payload) const;
 
-    // Writes a `PayloadHeader` followed by `in_payload` of `length` bytes
-    // into the ring buffer. Returns the virtual offset of the written header.
-    // Asserts that `payload_buf` is non-null.
+    // WritePayload(): writes a `PayloadHeader` followed by `in_payload` of
+    // given `length` bytes into the ring buffer. Returns the virtual offset of
+    // the written header. Asserts that `payload_buf` is non-null.
     uint64_t WritePayload(uint32_t node_id, const uint8_t* in_payload,
                           uint32_t length);
 
@@ -107,14 +109,29 @@ public:
     // Must be launched on exactly one dedicated thread; not re-entrant.
     void RunGarbageCollector(const std::atomic<bool>& g_shutdown_req);
 
-    // Returns a reference to the `MetaNode` at `node_id`.
+    // NodeFreedCallback
+    //
+    // `MemoryArena` (Storage Layer) must notify `VectorIndex` (Index Layer)
+    // when a `node_id` becomes free again, but that would create a circular
+    // dependency since Index Layer 'oversees' Storage Layer.
+    using NodeFreedCallback = std::function<void(uint32_t)>;
+
+    // SetNodeFreedCallback()
+    //
+    // GC use this to indirectly append `node_id` to `FreeList`.
+    // The caller `main` wires this up to `VectorIndex::PushFreeNode`.
+    void SetNodeFreedCallback(NodeFreedCallback cb) {
+        on_node_freed_ = std::move(cb);
+    }
+
+    // GetNode(): returns a reference to the `MetaNode` at `node_id`.
     // Caller must ensure `node_id` < `max_slots`.
     inline MetaNode& GetNode(const size_t node_id) const noexcept {
         return metadata_[node_id];
     }
 
-    // Returns a pointer to the first float of the vector at `node_id`.
-    // The vector occupies `kVectorDim` contiguous floats.
+    // GetVector(): returns a pointer to the first float of the vector at
+    // position `node_id`. The vector occupies `kVectorDim` contiguous floats.
     inline float* GetVector(const size_t node_id) const noexcept {
         return vectors_ + kVectorDim * node_id;
     }
@@ -153,6 +170,9 @@ private:
     uint8_t*              payload_buf_;
     std::atomic<uint64_t> write_head_;
     std::atomic<uint64_t> read_tail_;
+
+    // Dependency-inversion callback to Index Layer.
+    NodeFreedCallback on_node_freed_;
 
     // Maps a virtual offset to its physical index in the ring buffer.
     // Relies on `payload_buf_size_` being a power of 2.
