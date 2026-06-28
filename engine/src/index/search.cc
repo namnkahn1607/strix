@@ -1,52 +1,56 @@
+// Author: namnkahn1607
 //
-// index/search.cc
-//
+// SearchL0() implementation.
+// Single-pass scan of the L0 buffer using batched AVX2 dot products.
 
-#include "search.hh"
+#include "search.h"
 
-#include "avx2_math.hh"
-
-// ------------------------------------------------------------
-// Vector Searching
-// ------------------------------------------------------------
+#include "avx2_math.h"
 
 SearchResult SearchL0(MemoryArena& arena, const float* query,
                       const uint64_t curr_time) noexcept {
     SearchResult result;
 
-    for (size_t i = 0; i < L0_MAX_SLOTS; i += BATCH_SIZE) {
-        float scores[BATCH_SIZE] = {};
-        bool  valid[BATCH_SIZE] = {};
+    for (size_t i = 0; i < kL0MaxSlots; i += kBatchSize) {
+        // scores[] is populated unconditionally by DotProductBatch() below.
+        // valid[] gates which scores are considered in the result update.
+        // This is intentionally branchless: computing dot products for
+        // invalid nodes is cheaper than branching in the hot loop.
+        float scores[kBatchSize] = {};
+        bool  valid[kBatchSize]  = {};
 
-        for (size_t k = 0; k < BATCH_SIZE; ++k) {
-            const MetaNode& node = arena.GetNode(i + k);
-            const uint64_t  ctrl =
-                node.control_block.load(std::memory_order_relaxed);
-            const auto [state, ref_bit, length, offset] = UnpackControl(ctrl);
+        for (size_t k = 0; k < kBatchSize; ++k) {
+            const MetaNode&       node = arena.GetNode(i + k);
+            const UnpackedControl ctrl =
+                node.LoadControl(std::memory_order_acquire);
 
-            switch (state) {
-                case NodeState::DEAD:
-                    // Found a DEAD node, note immediately for future use.
+            switch (ctrl.state) {
+                case NodeState::kDead:
+                    // Opportunistically record the first free slot so the
+                    // caller can reclaim it without a second pass.
                     if (result.reusable_node_id == -1) {
                         result.reusable_node_id = static_cast<int32_t>(i + k);
                     }
+
                     break;
 
-                case NodeState::CLAIMED:
-                    // There's on-going data construction. Do not touch.
+                case NodeState::kClaimed:
+                    // Actively copying vector data; do not touch.
                     break;
 
-                case NodeState::PENDING: {
+                case NodeState::kPending: {
                     const uint64_t ts =
                         node.created_at.load(std::memory_order_acquire);
 
-                    // A node whose created_at = 0 means unfinished transition
-                    // from CLAIMED -> PENDING. Skip to avoid racing.
+                    // created_at == 0 indicates the writer has not yet
+                    // committed the timestamp (CLAIMED -> PENDING transition
+                    // is not atomic). Skip to avoid a data race on ts.
                     if (ts == 0) {
                         break;
                     }
 
-                    // Expired PENDING node. Skip since GC will kill it soon.
+                    // Skip nodes whose PENDING window has expired; the GC
+                    // sweeper will transition them to kDead shortly.
                     if (curr_time - ts > PENDING_LIFESPAN) {
                         break;
                     }
@@ -55,18 +59,20 @@ SearchResult SearchL0(MemoryArena& arena, const float* query,
                     break;
                 }
 
-                case NodeState::READY:
-                case NodeState::MIGRATING:
+                case NodeState::kReady:
+                case NodeState::kMigrating:
                     valid[k] = true;
                     break;
             }
         }
 
-        DotProductL0_Batch4(query, arena.GetVector(i), scores);
+        // Compute dot products for all kBatchSize nodes unconditionally.
+        // Results for invalid nodes are computed but never read below.
+        DotProductBatch(query, arena.GetVector(i), scores);
 
-        for (size_t k = 0; k < BATCH_SIZE; ++k) {
+        for (size_t k = 0; k < kBatchSize; ++k) {
             if (valid[k] && scores[k] > result.best_score) {
-                result.best_score = scores[k];
+                result.best_score   = scores[k];
                 result.best_node_id = static_cast<int32_t>(i + k);
             }
         }

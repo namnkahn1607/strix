@@ -1,9 +1,7 @@
-//
-// main.cc
+// Author: namnkahn1607
 //
 // Orchestrator: initializes all subsystems, injects dependencies,
 // and runs the shutdown event loop via epoll + signalfd.
-//
 
 #include <sys/epoll.h>
 #include <sys/signalfd.h>
@@ -11,29 +9,33 @@
 #include <csignal>
 #include <thread>
 
-#include "aligned_vec.hh"
-#include "arena.hh"
-#include "avx2_math.hh"
-#include "constants.hh"
-#include "inference.hh"
-#include "service.hh"
+#include "aligned_vec.h"
+#include "arena.h"
+#include "avx2_math.h"
+#include "constants.h"
+#include "inference.h"
+#include "service.h"
 
 namespace {
 
-// Death Pipe reader File Descriptor's index
-inline constexpr int32_t PIPE_READER_FD = 3;
+// File descriptor index of the Death Pipe reader end.
+// The pipe is created by the Control plane and in herited by this process
+// on spawn. EOF on this fd signals that this process must shut down.
+inline constexpr int32_t kPipeReaderFD = 3;
 
-// Vector Engine's shutdown timeout in second(s)
-inline constexpr uint32_t SHUTDOWN_TIMEOUT = 5;
+// Vector Engine's graceful shutdown timeout in second(s).
+inline constexpr uint32_t kShutdownTimeout = 5;
 
-// --- WarmUpEngine ---
-// Drives ONNX runtime and AVX2 dispatch through one full execution path
-// before the server starts accepting requests.
+// WarmupEngine()
+//
+// Drives the ONNX runtime and AVX2 dispatch through one full execution path
+// before the server starts accepting requests, eliminating JIT compilation
+// and cold-cache latency from the first real request.
 void WarmupEngine(const Embedder& embedder) {
     std::cout << "[Vector Engine] Warming up ONNX runtime...\n";
 
     constexpr int32_t WARMUP_ROUNDS = 3;
-    const std::string dummy_prompt = "Hello, World!";
+    const std::string dummy_prompt  = "Hello, World!";
 
     AlignedVec dummy_vec;
     for (int32_t i = 0; i < WARMUP_ROUNDS; ++i) {
@@ -43,21 +45,26 @@ void WarmupEngine(const Embedder& embedder) {
         }
     }
 
-    // Warmup AVX2 dispatch with a zero-initialized batch
-    auto dummy_batch = CreateAlignedVector(4 * VECTOR_DIM);
-    std::memset(dummy_batch.get(), 0, 4 * VECTOR_MEMSIZE);
+    // Warm-up AVX2 dispatch with a zero-initialised batch.
+    auto dummy_batch = CreateAlignedVector(4 * kVectorDim);
+    std::memset(dummy_batch.get(), 0, 4 * kVectorMemsize);
 
-    float scores[BATCH_SIZE] = {};
+    float scores[kBatchSize] = {};
     if (dummy_vec) {
-        DotProductL0_Batch4(dummy_vec.get(), dummy_batch.get(), scores);
+        DotProductBatch(dummy_vec.get(), dummy_batch.get(), scores);
     }
 
     std::cout << "[Vector Engine] Warm-up completed.\n";
 }
 
+// RunServer()
+//
+// Starts the gRPC server and GC background thread, then blocks on the epoll
+// event loop until a shutdown signal arrives (Death Pipe EOF or
+// SIGINT/SIGTERM). `fd_sig` must be a `signalfd` created in `main()` after
+// the signal mask is set.
 void RunServer(const Embedder& embedder, MemoryArena& arena,
-               std::atomic<bool>& g_shutdown_req) {
-    // --- gRPC setup ---
+               std::atomic<bool>& g_shutdown_req, int fd_sig) {
     const std::string server_address{"unix:///tmp/strix.sock"};
     unlink("/tmp/strix.sock");
 
@@ -74,7 +81,6 @@ void RunServer(const Embedder& embedder, MemoryArena& arena,
 
     std::cout << "[Vector Engine] Listening on " << server_address << "\n";
 
-    // --- Background GC Thread ---
     std::thread gc_thread(&MemoryArena::RunGarbageCollector, &arena,
                           std::ref(g_shutdown_req));
     std::thread grpc_thread([&]() {
@@ -91,21 +97,7 @@ void RunServer(const Embedder& embedder, MemoryArena& arena,
         }
     });
 
-    // --- SIGINT / SIGTERM handler ---
-    sigset_t mask;
-    sigemptyset(&mask);
-    sigaddset(&mask, SIGINT);
-    sigaddset(&mask, SIGTERM);
-
-    // Block signals to all threads so only Signal FD delivers them
-    pthread_sigmask(SIG_BLOCK, &mask, nullptr);
-
-    const int fd_sig = signalfd(-1, &mask, SFD_NONBLOCK | SFD_CLOEXEC);
-    if (fd_sig == -1) {
-        throw std::runtime_error("Failed invoking signalfd()");
-    }
-
-    // --- Use epoll to watch Pipe Reader & Signal FD ---
+    // Create epoll FD on Death pipe and signal FD.
     const int epfd = epoll_create1(EPOLL_CLOEXEC);
     if (epfd == -1) {
         close(fd_sig);
@@ -114,7 +106,7 @@ void RunServer(const Embedder& embedder, MemoryArena& arena,
 
     auto epoll_add = [&](const int fd) {
         epoll_event ev{};
-        ev.events = EPOLLIN;
+        ev.events  = EPOLLIN;
         ev.data.fd = fd;
         if (epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev) == -1) {
             close(fd_sig);
@@ -123,11 +115,10 @@ void RunServer(const Embedder& embedder, MemoryArena& arena,
         }
     };
 
-    epoll_add(PIPE_READER_FD);
+    epoll_add(kPipeReaderFD);
     epoll_add(fd_sig);
 
-    // --- Event loop ---
-    // Blocks until one of the two shutdown source fires
+    // Block until one of the two shutdown sources fires.
     epoll_event fired{};
     while (true) {
         const int n = epoll_wait(epfd, &fired, 1, -1);
@@ -140,12 +131,10 @@ void RunServer(const Embedder& embedder, MemoryArena& arena,
             break;
         }
 
-        if (fired.data.fd == PIPE_READER_FD) {
-            // Death Pipe Reader fired.
+        if (fired.data.fd == kPipeReaderFD) {
             std::cout
                 << "[Vector Engine] Death Pipe EOF. Initiating shutdown...\n";
         } else {
-            // Signal FD fired -> Drain it to get signal info.
             signalfd_siginfo si{};
             read(fd_sig, &si, sizeof(si));
             std::cout << "[Vector Engine] Signal " << si.ssi_signo
@@ -158,11 +147,11 @@ void RunServer(const Embedder& embedder, MemoryArena& arena,
     close(epfd);
     close(fd_sig);
 
-    // --- Graceful shutdown ---
+    // Graceful shutdown: close all subsystems, then join threads.
     g_shutdown_req.store(true, std::memory_order_release);
 
     const auto deadline = std::chrono::system_clock::now() +
-                          std::chrono::seconds(SHUTDOWN_TIMEOUT);
+                          std::chrono::seconds(kShutdownTimeout);
     server->Shutdown(deadline);
 
     if (grpc_thread.joinable()) {
@@ -174,14 +163,10 @@ void RunServer(const Embedder& embedder, MemoryArena& arena,
     }
 }
 
-};  // namespace
-
-// ---------------------------------------------------------------------------
-// Vector Engine Entry Point
-// ---------------------------------------------------------------------------
+}  // namespace
 
 int main() {
-    const char* tok_path = std::getenv("TOKENIZER_PATH");
+    const char* tok_path  = std::getenv("TOKENIZER_PATH");
     const char* bert_path = std::getenv("TRANSFORMER_PATH");
 
     if (tok_path == nullptr || bert_path == nullptr) {
@@ -191,9 +176,28 @@ int main() {
         return 1;
     }
 
+    sigset_t mask;
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGINT);
+    sigaddset(&mask, SIGTERM);
+
+    // pthread_sigmask affects only the calling thread; every thread spawned
+    // afterwards inherits the mask. Masking here ensures that gRPC's internal
+    // thread pool, ONNX execution-provider threads, and our own threads never
+    // receive SIGINT or SIGTERM - only the signalfd delivers them.
+    pthread_sigmask(SIG_BLOCK, &mask, nullptr);
+
+    // signalfd must be created on the same thread that set the mask and
+    // before any other thread exists.
+    const int fd_sig = signalfd(-1, &mask, SFD_NONBLOCK | SFD_CLOEXEC);
+    if (fd_sig == -1) {
+        std::cerr << "[Vector Engine] FATAL: Failed invoking signalfd().\n";
+        return 1;
+    }
+
     try {
         const Embedder embedder(tok_path, bert_path);
-        std::cout << "[Vector Engine] Initialized Inference model.";
+        std::cout << "[Vector Engine] Initialized Inference model.\n";
 
         const auto memory_arena =
             std::make_unique<MemoryArena>(ArenaConfig::Production());
@@ -204,13 +208,15 @@ int main() {
         WarmupEngine(embedder);
 
         std::cout << "[Vector Engine] Opening to gRPC...\n";
-        RunServer(embedder, *memory_arena, g_shutdown_req);
+        RunServer(embedder, *memory_arena, g_shutdown_req, fd_sig);
         std::cout << "[Vector Engine] Closing...\n";
 
     } catch (const std::exception& e) {
         std::cerr << "[Vector Engine] FATAL: " << e.what() << "\n";
+        close(fd_sig);
         return 1;
     }
 
+    close(fd_sig);
     return 0;
 }

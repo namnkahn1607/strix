@@ -1,5 +1,4 @@
-//
-// bench/customops_bench.cpp
+// Author: namnkahn1607
 //
 // Concurrency benchmark for Embedder::Encode() - specifically written to
 // verify that onnxruntime-extensions custom ops do NOT serialize concurrent
@@ -13,19 +12,18 @@
 // Prerequisites:
 //   export TOKENIZER_PATH=<absolute path to tokenizer.onnx>
 //   export TRANSFORMER_PATH=<absolute path to model.onnx>
-//
 
 #include <benchmark/benchmark.h>
 
 #include <memory>
 #include <mutex>
 
-#include "inference.hh"
+#include "inference.h"
 
 namespace {
 
-// A realistic long prompt that perhaps reaching MAX_TOKENS (256)
-inline constexpr const char* LONG_PROMPT =
+// A realistic long prompt that perhaps reaching MAX_TOKENS (256).
+inline constexpr const char* kLongPrompt =
     "Artificial intelligence has transformed many industries over the past "
     "decade. From natural language processing to computer vision, machine "
     "learning models are now capable of performing tasks that once required "
@@ -36,8 +34,8 @@ inline constexpr const char* LONG_PROMPT =
     "Researchers continue to explore new architectures and training techniques "
     "to address these limitations and push the boundaries of what is possible.";
 
-// A typical short prompt that reaches ~10 tokens
-inline constexpr const char* SHORT_PROMPT =
+// A typical short prompt that reaches ~10 tokens.
+inline constexpr const char* kShortPrompt =
     "The quick brown fox jumps over the lazy dog";
 
 // Shared 'Embedder' instance, initialized once across all benchmark threads.
@@ -45,6 +43,8 @@ inline constexpr const char* SHORT_PROMPT =
 static std::unique_ptr<Embedder> shared_emb;
 static std::once_flag            init_flag;
 
+// LoadEnv(): load environment variables TOKENIZER_PATH and TRANSFORMER_PATH
+// onto process only once.
 void LoadEnv() {
     std::call_once(init_flag, []() {
         const char* tok_path{std::getenv("TOKENIZER_PATH")};
@@ -60,20 +60,20 @@ void LoadEnv() {
 
 }  // namespace
 
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // BenchConcurrentInference_ShortPrompt
 // Runs at thread counts: 1, 2, 4, 8, 50, 100.
 // UseRealTime() measures wall-clock time so that thread serialization
 // (mutex contention) shows up as reduced items/sec, not reduced CPU time.
 // MinTime(3.0) ensures enough iterations for stable measurements at high
 // thread counts where individual calls are fast.
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 
 static void BenchConcurrentInference_ShortPrompt(benchmark::State& state) {
     LoadEnv();
 
     for ([[maybe_unused]] auto _ : state) {
-        auto vec = shared_emb->Encode(SHORT_PROMPT);
+        auto vec = shared_emb->Encode(kShortPrompt);
 
         benchmark::DoNotOptimize(vec);
         benchmark::ClobberMemory();
@@ -90,19 +90,19 @@ BENCHMARK(BenchConcurrentInference_ShortPrompt)
     ->UseRealTime()
     ->MinTime(3.0);
 
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // BenchConcurrentInference_LongPrompt
 // Runs at thread counts: 2, 4, 8, and 16.
 // Reveals the worst-case bottleneck if the Inference model receives
 // more (really) longer prompts than usual.
 // Still uses the same UseRealTime() and MinTime(3.0).
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 
 static void BenchConcurrentInference_LongPrompt(benchmark::State& state) {
     LoadEnv();
 
     for ([[maybe_unused]] auto _ : state) {
-        auto vec = shared_emb->Encode(LONG_PROMPT);
+        auto vec = shared_emb->Encode(kLongPrompt);
 
         benchmark::DoNotOptimize(vec);
         benchmark::ClobberMemory();

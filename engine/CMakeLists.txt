@@ -16,6 +16,7 @@ add_library(ONNXRuntime SHARED IMPORTED)
 set_target_properties(ONNXRuntime PROPERTIES
     IMPORTED_LOCATION "${ORT_ROOT}/lib/libonnxruntime.so"
     INTERFACE_INCLUDE_DIRECTORIES "${ORT_ROOT}/include"
+    INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${ORT_ROOT}/include"
 )
 
 # ===========================================================================
@@ -193,50 +194,57 @@ gtest_discover_tests(payloadrw_test)
 # ===========================================================================
 # 7. BENCHMARK EXECUTABLE(S)
 # ===========================================================================
-find_package(benchmark CONFIG REQUIRED)
+string(TOUPPER "${CMAKE_BUILD_TYPE}" UPPER_BUILD_TYPE)
 
-# Benchmark AVX2 Dot Product
-add_executable(avx2_bench bench/avx2_bench.cc)
-target_link_libraries(avx2_bench PRIVATE
-    engine_options
-    engine_common
-    engine_index
-    benchmark::benchmark
-)
+if (UPPER_BUILD_TYPE STREQUAL "RELEASE")
+    find_package(benchmark CONFIG REQUIRED)
 
-# Benchmark Inference model (Zero-shot)
-add_executable(model_bench bench/single_bench.cc)
-target_link_libraries(model_bench PRIVATE
-    engine_options
-    engine_common
-    engine_inference
-    benchmark::benchmark
-)
+    # Benchmark AVX2 Dot Product
+    add_executable(avx2_bench bench/avx2_bench.cc)
+    target_link_libraries(avx2_bench PRIVATE
+        engine_options
+        engine_common
+        engine_index
+        benchmark::benchmark
+    )
 
-# Benchmark Inference model (Custom Ops)
-add_executable(customops_bench bench/customops_bench.cc)
-target_link_libraries(customops_bench PRIVATE
-    engine_options
-    engine_common
-    engine_inference
-    benchmark::benchmark
-)
+    # Benchmark Inference model (Zero-shot)
+    add_executable(model_bench bench/single_bench.cc)
+    target_link_libraries(model_bench PRIVATE
+        engine_options
+        engine_common
+        engine_inference
+        benchmark::benchmark
+    )
 
-# Benchmark Vector searching on L0 Buffer
-add_executable(searchl0_bench bench/searchl0_bench.cc)
-target_link_libraries(searchl0_bench PRIVATE
-    engine_options
-    engine_common
-    engine_memory
-    engine_index
-    benchmark::benchmark
-)
+    # Benchmark Inference model (Custom Ops)
+    add_executable(customops_bench bench/customops_bench.cc)
+    target_link_libraries(customops_bench PRIVATE
+        engine_options
+        engine_common
+        engine_inference
+        benchmark::benchmark
+    )
 
-# Benchmark Payload Read/Write of Memory Arena
-add_executable(payloadrw_bench bench/payloadrw_bench.cc)
-target_link_libraries(payloadrw_bench PRIVATE
-    engine_options
-    engine_common
-    engine_memory
-    benchmark::benchmark
-)
+    # Benchmark Vector searching on L0 Buffer
+    add_executable(searchl0_bench bench/searchl0_bench.cc)
+    target_link_libraries(searchl0_bench PRIVATE
+        engine_options
+        engine_common
+        engine_memory
+        engine_index
+        benchmark::benchmark
+    )
+
+    # Benchmark Payload Read/Write of Memory Arena
+    add_executable(payloadrw_bench bench/payloadrw_bench.cc)
+    target_link_libraries(payloadrw_bench PRIVATE
+        engine_options
+        engine_common
+        engine_memory
+        benchmark::benchmark
+    )
+
+else()
+    message(STATUS "Skipping benchmark targets (only enabled in Release build)")
+endif()
