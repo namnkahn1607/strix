@@ -1,9 +1,11 @@
-Language:        Cpp
-BasedOnStyle:    Google
-IndentWidth:     4
-TabWidth:        4
-UseTab:          Never
+Language: Cpp
+BasedOnStyle: Google
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+
 AccessModifierOffset: -4
+
 AlignConsecutiveAssignments:
   Enabled: true
   AcrossEmptyLines: false
@@ -12,7 +14,8 @@ AlignConsecutiveDeclarations:
   Enabled: true
   AcrossEmptyLines: false
   AcrossComments: false
+
 AllowShortFunctionsOnASingleLine: None
-SpacesInParentheses: false
 BreakConstructorInitializers: BeforeComma
+
 SortIncludes:    true

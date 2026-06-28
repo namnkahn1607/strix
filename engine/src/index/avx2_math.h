@@ -25,9 +25,9 @@ inline constexpr size_t kBatchSize = 4;
 // Memory layout requirements:
 //   1. `query`      : 32-byte aligned, length `kVectorDim` floats.
 //   2. `node_batch` : 32-byte aligned, `kBatchSize` * `kVectorDim` floats,
-//                    nodes stored row-major (node 0 first).
+//                     nodes stored row-major (node 0 first).
 //   3. `scores`     : writable buffer of at least `kBatchSize` floats;
-//                    need not be aligned (written via `_mm_storeu_ps`).
+//                     need not be aligned (written via `_mm_storeu_ps`).
 //
 // `kVectorDim` must be a multiple of 16 (two AVX2 registers per iteration).
 // The loop is fully unrolled across the 4 nodes to maximize ILP.
