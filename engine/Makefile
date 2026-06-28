@@ -90,6 +90,10 @@ test: rconfig dconfig
 	@cmake --build --preset debug --target payloadrw_test && ./out/debug/payloadrw_test
 	@cmake --build --preset release --target payloadrw_test && ./out/release/payloadrw_test
 
+	@echo "=== Unit-testing Free List ==="
+	@cmake --build --preset debug --target free_list_test && ./out/debug/free_list_test
+	@cmake --build --preset release --target free_list_test && ./out/release/free_list_test
+
 # ==============================================================================
 # SANITIZER recipes
 # ==============================================================================
@@ -103,5 +107,7 @@ tconfig:
 
 sanitize: aconfig tconfig
 	@echo "=== Address Sanitizing Arena's Payload Read/Write ==="
-	@cmake --build --preset asan --target payloadrw_test && .out/asan/payloadrw_test
+	@cmake --build --preset asan --target payloadrw_test && ./out/asan/payloadrw_test
 	
+	@echo "=== Thread Sanitizing Free List ==="
+	@cmake --build --preset tsan --target free_list_test && ./out/tsan/free_list_test

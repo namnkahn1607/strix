@@ -86,7 +86,10 @@ target_link_libraries(engine_inference PRIVATE engine_options engine_common)
 target_link_libraries(engine_inference PUBLIC ONNXRuntime)
 
 # Module 4: Index
-add_library(engine_index STATIC src/index/search.cc)
+add_library(engine_index STATIC
+    src/index/search.cc
+    src/index/free_list.cc
+)
 target_include_directories(engine_index PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/index)
 target_link_libraries(engine_index PRIVATE 
     engine_options 
@@ -184,12 +187,22 @@ target_link_libraries(payloadrw_test PRIVATE
     GTest::gtest
 )
 
+# Test Free List
+add_executable(free_list_test tests/free_list_test.cc)
+target_link_libraries(free_list_test PRIVATE
+    engine_common
+    engine_index
+    GTest::gtest_main
+    GTest::gtest
+)
+
 include(GoogleTest)
 gtest_discover_tests(avx2_test)
 gtest_discover_tests(model_test)
 gtest_discover_tests(ctrl_test)
 gtest_discover_tests(searchl0_test)
 gtest_discover_tests(payloadrw_test)
+gtest_discover_tests(free_list_test)
 
 # ===========================================================================
 # 7. BENCHMARK EXECUTABLE(S)
