@@ -1,0 +1,135 @@
+# ==============================================================================
+# strix/engine/justfile
+#
+# Requires: just (https://github.com/casey/just)
+# Help:    just --list
+# ==============================================================================
+
+set dotenv-load # Automatically load .env if present
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+# Default: list available recipes
+default:
+    @just --list
+
+# ------------------------------------------------------------------------------
+# Registry
+# Add new Benchmark suite names here only; all *-all targets pick them up 
+# automatically. Test suites are automatically discovered by CTest.
+# ------------------------------------------------------------------------------
+bench_names := "avx2 model customops free_list"
+test_names := "avx2 model ctrl free_list"
+
+# ==============================================================================
+# General
+#   just create-env              : create secret file
+#   just config <preset>         : configure specified preset
+#   just build <preset> <target> : build specified preset
+#   just debug                   : configure & build strix_engine under Debug
+#   just release                 : configure & build strix_engine under Release
+# ==============================================================================
+
+init-env:
+    @bash init_env.sh
+
+config preset="debug":
+    @cmake --preset {{preset}}
+
+build preset="debug" target="strix_engine":
+    @cmake --build --preset {{preset}} --target {{target}}
+
+release: (config "release") (build "release")
+debug: (config) (build)
+
+# ==============================================================================
+# Benchmark
+#   just bench <suite> : bench one suite
+#   just bench-all     : bench all suites
+# ==============================================================================
+
+bench name: (config "release") (build "release" name + "_bench")
+    @./out/release/{{name}}_bench
+    
+bench-all: (config "release")
+    #!/usr/bin/env bash
+    for name in {{bench_names}}; do
+        cmake --build --preset release --target ${name}_bench 2>&1 | grep -v '^$'
+    done
+    for name in {{bench_names}}; do
+        ./out/release/${name}_bench
+    done
+
+# ==============================================================================
+# Test
+#   just test <suite> <preset> : test one suite against one preset
+#   just test-preset <preset>  : test all suites against one preset 
+#   just test-all              : test all suites against all presets
+# ==============================================================================
+
+test name preset="debug": (config preset) (build preset name + "_test")
+    @./out/{{preset}}/{{name}}_test
+
+test-preset preset="debug": (config preset)
+    #!/usr/bin/env bash
+    for name in {{test_names}}; do
+        cmake --build --preset {{preset}} --target ${name}_test
+    done
+    for name in {{test_names}}; do
+        ./out/{{preset}}/${name}_test
+    done
+
+test-all: (test-preset "debug") (test-preset "release")
+
+# ==============================================================================
+# Sanitizers
+#   just asan <suite>     : single suite under ASan
+#   just asan-all         : all suites under ASan
+#   just tsan <suite>     : single suite under TSan
+#   just tsan-all         : all suites under TSan
+#   just sanitize         : asan-all + tsan-all
+# ==============================================================================
+asan name: (config "asan") (build "asan" name + "_test")
+    @./out/asan/{{name}}_test
+
+asan-all: (config "asan")
+    #!/usr/bin/env bash
+    for name in {{test_names}}; do
+        cmake --build --preset asan --target ${name}_test
+    done
+    for name in {{test_names}}; do
+        ./out/asan/${name}_test
+    done
+
+tsan name: (config "tsan") (build "tsan" name + "_test")
+    @./out/tsan/{{name}}_test
+
+tsan-all: (config "tsan")
+    #!/usr/bin/env bash
+    for name in {{test_names}}; do
+        cmake --build --preset tsan --target ${name}_test
+    done
+    for name in {{test_names}}; do
+        ./out/tsan/${name}_test
+    done
+
+sanitize: asan-all tsan-all
+
+# ==============================================================================
+# Cleanup
+#   just clear <preset> : remove specific preset's artifacts
+#   just clear-all      : remove all artifacts
+#   just nuke           : wipe out everything including CMake cache
+# ==============================================================================
+clear preset="debug":
+    @cmake --build --preset {{preset}} --target clean
+
+clear-all:
+    @cmake --build --preset debug --target clean
+    @cmake --build --preset release --target clean
+    @cmake --build --preset asan --target clean
+    @cmake --build --preset tsan --target clean
+    
+nuke:
+    @rm -rf out/
+    @echo "Nuked artifact directory"
+    @mkdir -p out/
