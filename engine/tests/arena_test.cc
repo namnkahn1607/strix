@@ -64,7 +64,7 @@ std::string GenPayload(const size_t len) {
 // BUF - text_index = 244 >= 100 -> NON-WRAP.
 // -----------------------------------------------------------------------------
 
-TEST(PayloadRWTest, SequentialWriteRead) {
+TEST(MemoryArenaTest, SequentialWriteRead) {
     MemoryArena arena{PayloadTestConfig(0)};
 
     const std::string in     = GenPayload(100);
@@ -100,7 +100,7 @@ TEST(PayloadRWTest, SequentialWriteRead) {
 //     chunk2 = 62 bytes from [0..61]
 // -----------------------------------------------------------------------------
 
-TEST(PayloadRWTest, DataWrapAround) {
+TEST(MemoryArenaTest, DataWrapAround) {
     constexpr uint64_t START = kBuf - 50;
     MemoryArena        arena{PayloadTestConfig(START)};
 
@@ -134,7 +134,7 @@ TEST(PayloadRWTest, DataWrapAround) {
 //   BUF - 12 = 244 >= 100 -> NON-WRAP.
 // -----------------------------------------------------------------------------
 
-TEST(PayloadRWTest, HeaderWrapPaddingInserted) {
+TEST(MemoryArenaTest, HeaderWrapPaddingInserted) {
     constexpr uint64_t START = kBuf - 8;
     MemoryArena        arena{PayloadTestConfig(START)};
 
@@ -162,7 +162,7 @@ TEST(PayloadRWTest, HeaderWrapPaddingInserted) {
 // 5th write would need 62 more bytes: 248 + 62 = 310 > 256 -> THROW.
 // -----------------------------------------------------------------------------
 
-TEST(PayloadRWTest, ExhaustionThrows) {
+TEST(MemoryArenaTest, ExhaustionThrows) {
     constexpr uint32_t LEN = 50;
     MemoryArena        arena{PayloadTestConfig(0)};
 
@@ -184,7 +184,7 @@ TEST(PayloadRWTest, ExhaustionThrows) {
 // Verifies write_head accounting across consecutive calls.
 // -----------------------------------------------------------------------------
 
-TEST(PayloadRWTest, MultipleSequentialWrites) {
+TEST(MemoryArenaTest, MultipleSequentialWrites) {
     MemoryArena arena{PayloadTestConfig(0)};
 
     const std::string in1 = GenPayload(20);

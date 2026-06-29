@@ -196,8 +196,8 @@ target_link_libraries(searchl0_test PRIVATE
 )
 
 # Test Payload Read/Write of Memory Arena
-add_executable(payloadrw_test tests/payloadrw_test.cc)
-target_link_libraries(payloadrw_test PRIVATE
+add_executable(arena_test tests/arena_test.cc)
+target_link_libraries(arena_test PRIVATE
     engine_common
     engine_memory
     GTest::gtest_main
@@ -218,7 +218,7 @@ gtest_discover_tests(avx2_test)
 gtest_discover_tests(model_test)
 gtest_discover_tests(ctrl_test)
 gtest_discover_tests(searchl0_test)
-gtest_discover_tests(payloadrw_test)
+gtest_discover_tests(arena_test)
 gtest_discover_tests(free_list_test)
 
 # ===========================================================================
@@ -267,8 +267,8 @@ if (UPPER_BUILD_TYPE STREQUAL "RELEASE")
     )
 
     # Benchmark Payload Read/Write of Memory Arena
-    add_executable(payloadrw_bench bench/payloadrw_bench.cc)
-    target_link_libraries(payloadrw_bench PRIVATE
+    add_executable(arena_bench bench/arena_bench.cc)
+    target_link_libraries(arena_bench PRIVATE
         engine_options
         engine_common
         engine_memory
