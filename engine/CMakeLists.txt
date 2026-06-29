@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.22)
 project(strix_engine VERSION 1.0)
 
+enable_testing()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -10,6 +12,15 @@ find_package(gRPC CONFIG REQUIRED)
 
 # ===========================================================================
 # 1. ORT LIBRARY PATH
+# ORT is vendored as a pre-built shared library under ort/, bypassing vcpkg.
+# The library is compiled DYNAMICALLY using clang++-17. Also, ORT and ORT-EXT
+# has historically version mismatch and ODR violation.
+#
+# Consequence: updating ORT requires a manual swap of the ort/ directory.
+# There is no version check here. If the wrong binary is dropped in, the
+# build succeeds silently and the runtime segfaults on dlopen().
+#
+# Mitigation: CI should verify the soname before packaging.
 # ===========================================================================
 set(ORT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/ort")
 add_library(ONNXRuntime SHARED IMPORTED)
@@ -20,9 +31,9 @@ set_target_properties(ONNXRuntime PROPERTIES
 )
 
 # ===========================================================================
-# 2. GLOBAL TARGET INTERFACE
-# ===========================================================================
+# 2. GLOBAL COMPILER OPTIONS
 # Any module linking with this target will inherits its compile flags.
+# ===========================================================================
 add_library(engine_options INTERFACE)
 target_compile_options(engine_options INTERFACE
     -march=x86-64-v3
@@ -40,20 +51,27 @@ set(PROTO_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 file(MAKE_DIRECTORY ${PROTO_GEN_DIR})
 
 # Get protoc and grpc_cpp_plugin from vcpkg
-get_target_property(PROTOC_EXEC protobuf::protoc IMPORTED_LOCATION_RELEASE)
-get_target_property(GRPC_PLUGIN_EXEC gRPC::grpc_cpp_plugin IMPORTED_LOCATION_RELEASE)
+set(PROTOC_EXEC "$<TARGET_FILE:protobuf::protoc>")
+set(GRPC_PLUGIN_EXEC "$<TARGET_FILE:gRPC::grpc_cpp_plugin>")
 
 # Execute command to generate contracts
 add_custom_command(
-    OUTPUT "${PROTO_GEN_DIR}/strix.pb.cc" "${PROTO_GEN_DIR}/strix.pb.h"
-           "${PROTO_GEN_DIR}/strix.grpc.pb.cc" "${PROTO_GEN_DIR}/strix.grpc.pb.h"
+    OUTPUT
+        "${PROTO_GEN_DIR}/strix.pb.cc"
+        "${PROTO_GEN_DIR}/strix.pb.h"
+        "${PROTO_GEN_DIR}/strix.grpc.pb.cc"
+        "${PROTO_GEN_DIR}/strix.grpc.pb.h"
     COMMAND ${PROTOC_EXEC}
-    ARGS --grpc_out="${PROTO_GEN_DIR}"
-         --cpp_out="${PROTO_GEN_DIR}"
-         --plugin=protoc-gen-grpc="${GRPC_PLUGIN_EXEC}"
-         -I "${PROTO_DIR}"
-         "${PROTO_FILE}"
-    DEPENDS "${PROTO_FILE}"
+    ARGS
+        --grpc_out="${PROTO_GEN_DIR}"
+        --cpp_out="${PROTO_GEN_DIR}"
+        --plugin=protoc-gen-grpc="${GRPC_PLUGIN_EXEC}"
+        -I "${PROTO_DIR}"
+        "${PROTO_FILE}"
+    DEPENDS
+        "${PROTO_FILE}"
+        protobuf::protoc
+        gRPC::grpc_cpp_plugin
     COMMENT "Generating C++ gRPC stubs from strix.proto..."
 )
 
@@ -64,7 +82,6 @@ add_library(engine_contract STATIC
 )
 target_link_libraries(engine_contract PUBLIC gRPC::grpc++ protobuf::libprotobuf)
 target_include_directories(engine_contract PUBLIC "${PROTO_GEN_DIR}")
-target_link_libraries(engine_contract PRIVATE engine_options)
 
 # ===========================================================================
 # 4. DATA PLANE MODULES
@@ -126,7 +143,7 @@ target_link_libraries(strix_engine PRIVATE
 
 # Hardcode ORT library path into binary
 set_target_properties(strix_engine PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/../bin"
+    RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/../bin"
     BUILD_WITH_INSTALL_RPATH TRUE
     INSTALL_RPATH "$ORIGIN"
 )
@@ -134,7 +151,7 @@ set_target_properties(strix_engine PROPERTIES
 # Clone a dynamic library file into the binary directory
 add_custom_command(TARGET strix_engine POST_BUILD
     COMMAND cp -P ${ORT_ROOT}/lib/libonnxruntime.so* "$<TARGET_FILE_DIR:strix_engine>/"
-    COMMENT "Copying ONNX Runtime shared libraries to binary directory"
+    COMMENT "Copying ONNX Runtime shared libraries (with symlinks) to binary directory"
 )
 
 # ===========================================================================
@@ -256,6 +273,15 @@ if (UPPER_BUILD_TYPE STREQUAL "RELEASE")
         engine_common
         engine_memory
         benchmark::benchmark
+    )
+
+    # Benchmark Free List operations
+    add_executable(free_list_bench bench/free_list_bench.cc)
+    target_link_libraries(free_list_bench PRIVATE
+        engine_options
+        engine_common
+        engine_index
+        benchmark::benchmark    
     )
 
 else()
