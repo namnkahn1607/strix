@@ -295,6 +295,15 @@ if (UPPER_BUILD_TYPE STREQUAL "RELEASE")
         benchmark::benchmark    
     )
 
+    # Benchmark MPSC L0 ring buffer
+    add_executable(mpsc_bench bench/mpsc_bench.cc)
+    target_link_libraries(mpsc_bench PRIVATE
+        engine_options
+        engine_common
+        engine_index
+        benchmark::benchmark
+    )
+
 else()
     message(STATUS "Skipping benchmark targets (only enabled in Release build)")
 endif()
