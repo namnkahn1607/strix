@@ -12,13 +12,12 @@
 // TaggedIndex
 //
 // 64-bit CAS for the Treiber Stack head.
-//
-// `tag` is a monotonic counter incremented on every `Push` and `Pop`.
-// It disambiguates a head that cycles back to the same `head_id` after
-// an intervening `Pop` and `Push`, hence resolving the ABA problem
-// of a plain Treiber Stack.
 struct alignas(8) TaggedIndex {
     uint32_t head_id;
+    // `tag` is a monotonic counter incremented on every `Push` and `Pop`.
+    // It disambiguates a head that cycles back to the same `head_id` after
+    // an intervening `Pop` and `Push`, hence resolving the ABA problem
+    // of a plain Treiber Stack.
     uint32_t tag = 0;
 };
 
@@ -28,12 +27,6 @@ static_assert(std::atomic<TaggedIndex>::is_always_lock_free,
 // FreeList
 //
 // Single-producer & Multi-consumer for managing freed `node_id`.
-//
-// `free_next_` is a non-atomic array: a given `node_id` is only ever
-// written by the one GC thread that owns `Push`, so no two writers ever
-// race on the same slot. `Pop` only reads `free_next_` after observing it
-// via the CAS acquire/release pairing, so the read is synchronized
-// without needing `free_next_` itself to be atomic.
 class FreeList {
 public:
     static constexpr uint32_t kEmpty = 0xFFFFFFFFU;
@@ -52,6 +45,11 @@ public:
     uint32_t Pop() noexcept;
 
 private:
-    std::atomic<TaggedIndex>    free_head_;
+    std::atomic<TaggedIndex> free_head_;
+    // `free_next_` is a non-atomic array: a given `node_id` is only ever
+    // written by the one GC thread that owns `Push`, so no two writers ever
+    // race on the same slot. `Pop` only reads `free_next_` after observing it
+    // via the CAS acquire/release pairing, so the read is synchronized
+    // without needing `free_next_` itself to be atomic.
     std::unique_ptr<uint32_t[]> free_next_;
 };
