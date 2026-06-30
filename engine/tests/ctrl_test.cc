@@ -37,8 +37,10 @@ TEST(PackControlTest, ZeroInputProducesZero) {
 
 TEST(PackControlTest, RoundTrip_AllStates) {
     const NodeState states[] = {
-        NodeState::kDead,  NodeState::kClaimed,   NodeState::kPending,
-        NodeState::kReady, NodeState::kMigrating,
+        NodeState::kDead,
+        NodeState::kClaimed,
+        NodeState::kPending,
+        NodeState::kReady,
     };
     for (const NodeState state : states) {
         const auto result = RoundTrip(state, EvictState::kCold, 0, 0);
@@ -97,13 +99,12 @@ TEST(PackControlTest, RoundTrip_OffsetBoundaries) {
 // when all bits are set.
 // -----------------------------------------------------------------------------
 TEST(PackControlTest, RoundTrip_AllFieldsMaxed) {
-    const auto result =
-        RoundTrip(NodeState::kMigrating,  // 0b100 = max 3-bit state
-                  EvictState::kHot,       // 1
-                  kMaxPayloadLength,      // 0xFFFFFF
-                  kVirtualOffsetMask);    // 0xFFFFFFFFF
+    const auto result = RoundTrip(NodeState::kReady,  // 0b100 = max 3-bit state
+                                  EvictState::kHot,   // 1
+                                  kMaxPayloadLength,  // 0xFFFFFF
+                                  kVirtualOffsetMask);  // 0xFFFFFFFFF
 
-    EXPECT_EQ(result.state, NodeState::kMigrating);
+    EXPECT_EQ(result.state, NodeState::kReady);
     EXPECT_EQ(result.ref_bit, EvictState::kHot);
     EXPECT_EQ(result.length, kMaxPayloadLength);
     EXPECT_EQ(result.virtual_offset, kVirtualOffsetMask);
@@ -118,8 +119,10 @@ TEST(PackControlTest, Isolation_StateDoesNotCorruptOtherFields) {
     constexpr uint64_t OFFSET = 0x123456789ULL;
 
     const NodeState states[] = {
-        NodeState::kDead,  NodeState::kClaimed,   NodeState::kPending,
-        NodeState::kReady, NodeState::kMigrating,
+        NodeState::kDead,
+        NodeState::kClaimed,
+        NodeState::kPending,
+        NodeState::kReady,
     };
     for (const NodeState state : states) {
         const auto result = RoundTrip(state, EvictState::kHot, LENGTH, OFFSET);
@@ -177,8 +180,8 @@ TEST(PackControlTest, Isolation_OffsetDoesNotCorruptOtherFields) {
     const uint64_t offsets[] = {0, 1, 0x800000000ULL, kVirtualOffsetMask};
     for (const uint64_t offset : offsets) {
         const auto result =
-            RoundTrip(NodeState::kMigrating, EvictState::kHot, LENGTH, offset);
-        EXPECT_EQ(result.state, NodeState::kMigrating) << "state field";
+            RoundTrip(NodeState::kReady, EvictState::kHot, LENGTH, offset);
+        EXPECT_EQ(result.state, NodeState::kReady) << "state field";
         EXPECT_EQ(result.ref_bit, EvictState::kHot) << "ref_bit field";
         EXPECT_EQ(result.length, LENGTH) << "length field";
         EXPECT_EQ(result.virtual_offset, offset) << "offset field";
