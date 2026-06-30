@@ -22,11 +22,8 @@
 //   `CLAIMED`   -> `PENDING`  : vector data fully copied; awaiting payload
 //                               to commit.
 //   `PENDING`   -> `READY`    : payload committed; slot is searchable.
-//   `READY`     -> `MIGRATING`: compaction claims the slot for L0 -> L1
-//                               migration.
 //   `READY`     -> `DEAD`     : cold node evicted; slot released
 //                               back to pool.
-//   `MIGRATING` -> `DEAD`     : same as above.
 //
 // GC skips CLAIMED & MIGRATING nodes (data intact; ownership transferred to
 // L1). Readers may still serve MIGRATING nodes during the migration window.
@@ -35,7 +32,6 @@ enum class NodeState : uint8_t {
     kClaimed   = 1,
     kPending   = 2,
     kReady     = 3,
-    kMigrating = 4,
 };
 
 // EvictState: CLOCK algorithm reference bit.

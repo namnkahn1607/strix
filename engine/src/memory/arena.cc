@@ -60,7 +60,7 @@ void* MmapRegion(const size_t size, const bool lazy) {
 }  // namespace
 
 ArenaConfig ArenaConfig::Production() {
-    return {kTotalMaxSlots, kPayloadBufferSize, false};
+    return {kTotalSlots, kPayloadBufferSize, false};
 }
 
 ArenaConfig ArenaConfig::BenchSearchL0() {
@@ -199,8 +199,7 @@ void MemoryArena::RunGarbageCollector(const std::atomic<bool>& g_shutdown_req) {
 
             // Never evict a node that is mid-write (kClaimed) or mid-migration
             // (kMigrating). Advance past the entry and leave the node intact.
-            if (state == NodeState::kClaimed ||
-                state == NodeState::kMigrating) {
+            if (state == NodeState::kClaimed) {
                 read_tail_.fetch_add(total_size, std::memory_order_relaxed);
                 continue;
             }
@@ -277,7 +276,7 @@ void MemoryArena::RunGarbageCollector(const std::atomic<bool>& g_shutdown_req) {
 }
 
 void MemoryArena::SweepStalePending(const uint64_t curr_time) noexcept {
-    for (size_t i = 0; i < kL0MaxSlots; ++i) {
+    for (size_t i = 0; i < kTotalSlots; ++i) {
         MetaNode&      node = metadata_[i];
         const uint64_t ctrl =
             node.control_block.load(std::memory_order_acquire);
