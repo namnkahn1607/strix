@@ -106,6 +106,7 @@ target_link_libraries(engine_inference PUBLIC ONNXRuntime)
 add_library(engine_index STATIC
     src/index/search.cc
     src/index/free_list.cc
+    src/index/mpsc.cc
 )
 target_include_directories(engine_index PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/index)
 target_link_libraries(engine_index PRIVATE 
@@ -213,6 +214,15 @@ target_link_libraries(free_list_test PRIVATE
     GTest::gtest
 )
 
+# Test MPSC L0 ring buffer
+add_executable(mpsc_test tests/mpsc_test.cc)
+target_link_libraries(mpsc_test PRIVATE
+    engine_common
+    engine_index
+    GTest::gtest_main
+    GTest::gtest
+)
+
 include(GoogleTest)
 gtest_discover_tests(avx2_test)
 gtest_discover_tests(model_test)
@@ -220,6 +230,7 @@ gtest_discover_tests(ctrl_test)
 gtest_discover_tests(search_test)
 gtest_discover_tests(arena_test)
 gtest_discover_tests(free_list_test)
+gtest_discover_tests(mpsc_test)
 
 # ===========================================================================
 # 7. BENCHMARK EXECUTABLE(S)

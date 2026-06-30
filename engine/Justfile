@@ -18,7 +18,7 @@ default:
 # automatically. Test suites are automatically discovered by CTest.
 # ------------------------------------------------------------------------------
 bench_names := "avx2 model customops free_list"
-test_names := "avx2 model ctrl free_list"
+test_names := "avx2 model ctrl free_list mpsc"
 
 # ==============================================================================
 # General
