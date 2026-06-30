@@ -239,7 +239,7 @@ if (UPPER_BUILD_TYPE STREQUAL "RELEASE")
     )
 
     # Benchmark Inference model (Zero-shot)
-    add_executable(model_bench bench/single_bench.cc)
+    add_executable(model_bench bench/model_bench.cc)
     target_link_libraries(model_bench PRIVATE
         engine_options
         engine_common
