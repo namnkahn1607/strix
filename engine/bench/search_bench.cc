@@ -64,7 +64,7 @@ static void BenchSearchL0_AllReady(benchmark::State& state) {
     MemoryArena  arena{ArenaConfig::BenchSearchL0()};
     std::mt19937 rng(42);
 
-    for (size_t i = 0; i < kL0MaxSlots; ++i) {
+    for (size_t i = 0; i < 1024; ++i) {
         SetReady(arena, i, rng);
     }
 
@@ -76,7 +76,7 @@ static void BenchSearchL0_AllReady(benchmark::State& state) {
 
     std::free(query);
     state.SetItemsProcessed(state.iterations() *
-                            static_cast<int64_t>(kL0MaxSlots));
+                            static_cast<int64_t>(1024));
 }
 
 BENCHMARK(BenchSearchL0_AllReady)
@@ -101,7 +101,7 @@ static void BenchSearchL0_AllDead(benchmark::State& state) {
 
     std::free(query);
     state.SetItemsProcessed(state.iterations() *
-                            static_cast<int64_t>(kL0MaxSlots));
+                            static_cast<int64_t>(1024));
 }
 
 BENCHMARK(BenchSearchL0_AllDead)
@@ -118,7 +118,7 @@ static void BenchSearchL0_Mixed(benchmark::State& state) {
     MemoryArena  arena{ArenaConfig::BenchSearchL0()};
     std::mt19937 rng(99);
 
-    for (size_t i = 0; i < kL0MaxSlots; ++i) {
+    for (size_t i = 0; i < 1024; ++i) {
         // Even slots are READY.
         if ((i & 1) == 0) {
             SetReady(arena, i, rng);
@@ -134,7 +134,7 @@ static void BenchSearchL0_Mixed(benchmark::State& state) {
 
     std::free(query);
     state.SetItemsProcessed(state.iterations() *
-                            static_cast<int64_t>(kL0MaxSlots));
+                            static_cast<int64_t>(1024));
 }
 
 BENCHMARK(BenchSearchL0_Mixed)

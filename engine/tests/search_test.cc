@@ -268,7 +268,7 @@ TEST_F(SearchL0Test, MigratingIsSearchable) {
 TEST_F(SearchL0Test, NoReusableWhenAllSlotsOccupied) {
     float* query = GenUnitVector(0);
 
-    for (size_t i = 0; i < kL0MaxSlots; ++i) {
+    for (size_t i = 0; i < 1024; ++i) {
         SetReady(arena, i, query);
     }
 

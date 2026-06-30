@@ -186,8 +186,8 @@ target_link_libraries(ctrl_test PRIVATE
 )
 
 # Test Vector searching on L0 Buffer
-add_executable(searchl0_test tests/searchl0_test.cc)
-target_link_libraries(searchl0_test PRIVATE
+add_executable(search_test tests/search_test.cc)
+target_link_libraries(search_test PRIVATE
     engine_common
     engine_memory
     engine_index
@@ -217,7 +217,7 @@ include(GoogleTest)
 gtest_discover_tests(avx2_test)
 gtest_discover_tests(model_test)
 gtest_discover_tests(ctrl_test)
-gtest_discover_tests(searchl0_test)
+gtest_discover_tests(search_test)
 gtest_discover_tests(arena_test)
 gtest_discover_tests(free_list_test)
 
@@ -257,8 +257,8 @@ if (UPPER_BUILD_TYPE STREQUAL "RELEASE")
     )
 
     # Benchmark Vector searching on L0 Buffer
-    add_executable(searchl0_bench bench/searchl0_bench.cc)
-    target_link_libraries(searchl0_bench PRIVATE
+    add_executable(search_bench bench/search_bench.cc)
+    target_link_libraries(search_bench PRIVATE
         engine_options
         engine_common
         engine_memory
