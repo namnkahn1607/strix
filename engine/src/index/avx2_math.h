@@ -5,11 +5,58 @@
 
 #pragma once
 
+#include <xmmintrin.h>
+
+#include <cstddef>
 #if defined(__x86_64__) || defined(_M_X64)
 
 #include <immintrin.h>
 
 #include "constants.h"
+
+// DotProductSolo
+//
+// Computes dot product between one query vector and a single node vector;
+// hence returning direct result as `float`.
+//
+// Requires two vectors to be 32-bit aligned.
+__attribute__((target("avx2,fma"))) inline float DotProductSolo(
+    const float* __restrict__ query,
+    const float* __restrict__ node_vec) noexcept {
+    // Apply 4 256-bit registers holding 8 0.0f's (unroll factor = 4).
+    __m256 acc0 = _mm256_setzero_ps();
+    __m256 acc1 = _mm256_setzero_ps();
+    __m256 acc2 = _mm256_setzero_ps();
+    __m256 acc3 = _mm256_setzero_ps();
+
+    // Each iteration consumes 32 floats (4 x __m256).
+    constexpr size_t kFloatsEach = 32;
+    for (size_t i = 0; i < kVectorDim; i += kFloatsEach) {
+        acc0 = _mm256_fmadd_ps(_mm256_load_ps(query + i),
+                               _mm256_load_ps(node_vec + i), acc0);
+        acc1 = _mm256_fmadd_ps(_mm256_load_ps(query + i + 8),
+                               _mm256_load_ps(node_vec + i + 8), acc1);
+        acc2 = _mm256_fmadd_ps(_mm256_load_ps(query + i + 16),
+                               _mm256_load_ps(node_vec + i + 16), acc2);
+        acc3 = _mm256_fmadd_ps(_mm256_load_ps(query + i + 24),
+                               _mm256_load_ps(node_vec + i + 24), acc3);
+    }
+
+    // Fold all accumulators into a single __m256.
+    __m256 sum_256 =
+        _mm256_add_ps(_mm256_add_ps(acc0, acc1), _mm256_add_ps(acc2, acc3));
+
+    // Divide into 2 __m128 lanes and fold up into a single __m128.
+    __m128 sum_128 = _mm_add_ps(_mm256_castps256_ps128(sum_256),
+                                _mm256_extractf128_ps(sum_256, 1));
+
+    // Continue reducing into a single float using horizontal add.
+    sum_128 = _mm_hadd_ps(sum_128, sum_128); // 2 floats
+    sum_128 = _mm_hadd_ps(sum_128, sum_128); // 1 duplicated float
+
+    // Extract only the first float.
+    return _mm_cvtss_f32(sum_128);
+}
 
 // Number of vectors processed per DotProductBatch() call.
 // Hardwired to 4: each of the 4 accumulators maps to one YMM lane pair,
@@ -17,7 +64,7 @@
 // _mm_add_ps pass. Changing this constant requires rewriting the kernel.
 inline constexpr size_t kBatchSize = 4;
 
-// DotProductBatch()
+// DotProductBatch
 //
 // Computes dot products between one query vector and a contiguous batch
 // consisting of `kBatchSize` node vectors, writing results into `scores`.
@@ -97,7 +144,7 @@ __attribute__((target("avx2,fma"))) inline void DotProductBatch(
     _mm_storeu_ps(scores, _mm_add_ps(lo, hi));
 }
 
-// DotProductIndirectBatch()
+// DotProductIndirectBatch
 //
 // Same register-blocked AVX2/FMA strategy as `DotProductBatch()`, but takes
 // 4 independent pointers instead of one contiguous `node_batch` pointer.
@@ -151,6 +198,20 @@ __attribute__((target("avx2,fma"))) inline void DotProductIndirectBatch(
 #else  // non-x86_64 scalar fallback
 
 #include "constants.h"
+
+// Scalar fallback for `DotProductSolo()`.
+// Linear traversal over `kVectorDim` floats; no SIMD, no alignment
+// requirements.
+inline void DotProductSolo(const float* __restrict__ query,
+                           const float* __restrict__ node_vec) noexcept {
+    float dot = 0.0f;
+
+    for (size_t i = 0; i < kVectorDim; ++i) {
+        dot += query[i] * node_vec[i];
+    }
+
+    return dot;
+}
 
 inline constexpr size_t kBatchSize = 4;
 
