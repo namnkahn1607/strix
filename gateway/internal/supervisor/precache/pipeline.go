@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	pb "gateway/pb/proto"
+	"gateway/internal/pb"
 	"log/slog"
 	"os"
 	"sync"
