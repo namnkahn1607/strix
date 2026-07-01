@@ -1,11 +1,12 @@
-/.venv
-/bin
-/data
+.venv
+.vscode
+bin
+data
 
-/gateway/.idea
-/gateway/build
+gateway/.idea
+gateway/build
 
-/model/*.onnx
+model/*.onnx
 
 scripts/bake_tokenizer.py
 scripts/base_model_test.py
