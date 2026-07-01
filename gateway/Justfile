@@ -1,0 +1,54 @@
+# ==============================================================================
+# strix/gateway/Justfile
+#
+# Requires: just (https://github.com/casey/just)
+# Help:     just --list
+# ==============================================================================
+
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+# List all available recipes
+default:
+    @just --list
+
+# Install (newest) Golang gRPC plugins
+tool-install:
+    @echo "Bump Golang gRPC plugins to the newest version"
+    @go get -tool google.golang.org/protobuf/cmd/protoc-gen-go@latest
+    @go get -tool google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
+# Build gRPC plugin binaries
+tool-build:
+    @mkdir -p bin/
+    @go build -o bin/protoc-gen-go google.golang.org/protobuf/cmd/protoc-gen-go
+    @go build -o bin/protoc-gen-go-grpc google.golang.org/grpc/cmd/protoc-gen-go-grpc
+
+# Generate Golang gRPC stubs
+contract: (tool-build)
+    @mkdir -p internal/pb/
+    @protoc \
+        --plugin=protoc-gen-go=bin/protoc-gen-go \
+        --plugin=protoc-gen-go-grpc=bin/protoc-gen-go-grpc \
+        --go_out=internal/pb --go_opt=paths=source_relative \
+        --go-grpc_out=internal/pb --go-grpc_opt=paths=source_relative \
+        -I ../api/proto ../api/proto/strix.proto
+
+# Build final Release artifact
+release: (contract)
+    @mkdir -p bin/release
+    @CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/release/strix_gateway .
+    @echo "Finished. Check out bin/release/"
+    @mkdir -p ../bin/
+    @cp bin/release/strix_gateway ../bin/
+    @echo "Copied artifact to strix/bin/"
+
+# Build final Debug artifact
+debug: (contract)
+    @mkdir -p bin/debug/
+    @go build -o bin/debug/strix_gateway .
+    @echo "Finished. Check out bin/debug/"
+
+# Clear all artifacts
+nuke:
+    @rm -rf bin/
+    @mkdir bin/
