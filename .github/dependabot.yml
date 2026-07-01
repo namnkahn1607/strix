@@ -16,7 +16,7 @@ updates:
       cpp-deps:
         patterns: ["*"]
 
-  - package-ecosystem: "pip3"
+  - package-ecosystem: "pip"
     directory: "/"
     schedule:
       interval: "weekly"
