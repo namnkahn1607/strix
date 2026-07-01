@@ -33,9 +33,9 @@ public:
     uint32_t TryPop() noexcept;
 
     // LoadSlot(): loads slot's `node_id` content.
-    // Caller must ensure `ring_pos` is within bound `[0, capacity_)`.
     uint32_t LoadSlot(const uint32_t ring_pos) const noexcept {
-        return slots_[ring_pos].load(std::memory_order_acquire);
+        return slots_[ring_pos & (capacity_ - 1)].load(
+            std::memory_order_acquire);
     }
 
     // SnapPushHead(): snapshot accessors on `push_head_`.
