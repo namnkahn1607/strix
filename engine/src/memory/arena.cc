@@ -21,17 +21,17 @@
 namespace {
 
 // Magic number written into every PayloadHeader to distinguish valid headers
-// from stale or uninitialised bytes during GC snowplow traversal.
+// from stale or uninitialized bytes during GC snowplow traversal.
 inline constexpr uint32_t kValidIdentifier = 0xDEADBEEF;
 
 // Default ring buffer capacity for Production() config.
-inline constexpr uint64_t kPayloadBufferSize = 0x100000000ULL;  // 4GB
+inline constexpr uint64_t kPayloadBufferSize = 0x100000000ULL;  // 4 GB
 
 // Ring buffer occupancy thresholds that govern GC sleep intervals.
 // Below kLowWatermark  : buffer pressure is low; GC sleeps longer.
 // Above kHighWatermark : buffer pressure is high; GC runs near-continuously.
-inline constexpr uint64_t kLowWatermark  = 0x80000000ULL;  // 2GB
-inline constexpr uint64_t kHighWatermark = 0xE0000000;     // 3.5GB
+inline constexpr uint64_t kLowWatermark  = 0x80000000ULL;  // 2 GB
+inline constexpr uint64_t kHighWatermark = 0xE0000000ULL;  // 3.5 GB
 
 // GC polling intervals in milliseconds, selected by watermark level.
 inline constexpr uint32_t kLowGCSleep  = 10;
@@ -40,7 +40,7 @@ inline constexpr uint32_t kHighGCSleep = 1;
 // How often SweepStalePending() is invoked by the GC loop (milliseconds).
 inline constexpr uint32_t kSweepInterval = 5'000;
 
-// MmapRegion()
+// MmapRegion
 //
 // Allocates a private anonymous mapping of `size` bytes with read/write
 // permissions. When `lazy` is false, `MAP_POPULATE` is added to instruct
@@ -63,12 +63,12 @@ ArenaConfig ArenaConfig::Production() {
     return {kTotalSlots, kPayloadBufferSize, false};
 }
 
-ArenaConfig ArenaConfig::BenchSearchL0() {
-    return {1'024, 0, false};
+ArenaConfig ArenaConfig::Compact(const size_t slots) {
+    return {slots, 0, false};
 }
 
-ArenaConfig ArenaConfig::TestSearchL0() {
-    return {1'024, 0, true};
+ArenaConfig ArenaConfig::CompactLazy(const size_t slots) {
+    return {slots, 0, true};
 }
 
 MemoryArena::MemoryArena(const ArenaConfig& config)
@@ -122,6 +122,9 @@ MemoryArena::~MemoryArena() {
 void MemoryArena::RunGarbageCollector(const std::atomic<bool>& g_shutdown_req) {
     assert(payload_buf_ != nullptr &&
            "Memory Arena is missing payload buffer for related operations");
+
+    assert(on_node_freed_ != nullptr &&
+           "Callback for free node releasing has not been wired");
 
     auto last_sweep = std::chrono::steady_clock::now();
 
@@ -186,8 +189,9 @@ void MemoryArena::RunGarbageCollector(const std::atomic<bool>& g_shutdown_req) {
             const uint32_t text_len   = header->length;
             const uint32_t total_size = sizeof(PayloadHeader) + text_len;
 
-            MetaNode& node                                = metadata_[node_id];
-            const auto [state, ref_bit, length, v_offset] = node.LoadControl();
+            MetaNode& node = metadata_[node_id];
+            const auto [state, ref_bit, version, length, v_offset] =
+                node.LoadControl();
 
             // Stale entry: node was already evicted or its virtual offset no
             // longer matches this ring buffer position.
@@ -197,24 +201,29 @@ void MemoryArena::RunGarbageCollector(const std::atomic<bool>& g_shutdown_req) {
                 continue;
             }
 
-            // Never evict a node that is mid-write (kClaimed) or mid-migration
-            // (kMigrating). Advance past the entry and leave the node intact.
-            if (state == NodeState::kClaimed) {
+            // Payload bytes are already committed at this ring position
+            // (v_offset matches), but the PENDING -> READY publish hasn't
+            // landed yet. Leave it alone; evicting here would destroy an
+            // in-flight commit.
+            if (state == NodeState::kPending) {
                 read_tail_.fetch_add(total_size, std::memory_order_relaxed);
                 continue;
             }
 
             if (ref_bit == EvictState::kCold) {
                 // Cold node: evict immediately by transitioning to kDead.
+                // Eviction is a Release operation on this slot's identity:
+                // version is carried through unchanged, never incremented.
                 uint64_t expected =
-                    PackControl(state, ref_bit, length, v_offset);
-                const uint64_t desired =
-                    PackControl(NodeState::kDead, ref_bit, length, v_offset);
+                    PackControl(state, ref_bit, version, length, v_offset);
+                const uint64_t desired = PackControl(NodeState::kDead, ref_bit,
+                                                     version, length, v_offset);
 
-                node.control_block.compare_exchange_strong(
-                    expected, desired, std::memory_order_release,
-                    std::memory_order_relaxed);
-                node.created_at.store(0, std::memory_order_relaxed);
+                if (node.control_block.compare_exchange_strong(
+                        expected, desired, std::memory_order_release,
+                        std::memory_order_relaxed)) {
+                    on_node_freed_(node_id);
+                }
 
             } else {
                 // Hot node: Second Chance - copy payload to a new ring buffer
@@ -229,7 +238,7 @@ void MemoryArena::RunGarbageCollector(const std::atomic<bool>& g_shutdown_req) {
                 // write_head_, reducing effective buffer capacity without
                 // corrupting data.
                 // Monitor contention rate if "Resource Exhausted" errors appear
-                // earlier than the nominal 4GB fill level.
+                // earlier than the nominal 4 GB fill level.
                 const uint64_t rescued_offset = AllocatePayload(text_len);
                 const uint64_t rescued_index  = ActualIndex(rescued_offset);
 
@@ -257,10 +266,12 @@ void MemoryArena::RunGarbageCollector(const std::atomic<bool>& g_shutdown_req) {
                     dst_idx = ActualIndex(dst_idx + chunk);
                 }
 
-                uint64_t expected =
-                    PackControl(state, EvictState::kHot, length, v_offset);
-                const uint64_t desired = PackControl(state, EvictState::kCold,
-                                                     length, rescued_offset);
+                // Rescue relocates a payload; it does not change node
+                // identity, so version is carried through unchanged here too.
+                uint64_t expected      = PackControl(state, EvictState::kHot,
+                                                     version, length, v_offset);
+                const uint64_t desired = PackControl(
+                    state, EvictState::kCold, version, length, rescued_offset);
 
                 node.control_block.compare_exchange_strong(
                     expected, desired, std::memory_order_release,
@@ -276,24 +287,18 @@ void MemoryArena::RunGarbageCollector(const std::atomic<bool>& g_shutdown_req) {
 }
 
 void MemoryArena::SweepStalePending(const uint64_t curr_time) noexcept {
-    for (size_t i = 0; i < kTotalSlots; ++i) {
+    for (size_t i = 0; i < max_slots_; ++i) {
         MetaNode&      node = metadata_[i];
         const uint64_t ctrl =
             node.control_block.load(std::memory_order_acquire);
-        const auto [state, ref_bit, length, offset] = UnpackControl(ctrl);
+        const auto [state, ref_bit, version, length, offset] =
+            UnpackControl(ctrl);
 
         if (state != NodeState::kPending) {
             continue;
         }
 
         const uint64_t ts = node.created_at.load(std::memory_order_acquire);
-
-        // created_at == 0: writer has not yet committed the timestamp
-        // (CLAIMED -> PENDING transition is not atomic). Skip.
-        if (ts == 0) {
-            continue;
-        }
-
         if (curr_time - ts <= PENDING_LIFESPAN) {
             continue;
         }
@@ -302,11 +307,12 @@ void MemoryArena::SweepStalePending(const uint64_t curr_time) noexcept {
         // with a concurrent writer that may have already advanced the state.
         uint64_t       expected = ctrl;
         const uint64_t desired =
-            PackControl(NodeState::kDead, ref_bit, length, offset);
+            PackControl(NodeState::kDead, ref_bit, version, length, offset);
+
         if (node.control_block.compare_exchange_strong(
                 expected, desired, std::memory_order_release,
                 std::memory_order_relaxed)) {
-            node.created_at.store(0, std::memory_order_relaxed);
+            on_node_freed_(static_cast<uint32_t>(i));
         }
     }
 }

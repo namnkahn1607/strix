@@ -11,11 +11,9 @@
 #include "constants.h"
 #include "meta_node.h"
 
-// PayloadHeader
-//
-// 12-byte header prepended to every payload written into the ring buffer.
-// Enables constant reverse-lookup from a ring buffer position to its
-// owning `MetaNode` without scanning the entire array.
+// PayloadHeader is 12-byte header prepended to every payload written into the
+// ring buffer. Enables constant reverse-lookup from a ring buffer position to
+// its owning `MetaNode` without scanning the entire array.
 //
 // Fields:
 //   1. `identifier` : caller-supplied tag; used to verify header integrity.
@@ -52,16 +50,18 @@ struct ArenaConfig {
     bool     lazy_mapping;
     uint64_t start_point = 0;
 
-    // Production(): `kTotalMaxSlots` slots, 4GB payload buffer, `MAP_POPULATE`.
+    // Production: `kTotalMaxSlots` slots, 4 GB payload buffer, `MAP_POPULATE`.
     static ArenaConfig Production();
 
-    // BenchSearchL0(): `kL0MaxSlots` slots, no payload buffer, `MAP_POPULATE`.
-    // Use for isolated `SearchL0` throughput benchmarks.
-    static ArenaConfig BenchSearchL0();
+    // Compact: `slots` node/vector capacity, no payload buffer, `MAP_POPULATE`.
+    // For throughput benchmarks that need an arena smaller than production
+    // scale but still pre-faulted. `MemoryArena` has no notion of L0/L1;
+    // callers size `slots` to whatever the calling benchmark needs.
+    static ArenaConfig Compact(size_t slots);
 
-    // TestSearchL0(): `kL0MaxSlots` slots, no payload buffer, lazy mapping.
-    // Use for unit tests where pre-faulting adds unnecessary latency.
-    static ArenaConfig TestSearchL0();
+    // CompactLazy: same as `Compact()`, but lazily mapped. For unit tests where
+    // pre-faulting only adds startup latency.
+    static ArenaConfig CompactLazy(size_t slots);
 };
 
 // Maximum lifetime of a PENDING node in seconds.
@@ -90,18 +90,18 @@ public:
     MemoryArena(MemoryArena&&)                 = delete;
     MemoryArena& operator=(MemoryArena&&)      = delete;
 
-    // ReadPayload(): copies `length` bytes starting at `v_offset` from the
+    // ReadPayload: copies `length` bytes starting at `v_offset` from the
     // ring buffer into `out_payload`. Asserts that `payload_buf` is non-null.
     void ReadPayload(uint64_t v_offset, uint32_t length,
                      std::string* out_payload) const;
 
-    // WritePayload(): writes a `PayloadHeader` followed by `in_payload` of
+    // WritePayload: writes a `PayloadHeader` followed by `in_payload` of
     // given `length` bytes into the ring buffer. Returns the virtual offset of
     // the written header. Asserts that `payload_buf` is non-null.
     uint64_t WritePayload(uint32_t node_id, const uint8_t* in_payload,
                           uint32_t length);
 
-    // RunGarbageCollector()
+    // RunGarbageCollector
     //
     // Snowplow GC: a single background thread that sweeps the slot array,
     // evicting COLD READY nodes and expiring stale PENDING nodes.
@@ -116,7 +116,7 @@ public:
     // dependency since Index Layer 'oversees' Storage Layer.
     using NodeFreedCallback = std::function<void(uint32_t)>;
 
-    // SetNodeFreedCallback()
+    // SetNodeFreedCallback
     //
     // GC use this to indirectly append `node_id` to `FreeList`.
     // The caller `main` wires this up to `VectorIndex::PushFreeNode`.
@@ -124,13 +124,13 @@ public:
         on_node_freed_ = std::move(cb);
     }
 
-    // GetNode(): returns a reference to the `MetaNode` at `node_id`.
+    // GetNode: returns a reference to the `MetaNode` at `node_id`.
     // Caller must ensure `node_id` < `max_slots`.
     inline MetaNode& GetNode(const size_t node_id) const noexcept {
         return metadata_[node_id];
     }
 
-    // GetVector(): returns a pointer to the first float of the vector at
+    // GetVector: returns a pointer to the first float of the vector at
     // position `node_id`. The vector occupies `kVectorDim` contiguous floats.
     inline float* GetVector(const size_t node_id) const noexcept {
         return vectors_ + kVectorDim * node_id;
@@ -144,15 +144,15 @@ public:
         return read_tail_.load(std::memory_order_acquire);
     }
 
-    // PrefaultBuffer()
+    // PrefaultBuffer
     //
     // Sequentially writes one byte per page across the payload ring buffer,
     // forcing the kernel to fault in all pages immediately.
     //
-    // WARNING: only call this when the arena was constructed with
-    // lazy_mapping = true and the payload buffer is non-null. Calling it
-    // concurrently with writers or on an already-populated arena wastes time
-    // and may introduce cache pressure.
+    // WARNING: only call this when the arena was constructed with lazy mapping
+    // enabled and the payload buffer is non-null. Calling it concurrently with
+    // writers or on an already-populated arena wastes time and may introduce
+    // cache pressure.
     void PrefaultBuffer() const noexcept;
 
 private:
@@ -174,17 +174,18 @@ private:
     // Dependency-inversion callback to Index Layer.
     NodeFreedCallback on_node_freed_;
 
-    // Maps a virtual offset to its physical index in the ring buffer.
-    // Relies on `payload_buf_size_` being a power of 2.
+    // ActualIndex maps a virtual offset to its physical index in the ring
+    // buffer. Relies on `payload_buf_size_` being a power of 2.
     uint64_t ActualIndex(const uint64_t offset) const {
         return offset & (payload_buf_size_ - 1);
     }
 
-    // Reserves `length` bytes in the ring buffer by advancing `write_head_`.
+    // AllocatePayload reserves `length` bytes by advancing `write_head_`.
     // Returns the virtual offset at which the caller may begin writing.
     uint64_t AllocatePayload(uint32_t length);
 
-    // Scans the metadata array and transitions stale PENDING nodes to DEAD.
-    // A stale PENDING node has `created_at + kPendingLifespan <= curr_time`.
+    // SweepStalePending scans the metadata array and transitions stale PENDING
+    // nodes to DEAD. A stale PENDING node has `created_at + kPendingLifespan <=
+    // curr_time`.
     void SweepStalePending(uint64_t curr_time) noexcept;
 };
