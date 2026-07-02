@@ -24,7 +24,7 @@ public:
     L0Indices& operator=(L0Indices&&)      = delete;
 
     // TryPush(): attempts to register a `node_id` onto L0 buffer.
-    // Cache-miss search path get a `node_id` slot allocated from `FreeList`,
+    // MISS-ed search path get a `node_id` slot allocated from `FreeList`,
     // copy its vector data into that slot and register onto L0 buffer.
     bool TryPush(uint32_t node_id) noexcept;
 

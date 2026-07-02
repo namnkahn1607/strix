@@ -41,7 +41,7 @@ public:
     // Push(): declares a `node_id` as freed. Used by the background GC.
     void Push(uint32_t node_id) noexcept;
 
-    // Pop(): allocates a new `node_id`. Used by cache-miss Search path.
+    // Pop(): allocates a new `node_id`. Used by MISS-ed search path.
     uint32_t Pop() noexcept;
 
 private:
