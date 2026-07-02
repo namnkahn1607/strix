@@ -7,9 +7,3 @@ gateway/.idea
 gateway/build
 
 model/*.onnx
-
-scripts/bake_tokenizer.py
-scripts/base_model_test.py
-
-buf.gen.yaml
-buf.yaml
