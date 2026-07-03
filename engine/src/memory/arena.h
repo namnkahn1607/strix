@@ -116,6 +116,10 @@ public:
         on_node_freed_ = std::move(cb);
     }
 
+    inline size_t MaxSlots() const noexcept {
+        return max_slots_;
+    }
+
     // `GetNode()` returns a reference to the `MetaNode` at `node_id`.
     // Caller must ensure `node_id` < `max_slots`.
     inline MetaNode& GetNode(const size_t node_id) const noexcept {

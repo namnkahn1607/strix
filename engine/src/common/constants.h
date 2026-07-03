@@ -7,6 +7,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 
 // Embedding vector dimension produced by all-MiniLM-L6-v2.
 // kVectorMemsize is the corresponding byte footprint of one vector.
@@ -18,6 +19,9 @@ inline constexpr float kSimilarityThreshold = 0.85f;
 
 // Per-tier slot limits.
 // kTotalMaxSlots is the sum; used to size the unified MemoryArena.
-inline constexpr size_t kL0MaxSlots    = 1'024;
-inline constexpr size_t kL1MaxSlots    = 524'288;
-inline constexpr size_t kTotalMaxSlots = kL0MaxSlots + kL1MaxSlots;
+inline constexpr size_t kTotalSlots = 1 << 19;  // 524'288
+
+// Maximum lifetime of a PENDING node in seconds.
+// Nodes that remain PENDING beyond this deadline are treated as stale by
+// the GC sweeper and by SearchL0 (skipped during scan).
+inline constexpr uint32_t kPendingLifespan = 30;
