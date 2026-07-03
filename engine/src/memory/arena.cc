@@ -10,8 +10,8 @@
 #include <cassert>
 #include <chrono>
 #include <cstring>
-#include <exception>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <thread>
 
@@ -239,7 +239,13 @@ void MemoryArena::RunGarbageCollector(const std::atomic<bool>& g_shutdown_req) {
                 // corrupting data.
                 // Monitor contention rate if "Resource Exhausted" errors appear
                 // earlier than the nominal 4 GB fill level.
-                const uint64_t rescued_offset = AllocatePayload(text_len);
+                const std::optional<uint64_t> opt_offset =
+                    AllocatePayload(text_len);
+                if (!opt_offset.has_value()) {
+                    continue;
+                }
+
+                const uint64_t rescued_offset = *opt_offset;
                 const uint64_t rescued_index  = ActualIndex(rescued_offset);
 
                 const PayloadHeader new_header{kValidIdentifier, node_id,
@@ -247,8 +253,8 @@ void MemoryArena::RunGarbageCollector(const std::atomic<bool>& g_shutdown_req) {
                 std::memcpy(payload_buf_ + rescued_index, &new_header,
                             sizeof(PayloadHeader));
 
-                uint64_t src_idx = ActualIndex(tail + sizeof(PayloadHeader));
-                uint64_t dst_idx =
+                auto src_idx = ActualIndex(tail + sizeof(PayloadHeader));
+                auto dst_idx =
                     ActualIndex(rescued_offset + sizeof(PayloadHeader));
 
                 uint64_t bytes_left = text_len;
@@ -281,7 +287,7 @@ void MemoryArena::RunGarbageCollector(const std::atomic<bool>& g_shutdown_req) {
             read_tail_.fetch_add(total_size, std::memory_order_relaxed);
 
         } catch (const std::exception& e) {
-            std::cerr << "[Engine] GC WARNING: " << e.what() << "\n";
+            std::cerr << "[Vector Engine] GC WARNING: " << e.what() << "\n";
         }
     }
 }
@@ -299,7 +305,7 @@ void MemoryArena::SweepStalePending(const uint64_t curr_time) noexcept {
         }
 
         const uint64_t ts = node.created_at.load(std::memory_order_acquire);
-        if (curr_time - ts <= PENDING_LIFESPAN) {
+        if (curr_time - ts <= kPendingLifespan) {
             continue;
         }
 
@@ -340,12 +346,17 @@ void MemoryArena::ReadPayload(const uint64_t v_offset, const uint32_t length,
     }
 }
 
-uint64_t MemoryArena::WritePayload(const uint32_t node_id,
-                                   const uint8_t* in_payload,
-                                   const uint32_t length) {
+std::optional<uint64_t> MemoryArena::WritePayload(
+    const uint32_t node_id, const uint8_t* in_payload,
+    const uint32_t length) noexcept {
     assert(payload_buf_ != nullptr && "WritePayload requires a payload buffer");
 
-    const uint64_t header_offset = AllocatePayload(length);
+    const std::optional<uint64_t> opt_offset = AllocatePayload(length);
+    if (!opt_offset.has_value()) {
+        return std::nullopt;
+    }
+
+    const uint64_t header_offset = *opt_offset;
     const uint64_t header_index  = ActualIndex(header_offset);
 
     const PayloadHeader header{kValidIdentifier, node_id, length};
@@ -368,7 +379,8 @@ uint64_t MemoryArena::WritePayload(const uint32_t node_id,
     return header_offset;
 }
 
-uint64_t MemoryArena::AllocatePayload(const uint32_t length) {
+std::optional<uint64_t> MemoryArena::AllocatePayload(
+    const uint32_t length) noexcept {
     assert(payload_buf_ != nullptr &&
            "AllocatePayload requires a payload buffer");
 
@@ -379,7 +391,8 @@ uint64_t MemoryArena::AllocatePayload(const uint32_t length) {
         if (curr_write + total_size -
                 read_tail_.load(std::memory_order_relaxed) >=
             payload_buf_size_) {
-            throw std::runtime_error("Resource Exhausted");
+            // Expected under high load; not a programming error.
+            return std::nullopt;
         }
 
         const uint64_t actual_index = ActualIndex(curr_write);
