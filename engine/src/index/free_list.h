@@ -9,9 +9,7 @@
 #include <cstdint>
 #include <memory>
 
-// TaggedIndex
-//
-// 64-bit CAS for the Treiber Stack head.
+// `TaggedIndex`, a 64-bit CAS for the Treiber Stack head.
 struct alignas(8) TaggedIndex {
     uint32_t head_id;
     // `tag` is a monotonic counter incremented on every `Push` and `Pop`.
@@ -24,9 +22,7 @@ struct alignas(8) TaggedIndex {
 static_assert(std::atomic<TaggedIndex>::is_always_lock_free,
               "TaggedIndex CAS must be hardware lock-free.");
 
-// FreeList
-//
-// Single-producer & Multi-consumer for managing freed `node_id`.
+// `FreeList`, Single-producer & Multi-consumer for managing freed `node_id`.
 class FreeList {
 public:
     static constexpr uint32_t kEmpty = 0xFFFFFFFFU;
