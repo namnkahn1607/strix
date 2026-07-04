@@ -134,8 +134,8 @@ struct alignas(64) MetaNode {
     std::atomic<uint64_t> control_block;
 
     // LoadControl atomically loads and decodes the control block.
-    Control LoadControl(
-        const std::memory_order order = std::memory_order_acquire) const {
+    Control LoadControl(const std::memory_order order =
+                            std::memory_order_acquire) const noexcept {
         return UnpackControl(control_block.load(order));
     }
 
@@ -144,8 +144,8 @@ struct alignas(64) MetaNode {
     // Used on both sides of a seqlock-style vector read (snapshot before,
     // snapshot after) so the hot search path pays for one shift-and-mask
     // instead of a full `UnpackControl()` on each snapshot.
-    uint8_t LoadVersion(
-        const std::memory_order order = std::memory_order_acquire) const {
+    uint8_t LoadVersion(const std::memory_order order =
+                            std::memory_order_acquire) const noexcept {
         return static_cast<uint8_t>(
             (control_block.load(order) >> kVersionShift) & kVersionMask);
     }

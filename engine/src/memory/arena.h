@@ -87,9 +87,10 @@ public:
     MemoryArena& operator=(MemoryArena&&)      = delete;
 
     // `ReadPayload()`: copies `length` bytes starting at `v_offset` from the
-    // ring buffer into `out_payload`. Asserts that `payload_buf` is non-null.
+    // ring buffer into `out_payload`. Caller must resize the destination buffer
+    // itself. Asserts that `payload_buf` is non-null.
     void ReadPayload(uint64_t v_offset, uint32_t length,
-                     std::string* out_payload) const;
+                     std::string* out_payload) const noexcept;
 
     // `WritePayload()`: writes a `PayloadHeader` followed by `in_payload` of
     // given `length` bytes into the ring buffer. Returns the virtual offset of

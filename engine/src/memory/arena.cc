@@ -7,6 +7,7 @@
 
 #include <sys/mman.h>
 
+#include <atomic>
 #include <cassert>
 #include <chrono>
 #include <cstring>
@@ -231,17 +232,30 @@ void MemoryArena::RunGarbageCollector(const std::atomic<bool>& g_shutdown_req) {
                 //
                 // If the CAS below fails (a concurrent writer already changed
                 // the node's state), the rescued copy becomes an orphan. It
-                // will be treated as 'staled' when the snowplow reaches
-                // its new position and will be silently skipped.
-                // This is an intentional lazy leak: under high CAS contention,
-                // orphaned payloads accumulate between read_tail_ and
-                // write_head_, reducing effective buffer capacity without
-                // corrupting data.
-                // Monitor contention rate if "Resource Exhausted" errors appear
-                // earlier than the nominal 4 GB fill level.
+                // will be treated as 'staled' when the snowplow reaches its
+                // new position and will be silently skipped. This is an
+                // intentional lazy leak: under high CAS contention, orphaned
+                // payloads accumulate between read_tail_ and write_head_,
+                // reducing effective buffer capacity without corrupting data.
                 const std::optional<uint64_t> opt_offset =
                     AllocatePayload(text_len);
                 if (!opt_offset.has_value()) {
+                    // No room to rescue. Retrying forever would livelock GC
+                    // against itself: rescue needs free ring space, and free
+                    // space only comes from GC advancing past this exact entry.
+                    // Force-evict instead.
+                    uint64_t expected =
+                        PackControl(state, ref_bit, version, length, v_offset);
+                    const uint64_t desired = PackControl(
+                        NodeState::kDead, ref_bit, version, length, v_offset);
+
+                    if (node.control_block.compare_exchange_strong(
+                            expected, desired, std::memory_order_release,
+                            std::memory_order_relaxed)) {
+                        on_node_freed_(node_id);
+                    }
+
+                    read_tail_.fetch_add(total_size, std::memory_order_relaxed);
                     continue;
                 }
 
@@ -324,15 +338,16 @@ void MemoryArena::SweepStalePending(const uint64_t curr_time) noexcept {
 }
 
 void MemoryArena::ReadPayload(const uint64_t v_offset, const uint32_t length,
-                              std::string* out_payload) const {
+                              std::string* out_payload) const noexcept {
     assert(payload_buf_ != nullptr && "ReadPayload requires a payload buffer");
+    assert(out_payload->size() == length &&
+           "out_payload must be pre-sized to length by the caller");
 
     if (length == 0) {
         out_payload->clear();
         return;
     }
 
-    out_payload->resize(length);
     const uint64_t text_index = ActualIndex(v_offset + sizeof(PayloadHeader));
     char*          dst        = out_payload->data();
 
