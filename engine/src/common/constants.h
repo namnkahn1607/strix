@@ -19,6 +19,7 @@ inline constexpr float kSimilarityThreshold = 0.85f;
 
 // Per-tier slot limits.
 // kTotalMaxSlots is the sum; used to size the unified MemoryArena.
+inline constexpr size_t kL0Capacity = 1 << 12;  // 4'096
 inline constexpr size_t kTotalSlots = 1 << 19;  // 524'288
 
 // Maximum lifetime of a PENDING node in seconds.
