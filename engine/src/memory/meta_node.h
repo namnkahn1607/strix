@@ -5,8 +5,8 @@
 //
 // Control block bit layout (64 bits):
 //   Bits 63–62  (2 bits)  : NodeState
-//   Bits 61–58  (4 bits)  : Version     (seqlock-style read validation)
-//   Bit  57     (1 bit)   : EvictState  (CLOCK algorithm reference bit)
+//   Bit  61     (1 bit)   : EvictState  (CLOCK algorithm reference bit)
+//   Bits 60–57  (4 bits)  : Version     (seqlock-style read validation)
 //   Bits 56–36  (21 bits) : Payload length  (max 2 MB - 1 byte)
 //   Bits 35–0   (36 bits) : Virtual offset  (max 64 GB; epoch-safe)
 
