@@ -208,6 +208,10 @@ CacheOutcome VectorIndex::FetchPayload(const uint32_t node_id,
 
 bool VectorIndex::CommitPayload(const uint32_t node_id, const uint8_t* in,
                                 const uint32_t length) noexcept {
+    if (node_id >= arena_.MaxSlots()) {
+        return false;
+    }
+
     MetaNode& node = arena_.GetNode(node_id);
     const auto [state, ref, version, old_len, old_off] = node.LoadControl();
 
