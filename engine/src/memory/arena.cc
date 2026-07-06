@@ -18,6 +18,7 @@
 
 #include "constants.h"
 #include "meta_node.h"
+#include "utils.h"
 
 namespace {
 
@@ -40,23 +41,6 @@ inline constexpr uint32_t kHighGCSleep = 1;
 
 // How often SweepStalePending() is invoked by the GC loop (milliseconds).
 inline constexpr uint32_t kSweepInterval = 5'000;
-
-// MmapRegion
-//
-// Allocates a private anonymous mapping of `size` bytes with read/write
-// permissions. When `lazy` is false, `MAP_POPULATE` is added to instruct
-// the kernel to pre-fault all pages during the mmap syscall, eliminating
-// first-touch latency at the cost of longer construction time.
-void* MmapRegion(const size_t size, const bool lazy) {
-    const int flags = MAP_ANONYMOUS | MAP_PRIVATE | (lazy ? 0 : MAP_POPULATE);
-
-    void* ptr = mmap(nullptr, size, PROT_READ | PROT_WRITE, flags, -1, 0);
-    if (ptr == MAP_FAILED) {
-        throw std::runtime_error("mmap failed for MemoryArena");
-    }
-
-    return ptr;
-}
 
 }  // namespace
 
@@ -99,13 +83,13 @@ MemoryArena::MemoryArena(const ArenaConfig& config)
     }
 
     metadata_ = static_cast<MetaNode*>(
-        MmapRegion(max_slots_ * sizeof(MetaNode), config.lazy_mapping));
-    vectors_ = static_cast<float*>(MmapRegion(
-        max_slots_ * kVectorDim * sizeof(float), config.lazy_mapping));
+        Alloc32(max_slots_ * sizeof(MetaNode), config.lazy_mapping));
+    vectors_ = static_cast<float*>(
+        Alloc32(max_slots_ * kVectorDim * sizeof(float), config.lazy_mapping));
 
     if (payload_buf_size_ > 0) {
         payload_buf_ = static_cast<uint8_t*>(
-            MmapRegion(payload_buf_size_, config.lazy_mapping));
+            Alloc32(payload_buf_size_, config.lazy_mapping));
     } else {
         payload_buf_ = nullptr;
     }
