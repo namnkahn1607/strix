@@ -5,44 +5,37 @@
 
 #pragma once
 
-#include <xmmintrin.h>
+#include "constants.h"
 
-#include <cstddef>
+// Number of vectors processed per dot product kernel call. Hardwired to 4
+// as each of the 4 accumulators maps to to one YMM lane pair, and the final
+// horizontal reduction folds all 4 scores in a single _mm_add_ps pass.
+// Changing this constant requires re-writing the kernel.
+inline constexpr size_t kBatchSize = 4;
+
 #if defined(__x86_64__) || defined(_M_X64)
 
 #include <immintrin.h>
 
-#include "constants.h"
-
-// Number of vectors processed per DotProductBatch() call.
-// Hardwired to 4: each of the 4 accumulators maps to one YMM lane pair,
-// and the final horizontal reduction folds all 4 scores in a single
-// _mm_add_ps pass. Changing this constant requires rewriting the kernel.
-inline constexpr size_t kBatchSize = 4;
-
-// DotProductBatch
+// `DotProductBatch()` computes dot product between one query vector and a
+// contiguous batch of `kBatchSize` node vectors, writing result to `scores`.
 //
-// Computes dot products between one query vector and a contiguous batch
-// consisting of `kBatchSize` node vectors, writing results into `scores`.
-//
-// Memory layout requirements:
-//   1. `query`      : 32-byte aligned, length `kVectorDim` floats.
-//   2. `node_batch` : 32-byte aligned, `kBatchSize` * `kVectorDim` floats,
-//                     nodes stored row-major (node 0 first).
-//   3. `scores`     : writable buffer of at least `kBatchSize` floats;
-//                     need not be aligned (written via `_mm_storeu_ps`).
+// Memory layout:
+//   1. `query`      : 32-bit aligned, length of `kVectorDim` floats.
+//   2. `node_batch` : 32-bit aligned, `kBatchSize` * `kVectorDim` floats.
+//   3. `scores`     : writable buffer of at least `kBatchSize` floats.
 //
 // `kVectorDim` must be a multiple of 16 (two AVX2 registers per iteration).
-// The loop is fully unrolled across the 4 nodes to maximize ILP.
+// The loop is fully unrolled accross 4 nodes to maximize ILP.
 __attribute__((target("avx2,fma"))) inline void DotProductBatch(
-    const float* __restrict__ query, const float* __restrict__ node_batch,
-    float* __restrict__ scores) noexcept {
+    const float* __restrict query, const float* __restrict node_batch,
+    float* __restrict scores) noexcept {
     const float* __restrict__ n0 = node_batch;
     const float* __restrict__ n1 = node_batch + kVectorDim;
     const float* __restrict__ n2 = node_batch + kVectorDim * 2;
     const float* __restrict__ n3 = node_batch + kVectorDim * 3;
 
-    // Two accumulator registers per node to hide FMA latency (~4 cycles).
+    // 2 accumulator registers per node to hide FMA latency (~4 cycles).
     __m256 sA0 = _mm256_setzero_ps(), sA1 = _mm256_setzero_ps();
     __m256 sB0 = _mm256_setzero_ps(), sB1 = _mm256_setzero_ps();
     __m256 sC0 = _mm256_setzero_ps(), sC1 = _mm256_setzero_ps();
@@ -67,7 +60,7 @@ __attribute__((target("avx2,fma"))) inline void DotProductBatch(
         sD1 = _mm256_fmadd_ps(q1, _mm256_load_ps(n3 + i + 8), sD1);
     }
 
-    // Fold the two accumulators for each node into a single __m256.
+    // Fold the 2 accumulators for each node into a single __m256.
     const __m256 sumA = _mm256_add_ps(sA0, sA1);
     const __m256 sumB = _mm256_add_ps(sB0, sB1);
     const __m256 sumC = _mm256_add_ps(sC0, sC1);
@@ -100,16 +93,12 @@ __attribute__((target("avx2,fma"))) inline void DotProductBatch(
     _mm_storeu_ps(scores, _mm_add_ps(lo, hi));
 }
 
-// DotProductIndirectBatch
-//
-// Same register-blocked AVX2/FMA strategy as `DotProductBatch()`, but takes
-// 4 independent pointers instead of one contiguous `node_batch` pointer.
-//
-// Required whenever the 4 vectors being scored do not form a contiguous batch.
+// `DotProductIndirectBatch()`; same register-blocked AVX2/FMA strategy as
+// `DotProductBatch()`, but receives 4 independent pointers to vectors
 __attribute__((target("avx2,fma"))) inline void DotProductIndirectBatch(
-    const float* __restrict__ query, const float* __restrict__ v0,
-    const float* __restrict__ v1, const float* __restrict__ v2,
-    const float* __restrict__ v3, float* __restrict__ scores) noexcept {
+    const float* __restrict query, const float* __restrict v0,
+    const float* __restrict v1, const float* __restrict v2,
+    const float* __restrict v3, float* __restrict scores) noexcept {
     __m256 acc0 = _mm256_setzero_ps();
     __m256 acc1 = _mm256_setzero_ps();
     __m256 acc2 = _mm256_setzero_ps();
@@ -153,52 +142,41 @@ __attribute__((target("avx2,fma"))) inline void DotProductIndirectBatch(
 
 #else  // non-x86_64 scalar fallback
 
-#include "constants.h"
-
-// Scalar fallback for `DotProductSolo()`.
-// Linear traversal over `kVectorDim` floats; no SIMD, no alignment
-// requirements.
-inline void DotProductSolo(const float* __restrict__ query,
-                           const float* __restrict__ node_vec) noexcept {
-    float dot = 0.0f;
-
-    for (size_t i = 0; i < kVectorDim; ++i) {
-        dot += query[i] * node_vec[i];
-    }
-
-    return dot;
-}
-
-inline constexpr size_t kBatchSize = 4;
-
-// Scalar fallback for `DotProductBatch()`.
-// Row-major traversal over `kBatchSize` nodes; no SIMD, no alignment
-// requirements.
+// Scalar fallback for `DotProductBatch()`. Row-major traversal over
+// `kBatchSize` nodes; no SIMD, no alignment requirements.
 inline void DotProductBatch(const float* __restrict__ query,
                             const float* __restrict__ node_batch,
                             float* __restrict__ scores) noexcept {
-    for (size_t i = 0; i < kVectorDim; ++i) {
-        for (int k = 0; k < 4; ++k) {
-            scores[k] += query[i] * node_batch[k * kVectorDim + i];
+    for (size_t k = 0; k < kBatchSize; ++k) {
+        float dot = 0.0f;
+
+        for (size_t i = 0; i < kVectorDim; ++i) {
+            dot += query[i] * node_batch[k * kVectorDim + i];
         }
+
+        scores[k] = dot;
     }
 }
 
-// Scalar fallback for `DotProductIndirectBatch()`.
-// Put all vectors in a batch of `kBatchSize` then perform row-major traversal;
-// no SIMD, no alignment requirements.
+// Scalar fallback for `DotProductIndirectBatch()`. Put all vectors in a batch
+// of `kBatchSize` then perform row-major order traversal.
+// No SIMD, no alignment requirements.
 inline void DotProductIndirectBatch(const float* __restrict__ query,
                                     const float* __restrict__ v0,
                                     const float* __restrict__ v1,
                                     const float* __restrict__ v2,
                                     const float* __restrict__ v3,
                                     float* __restrict__ scores) noexcept {
-    const float* __restrict__ vecs[4] = {v0, v1, v2, v3};
-    for (size_t i = 0; i < kVectorDim; ++i) {
-        for (size_t k = 0; k < 4; ++k) {
-            scores[k] += query[i] * vecs[k][i];
+    const float* __restrict__ batch_vec[kBatchSize]{v0, v1, v2, v3};
+    for (size_t k = 0; k < kBatchSize; ++k) {
+        float dot = 0.0f;
+
+        for (size_t i = 0; i < kVectorDim; ++i) {
+            dot += query[i] * batch_vec[k][i];
         }
+
+        scores[k] = dot;
     }
 }
 
-#endif  // defined(__x86_64__) || defined(_M_X64)
+#endif

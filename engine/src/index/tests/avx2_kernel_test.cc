@@ -11,7 +11,7 @@
 #include <cmath>
 #include <random>
 
-#include "avx2_math.h"
+#include "avx2_kernel.h"
 
 namespace {
 

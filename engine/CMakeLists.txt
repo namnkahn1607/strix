@@ -161,8 +161,8 @@ add_custom_command(TARGET strix_engine POST_BUILD
 find_package(GTest CONFIG REQUIRED)
 
 # Test AVX2 Dot Product
-add_executable(avx2_test tests/avx2_test.cc)
-target_link_libraries(avx2_test PRIVATE
+add_executable(avx2_kernel_test src/index/tests/avx2_kernel_test.cc)
+target_link_libraries(avx2_kernel_test PRIVATE
     engine_common    
     engine_index
     GTest::gtest_main
@@ -214,7 +214,7 @@ target_link_libraries(mpsc_test PRIVATE
 )
 
 include(GoogleTest)
-gtest_discover_tests(avx2_test)
+gtest_discover_tests(avx2_kernel_test)
 gtest_discover_tests(model_test)
 gtest_discover_tests(ctrl_test)
 gtest_discover_tests(arena_test)
@@ -230,8 +230,8 @@ if (UPPER_BUILD_TYPE STREQUAL "RELEASE")
     find_package(benchmark CONFIG REQUIRED)
 
     # Benchmark AVX2 Dot Product
-    add_executable(avx2_bench bench/avx2_bench.cc)
-    target_link_libraries(avx2_bench PRIVATE
+    add_executable(avx2_kernel_bench src/index/bench/avx2_kernel_bench.cc)
+    target_link_libraries(avx2_kernel_bench PRIVATE
         engine_options
         engine_common
         engine_index

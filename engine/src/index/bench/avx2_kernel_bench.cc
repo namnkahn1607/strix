@@ -12,7 +12,7 @@
 
 #include <random>
 
-#include "avx2_math.h"
+#include "avx2_kernel.h"
 
 namespace {
 
@@ -37,18 +37,18 @@ void FillRandom(float* dst, const int32_t count, const uint64_t seed = 42) {
 // -----------------------------------------------------------------------------
 
 static void BenchBatch4_1K(benchmark::State& state) {
-    constexpr uint32_t NUM_VECTORS  = 1'000;
-    constexpr uint32_t TOTAL_FLOATS = kDim * NUM_VECTORS;
+    constexpr uint32_t kNumVectors  = 1'000;
+    constexpr uint32_t kTotalFloats = kDim * kNumVectors;
 
     auto* l0_cache =
-        static_cast<float*>(_mm_malloc(TOTAL_FLOATS * sizeof(float), kAlign));
+        static_cast<float*>(_mm_malloc(kTotalFloats * sizeof(float), kAlign));
     auto* query = static_cast<float*>(_mm_malloc(kDim * sizeof(float), kAlign));
 
-    FillRandom(l0_cache, TOTAL_FLOATS, 42);
+    FillRandom(l0_cache, kTotalFloats, 42);
     FillRandom(query, kDim, 99);
 
     for ([[maybe_unused]] auto _ : state) {
-        for (uint32_t i = 0; i < NUM_VECTORS; i += 4) {
+        for (uint32_t i = 0; i < kNumVectors; i += 4) {
             float* node_batch = l0_cache + i * kDim;
             float  scores[4]  = {};
 
@@ -59,9 +59,9 @@ static void BenchBatch4_1K(benchmark::State& state) {
         }
     }
 
-    state.SetItemsProcessed(state.iterations() * NUM_VECTORS);
+    state.SetItemsProcessed(state.iterations() * kNumVectors);
     state.SetBytesProcessed(state.iterations() *
-                            static_cast<int64_t>(TOTAL_FLOATS * sizeof(float)));
+                            static_cast<int64_t>(kTotalFloats * sizeof(float)));
 
     _mm_free(l0_cache);
     _mm_free(query);
@@ -77,18 +77,18 @@ BENCHMARK(BenchBatch4_1K)->Unit(benchmark::kNanosecond)->Iterations(10'000);
 // -----------------------------------------------------------------------------
 
 static void BenchBatch4_20K(benchmark::State& state) {
-    constexpr uint32_t NUM_VECTORS  = 20000;
-    constexpr uint32_t TOTAL_FLOATS = kDim * NUM_VECTORS;
+    constexpr uint32_t kNumVectors  = 20000;
+    constexpr uint32_t kTotalFloats = kDim * kNumVectors;
 
     auto* l0_cache =
-        static_cast<float*>(_mm_malloc(TOTAL_FLOATS * sizeof(float), kAlign));
+        static_cast<float*>(_mm_malloc(kTotalFloats * sizeof(float), kAlign));
     auto* query = static_cast<float*>(_mm_malloc(kDim * sizeof(float), kAlign));
 
-    FillRandom(l0_cache, static_cast<int32_t>(TOTAL_FLOATS), 42);
+    FillRandom(l0_cache, static_cast<int32_t>(kTotalFloats), 42);
     FillRandom(query, kDim, 99);
 
     for ([[maybe_unused]] auto _ : state) {
-        for (uint32_t i = 0; i < NUM_VECTORS; i += 4) {
+        for (uint32_t i = 0; i < kNumVectors; i += 4) {
             float* node_batch = l0_cache + i * kDim;
             float  scores[4]  = {};
 
@@ -99,9 +99,9 @@ static void BenchBatch4_20K(benchmark::State& state) {
         }
     }
 
-    state.SetItemsProcessed(state.iterations() * NUM_VECTORS);
+    state.SetItemsProcessed(state.iterations() * kNumVectors);
     state.SetBytesProcessed(state.iterations() *
-                            static_cast<int64_t>(TOTAL_FLOATS * sizeof(float)));
+                            static_cast<int64_t>(kTotalFloats * sizeof(float)));
 
     _mm_free(l0_cache);
     _mm_free(query);
