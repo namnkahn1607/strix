@@ -104,9 +104,9 @@ target_link_libraries(engine_inference PUBLIC ONNXRuntime)
 
 # Module 4: Index
 add_library(engine_index STATIC
-    src/index/search.cc
     src/index/free_list.cc
     src/index/mpsc.cc
+    src/index/index.cc
 )
 target_include_directories(engine_index PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/index)
 target_link_libraries(engine_index PRIVATE 
@@ -186,16 +186,6 @@ target_link_libraries(ctrl_test PRIVATE
     GTest::gtest
 )
 
-# Test Vector searching on L0 Buffer
-add_executable(search_test tests/search_test.cc)
-target_link_libraries(search_test PRIVATE
-    engine_common
-    engine_memory
-    engine_index
-    GTest::gtest_main
-    GTest::gtest
-)
-
 # Test Payload Read/Write of Memory Arena
 add_executable(arena_test tests/arena_test.cc)
 target_link_libraries(arena_test PRIVATE
@@ -227,7 +217,6 @@ include(GoogleTest)
 gtest_discover_tests(avx2_test)
 gtest_discover_tests(model_test)
 gtest_discover_tests(ctrl_test)
-gtest_discover_tests(search_test)
 gtest_discover_tests(arena_test)
 gtest_discover_tests(free_list_test)
 gtest_discover_tests(mpsc_test)
@@ -267,16 +256,6 @@ if (UPPER_BUILD_TYPE STREQUAL "RELEASE")
         benchmark::benchmark
     )
 
-    # Benchmark Vector searching on L0 Buffer
-    add_executable(search_bench bench/search_bench.cc)
-    target_link_libraries(search_bench PRIVATE
-        engine_options
-        engine_common
-        engine_memory
-        engine_index
-        benchmark::benchmark
-    )
-
     # Benchmark Payload Read/Write of Memory Arena
     add_executable(arena_bench bench/arena_bench.cc)
     target_link_libraries(arena_bench PRIVATE
@@ -300,6 +279,16 @@ if (UPPER_BUILD_TYPE STREQUAL "RELEASE")
     target_link_libraries(mpsc_bench PRIVATE
         engine_options
         engine_common
+        engine_index
+        benchmark::benchmark
+    )
+
+    # Benchmark Vector searching subroutines
+    add_executable(search_bench bench/search_bench.cc)
+    target_link_libraries(search_bench PRIVATE
+        engine_options
+        engine_common
+        engine_memory
         engine_index
         benchmark::benchmark
     )

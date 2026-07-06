@@ -1,144 +1,138 @@
 // Author: namnkahn1607
 //
-// SearchL0 is on the critical path of the system.
-// It combines AVX2 dot product scoring with NodeState classification
-// for all 1,000 L0 slots.
+// Throughput/latency benchmarks for VectorIndex's search subroutines.
+// Consists of 2 benchmark style: single-threaded scan for raw latency and
+// concurrent contention that mimics production scenarios.
 
 #include <benchmark/benchmark.h>
 
+#include <algorithm>
 #include <atomic>
-#include <cmath>
-#include <cstring>
-#include <random>
+#include <thread>
 
 #include "arena.h"
 #include "constants.h"
-#include "meta_node.h"
-#include "search.h"
+#include "index.h"
 
 namespace {
 
-inline constexpr uint64_t kNow = 1000;
-
-// GenQueryVector(): allocates a 32-byte aligned unit vector of size 384 along
-// dimension 0. Ownership: Caller must `std::free()`.
-float* GenQueryVector() {
-    auto* vec =
-        static_cast<float*>(std::aligned_alloc(32, kVectorDim * sizeof(float)));
-    std::memset(vec, 0, kVectorDim * sizeof(float));
-    vec[0] = 1.0f;
-
-    return vec;
-}
-
-// SetReady(): set a specified Arena slot READY with a normalized random vector.
-void SetReady(MemoryArena& arena, const size_t node_id, std::mt19937& rng) {
-    std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
-    float*                                vec = arena.GetVector(node_id);
-
-    float norm = 0.0f;
-    for (size_t i = 0; i < kVectorDim; ++i) {
-        vec[i] = dist(rng);
-        norm += vec[i] * vec[i];
-    }
-
-    norm = std::sqrt(norm);
-    for (size_t i = 0; i < kVectorDim; ++i) {
-        vec[i] /= norm;
-    }
-
-    arena.GetNode(node_id).control_block.store(
-        PackControl(NodeState::kReady, EvictState::kHot, 0, 0),
-        std::memory_order_relaxed);
+// `FillVector()` fill the specified vector with a dedicated value.
+void FillVector(float* dst, const float value) {
+    std::fill(dst, dst + kVectorDim, value);
 }
 
 }  // namespace
 
 // -----------------------------------------------------------------------------
-// BenchSearchL0_AllReady
-// All 1,000 L0 slots READY. Models steady-state production workload.
-// Every slot contributes a dot product; no slots are skipped.
+// BenchSearchL0_FixedOccupancy
+// Single-threaded latency at a fixed, fully-packed L0 ring. This is the number
+// to read as "the cost of one indirect AVX2 scan" isolated from any contention.
+//
+// Compare against bench/mpsc_bench.cc's raw L0Indices throughput to see how
+// much of SearchL0's cost is the AVX2 kernel itself versus ring bookkeeping.
 // -----------------------------------------------------------------------------
 
-static void BenchSearchL0_AllReady(benchmark::State& state) {
-    MemoryArena  arena{ArenaConfig::BenchSearchL0()};
-    std::mt19937 rng(42);
+static void BenchSearchL0_FixedOccupancy(benchmark::State& state) {
+    MemoryArena arena(ArenaConfig::Compact(kL0Capacity));
+    VectorIndex index(arena, kL0Capacity);
 
-    for (size_t i = 0; i < 1024; ++i) {
-        SetReady(arena, i, rng);
-    }
-
-    float* query = GenQueryVector();
-    for ([[maybe_unused]] auto _ : state) {
-        auto result = SearchL0(arena, query, kNow);
-        benchmark::DoNotOptimize(result);
-    }
-
-    std::free(query);
-    state.SetItemsProcessed(state.iterations() *
-                            static_cast<int64_t>(1024));
-}
-
-BENCHMARK(BenchSearchL0_AllReady)
-    ->Unit(benchmark::kNanosecond)
-    ->Iterations(10'000);
-
-// -----------------------------------------------------------------------------
-// BenchSearchL0_AllDead
-// All 1,000 slots DEAD. Models a cold/empty cache.
-// No scoring happens; measures pure state-check overhead.
-// -----------------------------------------------------------------------------
-
-static void BenchSearchL0_AllDead(benchmark::State& state) {
-    // Default-initialized arena has all slots DEAD (mmap zero-fills).
-    MemoryArena arena{ArenaConfig::BenchSearchL0()};
-
-    float* query = GenQueryVector();
-    for ([[maybe_unused]] auto _ : state) {
-        auto result = SearchL0(arena, query, kNow);
-        benchmark::DoNotOptimize(result);
-    }
-
-    std::free(query);
-    state.SetItemsProcessed(state.iterations() *
-                            static_cast<int64_t>(1024));
-}
-
-BENCHMARK(BenchSearchL0_AllDead)
-    ->Unit(benchmark::kNanosecond)
-    ->Iterations(10'000);
-
-// -----------------------------------------------------------------------------
-// BenchSearchL0_Mixed
-// 500 READY + 500 DEAD slots, interleaved (even=READY, odd=DEAD).
-// Approximates a partially-warm cache with ongoing eviction.
-// -----------------------------------------------------------------------------
-
-static void BenchSearchL0_Mixed(benchmark::State& state) {
-    MemoryArena  arena{ArenaConfig::BenchSearchL0()};
-    std::mt19937 rng(99);
-
-    for (size_t i = 0; i < 1024; ++i) {
-        // Even slots are READY.
-        if ((i & 1) == 0) {
-            SetReady(arena, i, rng);
+    alignas(32) float node_vec[kVectorDim];
+    FillVector(node_vec, 0.1f);
+    for (size_t i = 0; i < kL0Capacity; ++i) {
+        if (!index.AcquireNode(node_vec, /*now=*/0)) {
+            state.SkipWithError(
+                "Failed to pack L0 to its fullest during setup");
+            return;
         }
-        // Odd slots remains DEAD.
     }
 
-    float* query = GenQueryVector();
-    for ([[maybe_unused]] auto _ : state) {
-        auto result = SearchL0(arena, query, kNow);
+    alignas(32) float query[kVectorDim];
+    FillVector(query, 0.2f);
+
+    for (auto _ : state) {
+        auto result = index.SearchL0(query);
+        benchmark::DoNotOptimize(result);
+    }
+}
+
+BENCHMARK(BenchSearchL0_FixedOccupancy)->Unit(benchmark::kMicrosecond);
+
+// -----------------------------------------------------------------------------
+// BenchSearchL0_ConcurrentContention
+// One measured SearchL0 caller running concurrently against production-shaped
+// contention: one simulated Consumer and multiple simulated Producers.
+//
+// All threads running Consumer and Producers are hand-rolled, not part of
+// Google Benchmark's ->Threads(N) mechanism, since only the searching caller
+// is being timed - the others exist purely to generate realistic contention.
+// -----------------------------------------------------------------------------
+
+static void BenchSearchL0_ConcurrentContention(benchmark::State& state) {
+    constexpr uint32_t kNumProducers = 2;
+    constexpr uint32_t kNodeID       = 0;
+
+    static MemoryArena* arena = nullptr;
+    static VectorIndex* index = nullptr;
+
+    static std::atomic<bool>*        stop    = nullptr;
+    static std::vector<std::thread>* workers = nullptr;
+
+    if (state.thread_index() == 0) {
+        arena = new MemoryArena(ArenaConfig::Compact(kL0Capacity));
+        index = new VectorIndex(*arena, kL0Capacity);
+        stop  = new std::atomic<bool>(false);
+
+        // Half-fill the L0 ring buffer as initial state to almost alwasy
+        // account rooms for Consumer and Producers.
+        alignas(32) float fill_vec[kVectorDim];
+        FillVector(fill_vec, 0.1f);
+        for (size_t i = 0; i < kL0Capacity / 2; ++i) {
+            index->AcquireNode(fill_vec, 0);
+        }
+
+        L0Indices& ring = VectorIndexBenchAccess::GetL0Indices(*index);
+        workers         = new std::vector<std::thread>();
+
+        // Initiate one Consumer worker.
+        workers->emplace_back([&ring] {
+            while (!stop->load(std::memory_order_relaxed)) {
+                ring.TryPop();
+            }
+        });
+
+        // Initiate multiple Producer workers.
+        for (uint32_t i = 0; i < kNumProducers; ++i) {
+            workers->emplace_back([&ring] {
+                while (!stop->load(std::memory_order_relaxed)) {
+                    ring.TryPush(kNodeID);
+                }
+            });
+        }
+    }
+
+    alignas(32) float query[kVectorDim];
+    FillVector(query, 0.3f);
+
+    for (auto _ : state) {
+        auto result = index->SearchL0(query);
         benchmark::DoNotOptimize(result);
     }
 
-    std::free(query);
-    state.SetItemsProcessed(state.iterations() *
-                            static_cast<int64_t>(1024));
+    if (state.thread_index() == 0) {
+        stop->store(true, std::memory_order_relaxed);
+        for (auto& w : *workers) {
+            w.join();
+        }
+
+        delete workers;
+        delete stop;
+        delete index;
+        delete arena;
+    }
 }
 
-BENCHMARK(BenchSearchL0_Mixed)
-    ->Unit(benchmark::kNanosecond)
-    ->Iterations(10'000);
+BENCHMARK(BenchSearchL0_ConcurrentContention)
+    ->Unit(benchmark::kMicrosecond)
+    ->Threads(1);
 
 BENCHMARK_MAIN();
