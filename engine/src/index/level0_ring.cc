@@ -1,9 +1,9 @@
 // Author: namnkahn1607
 //
-// L0Indices implementation. See mpsc.h for the monotonic-counter
+// L0Indices implementation. See its header for the monotonic-counter
 // invariant this relies on.
 
-#include "mpsc.h"
+#include "level0_ring.h"
 
 #include <atomic>
 #include <memory>

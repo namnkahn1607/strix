@@ -6,7 +6,7 @@
 // production access pattern: N concurrent Producer TryPush callers, one
 // Consumer TryPop loop. Meaningful only when run under ThreadSanitizer.
 
-#include "mpsc.h"
+#include "level0_ring.h"
 
 #include <atomic>
 #include <barrier>

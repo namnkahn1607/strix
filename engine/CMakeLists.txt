@@ -105,7 +105,7 @@ target_link_libraries(engine_inference PUBLIC ONNXRuntime)
 # Module 4: Index
 add_library(engine_index STATIC
     src/index/free_list.cc
-    src/index/mpsc.cc
+    src/index/level0_ring.cc
     src/index/index.cc
 )
 target_include_directories(engine_index PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/index)
@@ -205,8 +205,8 @@ target_link_libraries(free_list_test PRIVATE
 )
 
 # Test MPSC L0 ring buffer
-add_executable(mpsc_test tests/mpsc_test.cc)
-target_link_libraries(mpsc_test PRIVATE
+add_executable(level0_ring_test src/index/tests/level0_ring_test.cc)
+target_link_libraries(level0_ring_test PRIVATE
     engine_common
     engine_index
     GTest::gtest_main
@@ -219,7 +219,7 @@ gtest_discover_tests(model_test)
 gtest_discover_tests(ctrl_test)
 gtest_discover_tests(arena_test)
 gtest_discover_tests(free_list_test)
-gtest_discover_tests(mpsc_test)
+gtest_discover_tests(level0_ring_test)
 
 # ===========================================================================
 # 7. BENCHMARK EXECUTABLE(S)
@@ -275,8 +275,8 @@ if (UPPER_BUILD_TYPE STREQUAL "RELEASE")
     )
 
     # Benchmark MPSC L0 ring buffer
-    add_executable(mpsc_bench bench/mpsc_bench.cc)
-    target_link_libraries(mpsc_bench PRIVATE
+    add_executable(level0_ring_bench src/index/bench/level0_ring_bench.cc)
+    target_link_libraries(level0_ring_bench PRIVATE
         engine_options
         engine_common
         engine_index
