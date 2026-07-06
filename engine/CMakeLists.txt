@@ -196,7 +196,7 @@ target_link_libraries(arena_test PRIVATE
 )
 
 # Test Free List
-add_executable(free_list_test tests/free_list_test.cc)
+add_executable(free_list_test src/index/tests/free_list_test.cc)
 target_link_libraries(free_list_test PRIVATE
     engine_common
     engine_index
@@ -266,7 +266,7 @@ if (UPPER_BUILD_TYPE STREQUAL "RELEASE")
     )
 
     # Benchmark Free List operations
-    add_executable(free_list_bench bench/free_list_bench.cc)
+    add_executable(free_list_bench src/index/bench/free_list_bench.cc)
     target_link_libraries(free_list_bench PRIVATE
         engine_options
         engine_common
