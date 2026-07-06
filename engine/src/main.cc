@@ -63,12 +63,12 @@ void WarmupEngine(const Embedder& embedder) {
 // event loop until a shutdown signal arrives (Death Pipe EOF or
 // SIGINT/SIGTERM). `fd_sig` must be a `signalfd` created in `main()` after
 // the signal mask is set.
-void RunServer(const Embedder& embedder, MemoryArena& arena,
+void RunServer(const Embedder& embedder, VectorIndex& index, MemoryArena& arena,
                std::atomic<bool>& g_shutdown_req, int fd_sig) {
     const std::string server_address{"unix:///tmp/strix.sock"};
     unlink("/tmp/strix.sock");
 
-    CacheServiceImpl service(embedder, arena);
+    CacheServiceImpl service(embedder, index);
 
     grpc::ServerBuilder builder;
     builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
@@ -199,16 +199,18 @@ int main() {
         const Embedder embedder(tok_path, bert_path);
         std::cout << "[Vector Engine] Initialized Inference model.\n";
 
-        const auto memory_arena =
+        const auto arena =
             std::make_unique<MemoryArena>(ArenaConfig::Production());
         std::cout << "[Vector Engine] Initialized Memory Arena.\n";
 
-        std::atomic<bool> g_shutdown_req{false};
+        VectorIndex indexer(*arena, kL0Capacity);
+        std::cout << "[Vector Engine] Initialized Vector Index.\n";
 
         WarmupEngine(embedder);
 
         std::cout << "[Vector Engine] Opening to gRPC...\n";
-        RunServer(embedder, *memory_arena, g_shutdown_req, fd_sig);
+        std::atomic<bool> g_shutdown_req{false};
+        RunServer(embedder, indexer, *arena, g_shutdown_req, fd_sig);
         std::cout << "[Vector Engine] Closing...\n";
 
     } catch (const std::exception& e) {
