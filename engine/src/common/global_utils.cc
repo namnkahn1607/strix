@@ -3,7 +3,7 @@
 // Concrete implementation of global utility functions.
 // See utils.h for an API view.
 
-#include "utils.h"
+#include "global_utils.h"
 
 #include <sys/mman.h>
 
