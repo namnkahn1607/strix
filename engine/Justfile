@@ -17,8 +17,8 @@ default:
 # Add new Benchmark suite names here only; all *-all targets pick them up 
 # automatically. Test suites are automatically discovered by CTest.
 # ------------------------------------------------------------------------------
-bench_names := "avx2_kernel model customops free_list mpsc search"
-test_names := "avx2_kernel model ctrl free_list mpsc"
+bench_names := "avx2_kernel model customops free_list level0_ring vector_search"
+test_names := "avx2_kernel model ctrl free_list level0_ring"
 
 # ==============================================================================
 # General

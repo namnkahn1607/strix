@@ -8,7 +8,7 @@
 
 #include "arena.h"
 #include "free_list.h"
-#include "mpsc.h"
+#include "level0_ring.h"
 
 // `CacheOutcome` stimulates part of the cache states returned by Data plane to
 // the Control plane.

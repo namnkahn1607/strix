@@ -12,7 +12,7 @@
 
 #include "arena.h"
 #include "constants.h"
-#include "index.h"
+#include "vector_index.h"
 
 namespace {
 

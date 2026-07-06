@@ -3,14 +3,14 @@
 // VectorIndex implementation. See index.h for the seqlock and Write-Ahead
 // protocol invariants this relies on.
 
-#include "index.h"
+#include "vector_index.h"
 
 #include <atomic>
 #include <cstring>
 #include <exception>
 #include <optional>
 
-#include "avx2_math.h"
+#include "avx2_kernel.h"
 #include "constants.h"
 #include "free_list.h"
 #include "meta_node.h"

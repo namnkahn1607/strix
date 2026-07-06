@@ -106,7 +106,7 @@ target_link_libraries(engine_inference PUBLIC ONNXRuntime)
 add_library(engine_index STATIC
     src/index/free_list.cc
     src/index/level0_ring.cc
-    src/index/index.cc
+    src/index/vector_index.cc
 )
 target_include_directories(engine_index PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/index)
 target_link_libraries(engine_index PRIVATE 
@@ -284,8 +284,8 @@ if (UPPER_BUILD_TYPE STREQUAL "RELEASE")
     )
 
     # Benchmark Vector searching subroutines
-    add_executable(search_bench bench/search_bench.cc)
-    target_link_libraries(search_bench PRIVATE
+    add_executable(vector_search_bench src/index/bench/vector_search_bench.cc)
+    target_link_libraries(vector_search_bench PRIVATE
         engine_options
         engine_common
         engine_memory
