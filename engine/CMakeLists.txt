@@ -170,8 +170,8 @@ target_link_libraries(avx2_kernel_test PRIVATE
 )
 
 # Test Inference model all-MiniLM-L6-v2
-add_executable(model_test tests/model_test.cc)
-target_link_libraries(model_test PRIVATE
+add_executable(inference_test src/inference/tests/inference_test.cc)
+target_link_libraries(inference_test PRIVATE
     engine_common
     engine_inference
     GTest::gtest_main
@@ -179,16 +179,16 @@ target_link_libraries(model_test PRIVATE
 )
 
 # Test Control Block operations
-add_executable(ctrl_test tests/ctrl_test.cc)
-target_link_libraries(ctrl_test PRIVATE
+add_executable(control_block_test src/memory/tests/control_block_test.cc)
+target_link_libraries(control_block_test PRIVATE
     engine_memory
     GTest::gtest_main
     GTest::gtest
 )
 
 # Test Payload Read/Write of Memory Arena
-add_executable(arena_test tests/arena_test.cc)
-target_link_libraries(arena_test PRIVATE
+add_executable(memory_arena_test src/memory/tests/memory_arena_test.cc)
+target_link_libraries(memory_arena_test PRIVATE
     engine_common
     engine_memory
     GTest::gtest_main
@@ -215,9 +215,9 @@ target_link_libraries(level0_ring_test PRIVATE
 
 include(GoogleTest)
 gtest_discover_tests(avx2_kernel_test)
-gtest_discover_tests(model_test)
-gtest_discover_tests(ctrl_test)
-gtest_discover_tests(arena_test)
+gtest_discover_tests(inference_test)
+gtest_discover_tests(control_block_test)
+gtest_discover_tests(memory_arena_test)
 gtest_discover_tests(free_list_test)
 gtest_discover_tests(level0_ring_test)
 
@@ -239,8 +239,8 @@ if (UPPER_BUILD_TYPE STREQUAL "RELEASE")
     )
 
     # Benchmark Inference model (Zero-shot)
-    add_executable(model_bench bench/model_bench.cc)
-    target_link_libraries(model_bench PRIVATE
+    add_executable(inference_bench src/inference/bench/inference_bench.cc)
+    target_link_libraries(inference_bench PRIVATE
         engine_options
         engine_common
         engine_inference
@@ -248,8 +248,8 @@ if (UPPER_BUILD_TYPE STREQUAL "RELEASE")
     )
 
     # Benchmark Inference model (Custom Ops)
-    add_executable(customops_bench bench/customops_bench.cc)
-    target_link_libraries(customops_bench PRIVATE
+    add_executable(custom_ops_bench src/inference/bench/custom_ops_bench.cc)
+    target_link_libraries(custom_ops_bench PRIVATE
         engine_options
         engine_common
         engine_inference
@@ -257,8 +257,8 @@ if (UPPER_BUILD_TYPE STREQUAL "RELEASE")
     )
 
     # Benchmark Payload Read/Write of Memory Arena
-    add_executable(arena_bench bench/arena_bench.cc)
-    target_link_libraries(arena_bench PRIVATE
+    add_executable(memory_arena_bench src/memory/bench/memory_arena_bench.cc)
+    target_link_libraries(memory_arena_bench PRIVATE
         engine_options
         engine_common
         engine_memory
