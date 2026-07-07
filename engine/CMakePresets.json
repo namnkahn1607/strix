@@ -17,7 +17,10 @@
                 "CMAKE_C_COMPILER": "/usr/bin/clang-17",
                 "CMAKE_CXX_COMPILER": "/usr/bin/clang++-17",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-                "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+                "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+                "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=lld-17",
+                "CMAKE_SHARED_LINKER_FLAGS": "-fuse-ld=lld-17",
+                "CMAKE_MODULE_LINKER_FLAGS": "-fuse-ld=lld-17"
             }
         },
         {
@@ -37,6 +40,28 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release"
             }
+        },
+        {
+            "name": "asan",
+            "inherits": "base-wsl",
+            "displayName": "Address Sanitizer (Clang-17)",
+            "binaryDir": "${sourceDir}/out/asan",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -g -gsplit-dwarf -O1 -fno-omit-frame-pointer",
+                "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined"
+            }
+        },
+        {
+            "name": "tsan",
+            "inherits": "base-wsl",
+            "displayName": "Thread Sanitizer (Clang-17)",
+            "binaryDir": "${sourceDir}/out/tsan",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_CXX_FLAGS": "-fsanitize=thread -g -gsplit-dwarf -O1",
+                "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=thread"
+            }
         }
     ],
     "buildPresets": [
@@ -49,6 +74,38 @@
             "name": "release",
             "configurePreset": "release",
             "jobs": 4
+        },
+        {
+            "name": "asan",
+            "configurePreset": "asan",
+            "jobs": 4
+        },
+        {
+            "name": "tsan",
+            "configurePreset": "tsan",
+            "jobs": 4
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "debug",
+            "configurePreset": "debug",
+            "output": { "outputOnFailure": true }
+        },
+        {
+            "name": "release",
+            "configurePreset": "release",
+            "output": { "outputOnFailure": true }
+        },
+        {
+            "name": "asan",
+            "configurePreset": "asan",
+            "output": { "outputOnFailure": true }
+        },
+        {
+            "name": "tsan",
+            "configurePreset": "tsan",
+            "output": { "outputOnFailure": true }
         }
     ]
 }

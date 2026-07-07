@@ -4,7 +4,7 @@ import (
 	"gateway/internal/concurrent"
 	"gateway/internal/limit"
 	"gateway/internal/llm"
-	pb "gateway/pb/proto"
+	"gateway/internal/pb"
 	"net/http"
 	"time"
 

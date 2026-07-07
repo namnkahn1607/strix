@@ -7,31 +7,33 @@
 
 #include <sys/mman.h>
 
+#include <atomic>
 #include <cassert>
 #include <chrono>
 #include <cstring>
-#include <exception>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <thread>
 
 #include "constants.h"
+#include "global_utils.h"
 #include "meta_node.h"
 
 namespace {
 
 // Magic number written into every PayloadHeader to distinguish valid headers
-// from stale or uninitialised bytes during GC snowplow traversal.
+// from stale or uninitialized bytes during GC snowplow traversal.
 inline constexpr uint32_t kValidIdentifier = 0xDEADBEEF;
 
 // Default ring buffer capacity for Production() config.
-inline constexpr uint64_t kPayloadBufferSize = 0x100000000ULL;  // 4GB
+inline constexpr uint64_t kPayloadBufferSize = 0x100000000ULL;  // 4 GB
 
 // Ring buffer occupancy thresholds that govern GC sleep intervals.
 // Below kLowWatermark  : buffer pressure is low; GC sleeps longer.
 // Above kHighWatermark : buffer pressure is high; GC runs near-continuously.
-inline constexpr uint64_t kLowWatermark  = 0x80000000ULL;  // 2GB
-inline constexpr uint64_t kHighWatermark = 0xE0000000;     // 3.5GB
+inline constexpr uint64_t kLowWatermark  = 0x80000000ULL;  // 2 GB
+inline constexpr uint64_t kHighWatermark = 0xE0000000ULL;  // 3.5 GB
 
 // GC polling intervals in milliseconds, selected by watermark level.
 inline constexpr uint32_t kLowGCSleep  = 10;
@@ -40,35 +42,18 @@ inline constexpr uint32_t kHighGCSleep = 1;
 // How often SweepStalePending() is invoked by the GC loop (milliseconds).
 inline constexpr uint32_t kSweepInterval = 5'000;
 
-// MmapRegion()
-//
-// Allocates a private anonymous mapping of `size` bytes with read/write
-// permissions. When `lazy` is false, `MAP_POPULATE` is added to instruct
-// the kernel to pre-fault all pages during the mmap syscall, eliminating
-// first-touch latency at the cost of longer construction time.
-void* MmapRegion(const size_t size, const bool lazy) {
-    const int flags = MAP_ANONYMOUS | MAP_PRIVATE | (lazy ? 0 : MAP_POPULATE);
-
-    void* ptr = mmap(nullptr, size, PROT_READ | PROT_WRITE, flags, -1, 0);
-    if (ptr == MAP_FAILED) {
-        throw std::runtime_error("mmap failed for MemoryArena");
-    }
-
-    return ptr;
-}
-
 }  // namespace
 
 ArenaConfig ArenaConfig::Production() {
-    return {kTotalMaxSlots, kPayloadBufferSize, false};
+    return {kTotalSlots, kPayloadBufferSize, false};
 }
 
-ArenaConfig ArenaConfig::BenchSearchL0() {
-    return {1'024, 0, false};
+ArenaConfig ArenaConfig::Compact(const size_t slots) {
+    return {slots, 0, false};
 }
 
-ArenaConfig ArenaConfig::TestSearchL0() {
-    return {1'024, 0, true};
+ArenaConfig ArenaConfig::CompactLazy(const size_t slots) {
+    return {slots, 0, true};
 }
 
 MemoryArena::MemoryArena(const ArenaConfig& config)
@@ -98,13 +83,13 @@ MemoryArena::MemoryArena(const ArenaConfig& config)
     }
 
     metadata_ = static_cast<MetaNode*>(
-        MmapRegion(max_slots_ * sizeof(MetaNode), config.lazy_mapping));
-    vectors_ = static_cast<float*>(MmapRegion(
-        max_slots_ * kVectorDim * sizeof(float), config.lazy_mapping));
+        Alloc32(max_slots_ * sizeof(MetaNode), config.lazy_mapping));
+    vectors_ = static_cast<float*>(
+        Alloc32(max_slots_ * kVectorDim * sizeof(float), config.lazy_mapping));
 
     if (payload_buf_size_ > 0) {
         payload_buf_ = static_cast<uint8_t*>(
-            MmapRegion(payload_buf_size_, config.lazy_mapping));
+            Alloc32(payload_buf_size_, config.lazy_mapping));
     } else {
         payload_buf_ = nullptr;
     }
@@ -122,6 +107,9 @@ MemoryArena::~MemoryArena() {
 void MemoryArena::RunGarbageCollector(const std::atomic<bool>& g_shutdown_req) {
     assert(payload_buf_ != nullptr &&
            "Memory Arena is missing payload buffer for related operations");
+
+    assert(on_node_freed_ != nullptr &&
+           "Callback for free node releasing has not been wired");
 
     auto last_sweep = std::chrono::steady_clock::now();
 
@@ -186,8 +174,9 @@ void MemoryArena::RunGarbageCollector(const std::atomic<bool>& g_shutdown_req) {
             const uint32_t text_len   = header->length;
             const uint32_t total_size = sizeof(PayloadHeader) + text_len;
 
-            MetaNode& node                                = metadata_[node_id];
-            const auto [state, ref_bit, length, v_offset] = node.LoadControl();
+            MetaNode& node = metadata_[node_id];
+            const auto [state, ref_bit, version, length, v_offset] =
+                node.LoadControl();
 
             // Stale entry: node was already evicted or its virtual offset no
             // longer matches this ring buffer position.
@@ -197,25 +186,29 @@ void MemoryArena::RunGarbageCollector(const std::atomic<bool>& g_shutdown_req) {
                 continue;
             }
 
-            // Never evict a node that is mid-write (kClaimed) or mid-migration
-            // (kMigrating). Advance past the entry and leave the node intact.
-            if (state == NodeState::kClaimed ||
-                state == NodeState::kMigrating) {
+            // Payload bytes are already committed at this ring position
+            // (v_offset matches), but the PENDING -> READY publish hasn't
+            // landed yet. Leave it alone; evicting here would destroy an
+            // in-flight commit.
+            if (state == NodeState::kPending) {
                 read_tail_.fetch_add(total_size, std::memory_order_relaxed);
                 continue;
             }
 
             if (ref_bit == EvictState::kCold) {
                 // Cold node: evict immediately by transitioning to kDead.
+                // Eviction is a Release operation on this slot's identity:
+                // version is carried through unchanged, never incremented.
                 uint64_t expected =
-                    PackControl(state, ref_bit, length, v_offset);
-                const uint64_t desired =
-                    PackControl(NodeState::kDead, ref_bit, length, v_offset);
+                    PackControl(state, ref_bit, version, length, v_offset);
+                const uint64_t desired = PackControl(NodeState::kDead, ref_bit,
+                                                     version, length, v_offset);
 
-                node.control_block.compare_exchange_strong(
-                    expected, desired, std::memory_order_release,
-                    std::memory_order_relaxed);
-                node.created_at.store(0, std::memory_order_relaxed);
+                if (node.control_block.compare_exchange_strong(
+                        expected, desired, std::memory_order_release,
+                        std::memory_order_relaxed)) {
+                    on_node_freed_(node_id);
+                }
 
             } else {
                 // Hot node: Second Chance - copy payload to a new ring buffer
@@ -223,15 +216,34 @@ void MemoryArena::RunGarbageCollector(const std::atomic<bool>& g_shutdown_req) {
                 //
                 // If the CAS below fails (a concurrent writer already changed
                 // the node's state), the rescued copy becomes an orphan. It
-                // will be treated as 'staled' when the snowplow reaches
-                // its new position and will be silently skipped.
-                // This is an intentional lazy leak: under high CAS contention,
-                // orphaned payloads accumulate between read_tail_ and
-                // write_head_, reducing effective buffer capacity without
-                // corrupting data.
-                // Monitor contention rate if "Resource Exhausted" errors appear
-                // earlier than the nominal 4GB fill level.
-                const uint64_t rescued_offset = AllocatePayload(text_len);
+                // will be treated as 'staled' when the snowplow reaches its
+                // new position and will be silently skipped. This is an
+                // intentional lazy leak: under high CAS contention, orphaned
+                // payloads accumulate between read_tail_ and write_head_,
+                // reducing effective buffer capacity without corrupting data.
+                const std::optional<uint64_t> opt_offset =
+                    AllocatePayload(text_len);
+                if (!opt_offset.has_value()) {
+                    // No room to rescue. Retrying forever would livelock GC
+                    // against itself: rescue needs free ring space, and free
+                    // space only comes from GC advancing past this exact entry.
+                    // Force-evict instead.
+                    uint64_t expected =
+                        PackControl(state, ref_bit, version, length, v_offset);
+                    const uint64_t desired = PackControl(
+                        NodeState::kDead, ref_bit, version, length, v_offset);
+
+                    if (node.control_block.compare_exchange_strong(
+                            expected, desired, std::memory_order_release,
+                            std::memory_order_relaxed)) {
+                        on_node_freed_(node_id);
+                    }
+
+                    read_tail_.fetch_add(total_size, std::memory_order_relaxed);
+                    continue;
+                }
+
+                const uint64_t rescued_offset = *opt_offset;
                 const uint64_t rescued_index  = ActualIndex(rescued_offset);
 
                 const PayloadHeader new_header{kValidIdentifier, node_id,
@@ -239,8 +251,8 @@ void MemoryArena::RunGarbageCollector(const std::atomic<bool>& g_shutdown_req) {
                 std::memcpy(payload_buf_ + rescued_index, &new_header,
                             sizeof(PayloadHeader));
 
-                uint64_t src_idx = ActualIndex(tail + sizeof(PayloadHeader));
-                uint64_t dst_idx =
+                auto src_idx = ActualIndex(tail + sizeof(PayloadHeader));
+                auto dst_idx =
                     ActualIndex(rescued_offset + sizeof(PayloadHeader));
 
                 uint64_t bytes_left = text_len;
@@ -258,10 +270,12 @@ void MemoryArena::RunGarbageCollector(const std::atomic<bool>& g_shutdown_req) {
                     dst_idx = ActualIndex(dst_idx + chunk);
                 }
 
-                uint64_t expected =
-                    PackControl(state, EvictState::kHot, length, v_offset);
-                const uint64_t desired = PackControl(state, EvictState::kCold,
-                                                     length, rescued_offset);
+                // Rescue relocates a payload; it does not change node
+                // identity, so version is carried through unchanged here too.
+                uint64_t expected      = PackControl(state, EvictState::kHot,
+                                                     version, length, v_offset);
+                const uint64_t desired = PackControl(
+                    state, EvictState::kCold, version, length, rescued_offset);
 
                 node.control_block.compare_exchange_strong(
                     expected, desired, std::memory_order_release,
@@ -271,31 +285,25 @@ void MemoryArena::RunGarbageCollector(const std::atomic<bool>& g_shutdown_req) {
             read_tail_.fetch_add(total_size, std::memory_order_relaxed);
 
         } catch (const std::exception& e) {
-            std::cerr << "[Engine] GC WARNING: " << e.what() << "\n";
+            std::cerr << "[Vector Engine] GC WARNING: " << e.what() << "\n";
         }
     }
 }
 
 void MemoryArena::SweepStalePending(const uint64_t curr_time) noexcept {
-    for (size_t i = 0; i < kL0MaxSlots; ++i) {
+    for (size_t i = 0; i < max_slots_; ++i) {
         MetaNode&      node = metadata_[i];
         const uint64_t ctrl =
             node.control_block.load(std::memory_order_acquire);
-        const auto [state, ref_bit, length, offset] = UnpackControl(ctrl);
+        const auto [state, ref_bit, version, length, offset] =
+            UnpackControl(ctrl);
 
         if (state != NodeState::kPending) {
             continue;
         }
 
         const uint64_t ts = node.created_at.load(std::memory_order_acquire);
-
-        // created_at == 0: writer has not yet committed the timestamp
-        // (CLAIMED -> PENDING transition is not atomic). Skip.
-        if (ts == 0) {
-            continue;
-        }
-
-        if (curr_time - ts <= PENDING_LIFESPAN) {
+        if (curr_time - ts <= kPendingLifespan) {
             continue;
         }
 
@@ -303,25 +311,27 @@ void MemoryArena::SweepStalePending(const uint64_t curr_time) noexcept {
         // with a concurrent writer that may have already advanced the state.
         uint64_t       expected = ctrl;
         const uint64_t desired =
-            PackControl(NodeState::kDead, ref_bit, length, offset);
+            PackControl(NodeState::kDead, ref_bit, version, length, offset);
+
         if (node.control_block.compare_exchange_strong(
                 expected, desired, std::memory_order_release,
                 std::memory_order_relaxed)) {
-            node.created_at.store(0, std::memory_order_relaxed);
+            on_node_freed_(static_cast<uint32_t>(i));
         }
     }
 }
 
 void MemoryArena::ReadPayload(const uint64_t v_offset, const uint32_t length,
-                              std::string* out_payload) const {
+                              std::string* out_payload) const noexcept {
     assert(payload_buf_ != nullptr && "ReadPayload requires a payload buffer");
+    assert(out_payload->size() == length &&
+           "out_payload must be pre-sized to length by the caller");
 
     if (length == 0) {
         out_payload->clear();
         return;
     }
 
-    out_payload->resize(length);
     const uint64_t text_index = ActualIndex(v_offset + sizeof(PayloadHeader));
     char*          dst        = out_payload->data();
 
@@ -335,12 +345,17 @@ void MemoryArena::ReadPayload(const uint64_t v_offset, const uint32_t length,
     }
 }
 
-uint64_t MemoryArena::WritePayload(const uint32_t node_id,
-                                   const uint8_t* in_payload,
-                                   const uint32_t length) {
+std::optional<uint64_t> MemoryArena::WritePayload(
+    const uint32_t node_id, const uint8_t* in_payload,
+    const uint32_t length) noexcept {
     assert(payload_buf_ != nullptr && "WritePayload requires a payload buffer");
 
-    const uint64_t header_offset = AllocatePayload(length);
+    const std::optional<uint64_t> opt_offset = AllocatePayload(length);
+    if (!opt_offset.has_value()) {
+        return std::nullopt;
+    }
+
+    const uint64_t header_offset = *opt_offset;
     const uint64_t header_index  = ActualIndex(header_offset);
 
     const PayloadHeader header{kValidIdentifier, node_id, length};
@@ -363,7 +378,8 @@ uint64_t MemoryArena::WritePayload(const uint32_t node_id,
     return header_offset;
 }
 
-uint64_t MemoryArena::AllocatePayload(const uint32_t length) {
+std::optional<uint64_t> MemoryArena::AllocatePayload(
+    const uint32_t length) noexcept {
     assert(payload_buf_ != nullptr &&
            "AllocatePayload requires a payload buffer");
 
@@ -374,7 +390,8 @@ uint64_t MemoryArena::AllocatePayload(const uint32_t length) {
         if (curr_write + total_size -
                 read_tail_.load(std::memory_order_relaxed) >=
             payload_buf_size_) {
-            throw std::runtime_error("Resource Exhausted");
+            // Expected under high load; not a programming error.
+            return std::nullopt;
         }
 
         const uint64_t actual_index = ActualIndex(curr_write);

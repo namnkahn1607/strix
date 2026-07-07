@@ -64,18 +64,18 @@ std::string GenPayload(const size_t len) {
 // BUF - text_index = 244 >= 100 -> NON-WRAP.
 // -----------------------------------------------------------------------------
 
-TEST(PayloadRWTest, SequentialWriteRead) {
+TEST(MemoryArenaTest, SequentialWriteRead) {
     MemoryArena arena{PayloadTestConfig(0)};
 
-    const std::string in     = GenPayload(100);
-    const uint32_t    length = static_cast<uint32_t>(in.size());
-    const uint64_t    offset = arena.WritePayload(
+    const std::string in         = GenPayload(100);
+    const uint32_t    length     = static_cast<uint32_t>(in.size());
+    const auto        offset_opt = arena.WritePayload(
         kNode, reinterpret_cast<const uint8_t*>(in.data()), length);
 
     EXPECT_EQ(arena.GetWriteHead(), kHeaderSize + 100);
 
     std::string out;
-    arena.ReadPayload(offset, length, &out);
+    arena.ReadPayload(*offset_opt, length, &out);
 
     EXPECT_EQ(out, in);
 }
@@ -100,17 +100,17 @@ TEST(PayloadRWTest, SequentialWriteRead) {
 //     chunk2 = 62 bytes from [0..61]
 // -----------------------------------------------------------------------------
 
-TEST(PayloadRWTest, DataWrapAround) {
+TEST(MemoryArenaTest, DataWrapAround) {
     constexpr uint64_t START = kBuf - 50;
     MemoryArena        arena{PayloadTestConfig(START)};
 
-    const std::string in     = GenPayload(100);
-    const uint32_t    length = static_cast<uint32_t>(in.size());
-    const uint64_t    offset = arena.WritePayload(
+    const std::string in         = GenPayload(100);
+    const uint32_t    length     = static_cast<uint32_t>(in.size());
+    const auto        offset_opt = arena.WritePayload(
         kNode, reinterpret_cast<const uint8_t*>(in.data()), length);
 
     std::string out;
-    arena.ReadPayload(offset, length, &out);
+    arena.ReadPayload(*offset_opt, length, &out);
 
     EXPECT_EQ(out, in)
         << "data split across ring buffer boundary must reassemble correctly";
@@ -134,20 +134,20 @@ TEST(PayloadRWTest, DataWrapAround) {
 //   BUF - 12 = 244 >= 100 -> NON-WRAP.
 // -----------------------------------------------------------------------------
 
-TEST(PayloadRWTest, HeaderWrapPaddingInserted) {
+TEST(MemoryArenaTest, HeaderWrapPaddingInserted) {
     constexpr uint64_t START = kBuf - 8;
     MemoryArena        arena{PayloadTestConfig(START)};
 
-    const std::string in     = GenPayload(100);
-    const uint32_t    length = static_cast<uint32_t>(in.size());
-    const uint64_t    offset = arena.WritePayload(
+    const std::string in         = GenPayload(100);
+    const uint32_t    length     = static_cast<uint32_t>(in.size());
+    const auto        offset_opt = arena.WritePayload(
         kNode, reinterpret_cast<const uint8_t*>(in.data()), length);
 
-    EXPECT_EQ(offset & (kBuf - 1), 0ULL)
+    EXPECT_EQ(*offset_opt & (kBuf - 1), 0ULL)
         << "header must start at physical index 0 after padding";
 
     std::string out;
-    arena.ReadPayload(offset, length, &out);
+    arena.ReadPayload(*offset_opt, length, &out);
 
     EXPECT_EQ(out, in) << "header-wrapped payload must read back correctly";
 }
@@ -162,7 +162,7 @@ TEST(PayloadRWTest, HeaderWrapPaddingInserted) {
 // 5th write would need 62 more bytes: 248 + 62 = 310 > 256 -> THROW.
 // -----------------------------------------------------------------------------
 
-TEST(PayloadRWTest, ExhaustionThrows) {
+TEST(MemoryArenaTest, ExhaustionThrows) {
     constexpr uint32_t LEN = 50;
     MemoryArena        arena{PayloadTestConfig(0)};
 
@@ -184,28 +184,28 @@ TEST(PayloadRWTest, ExhaustionThrows) {
 // Verifies write_head accounting across consecutive calls.
 // -----------------------------------------------------------------------------
 
-TEST(PayloadRWTest, MultipleSequentialWrites) {
+TEST(MemoryArenaTest, MultipleSequentialWrites) {
     MemoryArena arena{PayloadTestConfig(0)};
 
     const std::string in1 = GenPayload(20);
     const std::string in2 = GenPayload(30);
     const std::string in3 = GenPayload(10);
 
-    const uint64_t offset1 =
+    const auto offset_opt1 =
         arena.WritePayload(0, reinterpret_cast<const uint8_t*>(in1.data()), 20);
-    const uint64_t offset2 =
+    const auto offset_opt2 =
         arena.WritePayload(1, reinterpret_cast<const uint8_t*>(in2.data()), 30);
-    const uint64_t offset3 =
+    const auto offset_opt3 =
         arena.WritePayload(2, reinterpret_cast<const uint8_t*>(in3.data()), 10);
 
     std::string out;
 
-    arena.ReadPayload(offset1, 20, &out);
+    arena.ReadPayload(*offset_opt1, 20, &out);
     EXPECT_EQ(out, in1);
 
-    arena.ReadPayload(offset2, 30, &out);
+    arena.ReadPayload(*offset_opt2, 30, &out);
     EXPECT_EQ(out, in2);
 
-    arena.ReadPayload(offset3, 10, &out);
+    arena.ReadPayload(*offset_opt3, 10, &out);
     EXPECT_EQ(out, in3);
 }

@@ -2,7 +2,7 @@ package concurrent
 
 import (
 	"context"
-	pb "gateway/pb/proto"
+	"gateway/internal/pb"
 	"log/slog"
 	"sync"
 	"time"

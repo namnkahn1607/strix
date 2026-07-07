@@ -84,8 +84,9 @@ public:
     Embedder(Embedder&&)                 = delete;
     Embedder& operator=(Embedder&&)      = delete;
 
-    // Tokenises `prompt` and runs inference, returning an `AlignedVec` on
-    // success. Returns `EncodeError` on predictable failures.
+    // Encode(): tokenises `prompt` and runs inference. An `AlignedVec` is
+    // returned on success, otherwise an `EncodeError` is returned on
+    // predictable failures.
     // Throws `std::runtime_error` on session-level failures.
     Result<AlignedVec, EncodeError> Encode(const std::string& prompt) const;
 

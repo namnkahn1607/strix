@@ -3,7 +3,7 @@ package gateway
 import (
 	"context"
 	"crypto/sha256"
-	pb "gateway/pb/proto"
+	"gateway/internal/pb"
 	"io"
 	"log/slog"
 	"net/http"

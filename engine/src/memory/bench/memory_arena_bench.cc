@@ -71,11 +71,12 @@ static void BenchSequential_8MB(benchmark::State& state) {
 
             state.ResumeTiming();
 
-            uint64_t offset = arena.WritePayload(kNode, g_payload, kPayloadLen);
-            benchmark::DoNotOptimize(offset);
+            std::optional<uint64_t> offset_opt =
+                arena.WritePayload(kNode, g_payload, kPayloadLen);
+            benchmark::DoNotOptimize(offset_opt);
             benchmark::ClobberMemory();
 
-            arena.ReadPayload(offset, kPayloadLen, &out);
+            arena.ReadPayload(*offset_opt, kPayloadLen, &out);
             benchmark::DoNotOptimize(out);
 
             state.PauseTiming();
@@ -113,11 +114,11 @@ static void BenchSequential_128MB(benchmark::State& state) {
 
             state.ResumeTiming();
 
-            uint64_t offset = arena.WritePayload(kNode, g_payload, kPayloadLen);
-            benchmark::DoNotOptimize(offset);
+            auto offset_opt = arena.WritePayload(kNode, g_payload, kPayloadLen);
+            benchmark::DoNotOptimize(offset_opt);
             benchmark::ClobberMemory();
 
-            arena.ReadPayload(offset, kPayloadLen, &out);
+            arena.ReadPayload(*offset_opt, kPayloadLen, &out);
             benchmark::DoNotOptimize(out);
 
             state.PauseTiming();
@@ -157,11 +158,11 @@ static void BenchWrap_8MB(benchmark::State& state) {
 
             state.ResumeTiming();
 
-            uint64_t offset = arena.WritePayload(kNode, g_payload, kPayloadLen);
-            benchmark::DoNotOptimize(offset);
+            auto offset_opt = arena.WritePayload(kNode, g_payload, kPayloadLen);
+            benchmark::DoNotOptimize(offset_opt);
             benchmark::ClobberMemory();
 
-            arena.ReadPayload(offset, kPayloadLen, &out);
+            arena.ReadPayload(*offset_opt, kPayloadLen, &out);
             benchmark::DoNotOptimize(out);
 
             state.PauseTiming();
@@ -201,11 +202,11 @@ static void BenchWrap_128MB(benchmark::State& state) {
 
             state.ResumeTiming();
 
-            uint64_t offset = arena.WritePayload(kNode, g_payload, kPayloadLen);
-            benchmark::DoNotOptimize(offset);
+            auto offset_opt = arena.WritePayload(kNode, g_payload, kPayloadLen);
+            benchmark::DoNotOptimize(offset_opt);
             benchmark::ClobberMemory();
 
-            arena.ReadPayload(offset, kPayloadLen, &out);
+            arena.ReadPayload(*offset_opt, kPayloadLen, &out);
             benchmark::DoNotOptimize(out);
 
             state.PauseTiming();

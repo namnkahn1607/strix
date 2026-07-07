@@ -19,3 +19,5 @@ AllowShortFunctionsOnASingleLine: None
 BreakConstructorInitializers: BeforeComma
 
 SortIncludes:    true
+
+InsertNewlineAtEOF: true
