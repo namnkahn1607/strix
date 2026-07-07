@@ -4,6 +4,8 @@
 // entry point for vector search, node acquisition, and payload commit/fetch.
 // Owns FreeList and L0Indices; indexes and holds a reference to MemoryArena.
 
+#include <atomic>
+#include <memory>
 #include <optional>
 
 #include "arena.h"
@@ -23,12 +25,15 @@ struct SearchOutcome {
     uint8_t  version;
 };
 
-// `SearchResult` tracking not just the champion but also the runner-up.
+// `SearchResult` tracks not just the champion but also the runner-up.
+// The runner-up entry is optional.
 struct SearchResult {
     SearchOutcome                primary;
     std::optional<SearchOutcome> secondary;
 };
 
+// `VectorIndexBenchAccess` grants benchmark code direct access to the private
+// member `L0Indices` field of `VectorIndex`.
 class VectorIndexBenchAccess;
 
 // `VectorIndex` indexes vectors and payloads in a single `MemoryArena`, while
@@ -39,6 +44,10 @@ class VectorIndexBenchAccess;
 // Not copyable, not movable.
 class VectorIndex {
 public:
+    // `kUnclustered` is a `node_owner_` state which stands for "not yet
+    // assigned to any cluster". Hence, every L0 node is unclustered.
+    static constexpr uint16_t kUnclustered = 0xFFFF;
+
     // `VectorIndex` holds a reference to `MemoryArena`, and each instance of
     // type `FreeList` and `L0Indices`.
     explicit VectorIndex(MemoryArena& arena, const size_t l0_cap);
@@ -93,9 +102,13 @@ private:
     MemoryArena& arena_;
     FreeList     free_list_;
     L0Indices    l0_indices_;
+
+    // `node_owner_`, a single-source-of-truth cluster ID tracker for every
+    // clustered node. Unclustered nodes are considered `kUnclustered`.
+    std::unique_ptr<std::atomic<uint16_t>[]> node_owner_;
 };
 
-// `VectorIndexBenchAccess` defines out-of-line so ordinary callers never see
+// `VectorIndexBenchAccess` defined out-of-line so ordinary callers never see
 // l0_indices_'s type requirements pulled into their translation unit through
 // this accessor; only benchmark code that explicitly includes this and
 // instantiates it pays for it.
