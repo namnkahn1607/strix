@@ -3,6 +3,8 @@
 // Global cross-module utility subroutines.
 // Module-private ones belong in their own translation units.
 
+#pragma once
+
 #include <cstdlib>
 
 // `Alloc32` utilizes `mmap` underneath, allocates a private anonymous mapping

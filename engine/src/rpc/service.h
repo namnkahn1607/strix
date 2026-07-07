@@ -7,7 +7,7 @@
 
 #include <grpcpp/grpcpp.h>
 
-#include "index.h"
+#include "vector_index.h"
 #include "inference.h"
 #include "strix.grpc.pb.h"
 #include "strix.pb.h"

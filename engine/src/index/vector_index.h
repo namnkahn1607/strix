@@ -4,6 +4,8 @@
 // entry point for vector search, node acquisition, and payload commit/fetch.
 // Owns FreeList and L0Indices; indexes and holds a reference to MemoryArena.
 
+#pragma once
+
 #include <atomic>
 #include <memory>
 #include <optional>
