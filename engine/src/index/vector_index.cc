@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cstring>
 #include <exception>
+#include <memory>
 #include <optional>
 
 #include "avx2_kernel.h"
@@ -15,11 +16,19 @@
 #include "free_list.h"
 #include "meta_node.h"
 
-// `l0_cap` sizes the `L0Indices` ring; the capacity of `FreeList` is
-// derived directly from `arena.MaxSlots()` so it can never drift out of
-// sync with the arena it allocates `node_id` values into.
+// All nodes are intialized to `kUnclustered` (being a L0 node) at the start.
+// `l0_cap` sizes the `L0Indices` ring; the capacity of `FreeList` is derived
+// directly from `arena.MaxSlots()` so it can never drift out of sync with the
+// arena it allocates `node_id` values into.
 VectorIndex::VectorIndex(MemoryArena& arena, const size_t l0_cap)
-    : arena_(arena), free_list_(arena.MaxSlots()), l0_indices_(l0_cap) {
+    : arena_(arena)
+    , free_list_(arena.MaxSlots())
+    , l0_indices_(l0_cap)
+    , node_owner_(std::make_unique_for_overwrite<std::atomic<uint16_t>[]>(
+          arena.MaxSlots())) {
+    for (size_t i = 0; i < arena.MaxSlots(); ++i) {
+        node_owner_[i].store(kUnclustered, std::memory_order_relaxed);
+    }
 }
 
 std::optional<uint32_t> VectorIndex::AcquireNode(const float*   query,
@@ -28,6 +37,13 @@ std::optional<uint32_t> VectorIndex::AcquireNode(const float*   query,
     if (node_id == FreeList::kEmpty) {
         return std::nullopt;
     }
+
+    // Establish an anchor before anything else. The node ID might still may
+    // still reside in its old cluster from previous life, even though GC
+    // evicted it. Pinning a lock here signals Reassignment that "a node is
+    // no longer belongs to this cluster, please purge it rightaway if you
+    // encounter any".
+    node_owner_[node_id].store(kUnclustered, std::memory_order_relaxed);
 
     std::memcpy(arena_.GetVector(node_id), query, kVectorMemsize);
 
@@ -42,6 +58,8 @@ std::optional<uint32_t> VectorIndex::AcquireNode(const float*   query,
     node.control_block.store(published, std::memory_order_release);
 
     if (!l0_indices_.TryPush(node_id)) {
+        // Failed to register node to L0 buffer: the system is under high load.
+        // Rollback to `kDead` and return to `FreeList`.
         const uint64_t rollback =
             PackControl(NodeState::kDead, EvictState::kCold, new_version, 0, 0);
         node.control_block.store(rollback, std::memory_order_release);
