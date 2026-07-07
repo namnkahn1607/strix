@@ -4,6 +4,8 @@
 // the L0 cache tier. Cache-miss search paths are producers; the
 // background Compaction worker is the sole consumer.
 
+#pragma once
+
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
