@@ -1,0 +1,25 @@
+version: 2
+updates:
+  - package-ecosystem: "gomod"
+    directory: "/gateway"
+    schedule:
+      interval: "weekly"
+    groups:
+      go-deps:
+        patterns: ["*"]
+
+  - package-ecosystem: "vcpkg"
+    directory: "/engine"
+    schedule:
+      interval: "weekly"
+    groups:
+      cpp-deps:
+        patterns: ["*"]
+
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      python-deps:
+        patterns: ["*"]
