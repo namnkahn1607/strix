@@ -17,8 +17,8 @@
 #include <thread>
 
 #include "constants.h"
+#include "global_utils.h"
 #include "meta_node.h"
-#include "utils.h"
 
 namespace {
 

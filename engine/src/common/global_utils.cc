@@ -1,7 +1,7 @@
 // Author: namnkahn1607
 //
 // Concrete implementation of global utility functions.
-// See utils.h for an API view.
+// See its header for an API view.
 
 #include "global_utils.h"
 
@@ -9,7 +9,7 @@
 
 #include <stdexcept>
 
-void* Alloc32(const size_t size, const bool lazy) {
+inline void* Alloc32(const size_t size, const bool lazy) {
     const int flags = MAP_ANONYMOUS | MAP_PRIVATE | (lazy ? 0 : MAP_POPULATE);
 
     void* ptr = mmap(nullptr, size, PROT_READ | PROT_WRITE, flags, -1, 0);

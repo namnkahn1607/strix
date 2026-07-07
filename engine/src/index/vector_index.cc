@@ -1,6 +1,6 @@
 // Author: namnkahn1607
 //
-// VectorIndex implementation. See index.h for the seqlock and Write-Ahead
+// VectorIndex implementation. See its header for the seqlock and Write-Ahead
 // protocol invariants this relies on.
 
 #include "vector_index.h"
