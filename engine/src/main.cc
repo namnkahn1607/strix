@@ -11,7 +11,7 @@
 
 #include "aligned_vec.h"
 #include "arena.h"
-#include "avx2_math.h"
+#include "avx2_kernel.h"
 #include "constants.h"
 #include "inference.h"
 #include "service.h"
