@@ -31,7 +31,7 @@ contract: (tool-build)
         --plugin=protoc-gen-go-grpc=bin/protoc-gen-go-grpc \
         --go_out=internal/pb --go_opt=paths=source_relative \
         --go-grpc_out=internal/pb --go-grpc_opt=paths=source_relative \
-        -I ../api/proto ../api/proto/strix.proto
+        -I ../api/proto ../api/proto/v1/strix.proto
 
 # Build final Release artifact
 release: (contract)

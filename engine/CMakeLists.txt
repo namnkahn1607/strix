@@ -43,7 +43,7 @@ target_compile_options(engine_options INTERFACE
 # ===========================================================================
 # 3. AUTO-GENERATE CONTRACTS
 # ===========================================================================
-set(PROTO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../api/proto")
+set(PROTO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../api/proto/v1")
 set(PROTO_FILE "${PROTO_DIR}/strix.proto")
 set(PROTO_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
