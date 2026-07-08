@@ -11,17 +11,17 @@
 #include <cstdint>
 #include <memory>
 
-// `L0Indices`, Multi-producer & Single-consumer for tracking L0's `node_id`.
-class L0Indices {
+// `L0Buffer`, Multi-producer & Single-consumer for tracking L0's `node_id`.
+class L0Buffer {
 public:
     static constexpr uint32_t kEmpty = 0xFFFFFFFFU;
 
-    explicit L0Indices(size_t capacity);
+    explicit L0Buffer(size_t capacity);
 
-    L0Indices(const L0Indices&)            = delete;
-    L0Indices& operator=(const L0Indices&) = delete;
-    L0Indices(L0Indices&&)                 = delete;
-    L0Indices& operator=(L0Indices&&)      = delete;
+    L0Buffer(const L0Buffer&)            = delete;
+    L0Buffer& operator=(const L0Buffer&) = delete;
+    L0Buffer(L0Buffer&&)                 = delete;
+    L0Buffer& operator=(L0Buffer&&)      = delete;
 
     // `TryPush()` attempts to register a `node_id` onto L0 buffer.
     // MISS-ed search path get a `node_id` slot allocated from `FreeList`,

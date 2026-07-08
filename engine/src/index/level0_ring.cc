@@ -1,6 +1,6 @@
 // Author: namnkahn1607
 //
-// L0Indices implementation. See its header for the monotonic-counter
+// L0Buffer implementation. See its header for the monotonic-counter
 // invariant this relies on.
 
 #include "level0_ring.h"
@@ -9,7 +9,7 @@
 #include <memory>
 #include <stdexcept>
 
-L0Indices::L0Indices(const size_t capacity) : capacity_(capacity) {
+L0Buffer::L0Buffer(const size_t capacity) : capacity_(capacity) {
     if ((capacity & (capacity - 1)) != 0) {
         throw std::invalid_argument("L0 capacity must be a power of 2.");
     }
@@ -22,7 +22,7 @@ L0Indices::L0Indices(const size_t capacity) : capacity_(capacity) {
     }
 }
 
-bool L0Indices::TryPush(const uint32_t node_id) noexcept {
+bool L0Buffer::TryPush(const uint32_t node_id) noexcept {
     uint32_t curr_push = push_head_.load(std::memory_order_relaxed);
 
     while (true) {
@@ -50,7 +50,7 @@ bool L0Indices::TryPush(const uint32_t node_id) noexcept {
     return true;
 }
 
-uint32_t L0Indices::TryPop() noexcept {
+uint32_t L0Buffer::TryPop() noexcept {
     const uint32_t curr_pop = pop_tail_.load(std::memory_order_relaxed);
 
     if (curr_pop == push_head_.load(std::memory_order_relaxed)) {

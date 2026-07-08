@@ -17,13 +17,13 @@
 #include "meta_node.h"
 
 // All nodes are intialized to `kUnclustered` (being a L0 node) at the start.
-// `l0_cap` sizes the `L0Indices` ring; the capacity of `FreeList` is derived
+// `l0_cap` sizes the `L0Buffer` ring; the capacity of `FreeList` is derived
 // directly from `arena.MaxSlots()` so it can never drift out of sync with the
 // arena it allocates `node_id` values into.
 VectorIndex::VectorIndex(MemoryArena& arena, const size_t l0_cap)
     : arena_(arena)
     , free_list_(arena.MaxSlots())
-    , l0_indices_(l0_cap)
+    , l0_buffer_(l0_cap)
     , node_owner_(std::make_unique_for_overwrite<std::atomic<uint16_t>[]>(
           arena.MaxSlots())) {
     for (size_t i = 0; i < arena.MaxSlots(); ++i) {
@@ -57,7 +57,7 @@ std::optional<uint32_t> VectorIndex::AcquireNode(const float*   query,
         PackControl(NodeState::kPending, EvictState::kHot, new_version, 0, 0);
     node.control_block.store(published, std::memory_order_release);
 
-    if (!l0_indices_.TryPush(node_id)) {
+    if (!l0_buffer_.TryPush(node_id)) {
         // Failed to register node to L0 buffer: the system is under high load.
         // Rollback to `kDead` and return to `FreeList`.
         const uint64_t rollback =
@@ -84,8 +84,8 @@ inline constexpr uint32_t kPrefetchDistance = 2 * kBatchSize;
 
 std::optional<SearchResult> VectorIndex::SearchL0(
     const float* query) const noexcept {
-    const uint32_t right = l0_indices_.SnapPushHead();
-    const uint32_t left  = l0_indices_.SnapPopTail();
+    const uint32_t right = l0_buffer_.SnapPushHead();
+    const uint32_t left  = l0_buffer_.SnapPopTail();
 
     uint8_t  batch_vers[kBatchSize];
     uint32_t batch_ids[kBatchSize];
@@ -142,16 +142,16 @@ std::optional<SearchResult> VectorIndex::SearchL0(
     };
 
     for (uint32_t i = left; i != right; ++i) {
-        const uint32_t pf_id = l0_indices_.LoadSlot(i + kPrefetchDistance);
-        if (pf_id != L0Indices::kEmpty) {
+        const uint32_t pf_id = l0_buffer_.LoadSlot(i + kPrefetchDistance);
+        if (pf_id != L0Buffer::kEmpty) {
             const float* pf_vec = arena_.GetVector(pf_id);
             __builtin_prefetch(pf_vec, /*rw=*/0, /*locality=*/3);
             __builtin_prefetch(reinterpret_cast<const char*>(pf_vec) + 256,
                                /*rw=*/0, /*locality=*/3);
         }
 
-        const uint32_t node_id = l0_indices_.LoadSlot(i);
-        if (node_id == L0Indices::kEmpty) {
+        const uint32_t node_id = l0_buffer_.LoadSlot(i);
+        if (node_id == L0Buffer::kEmpty) {
             continue;
         }
 

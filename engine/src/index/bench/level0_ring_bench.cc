@@ -1,6 +1,6 @@
 // Author: namnkahn1607
 //
-// Throughput benchmark for L0Indices, isolating Producer-side CAS
+// Throughput benchmark for L0Buffer, isolating Producer-side CAS
 // contention on push_head_ from TryPop's contention-free path (TryPop
 // has exactly one caller in production and uses no CAS at all).
 // A background consumer thread drains continuously so the benchmarked
@@ -29,12 +29,12 @@ inline constexpr uint32_t kBenchCapacity = 1 << 12;  // 4096
 // -----------------------------------------------------------------------------
 
 static void Bench_L0ConcurrentPush(benchmark::State& state) {
-    static L0Indices*         shared_ring = nullptr;
+    static L0Buffer*          shared_ring = nullptr;
     static std::atomic<bool>* stop_flag   = nullptr;
     static std::thread*       drainer     = nullptr;
 
     if (state.thread_index() == 0) {
-        shared_ring = new L0Indices(kBenchCapacity);
+        shared_ring = new L0Buffer(kBenchCapacity);
         stop_flag   = new std::atomic<bool>(false);
         drainer     = new std::thread([] {
             while (!stop_flag->load(std::memory_order_relaxed)) {

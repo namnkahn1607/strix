@@ -2,7 +2,7 @@
 //
 // SearchOutcome, CacheOutcome, and the VectorIndex class: the Index Layer's
 // entry point for vector search, node acquisition, and payload commit/fetch.
-// Owns FreeList and L0Indices; indexes and holds a reference to MemoryArena.
+// Owns FreeList and L0Buffer; indexes and holds a reference to MemoryArena.
 
 #pragma once
 
@@ -35,7 +35,7 @@ struct SearchResult {
 };
 
 // `VectorIndexBenchAccess` grants benchmark code direct access to the private
-// member `L0Indices` field of `VectorIndex`.
+// member `L0Buffer` field of `VectorIndex`.
 class VectorIndexBenchAccess;
 
 // `VectorIndex` indexes vectors and payloads in a single `MemoryArena`, while
@@ -51,7 +51,7 @@ public:
     static constexpr uint16_t kUnclustered = 0xFFFF;
 
     // `VectorIndex` holds a reference to `MemoryArena`, and each instance of
-    // type `FreeList` and `L0Indices`.
+    // type `FreeList` and `L0Buffer`.
     explicit VectorIndex(MemoryArena& arena, const size_t l0_cap);
 
     VectorIndex(const VectorIndex&)            = delete;
@@ -60,7 +60,7 @@ public:
     VectorIndex& operator=(VectorIndex&&)      = delete;
 
     // `AcquireNode()` is called by search path on a cache miss. Returns nothing
-    // if `FreeList` is exhausted, or `L0Indices` is saturated - in the latter
+    // if `FreeList` is exhausted, or `L0Buffer` is saturated - in the latter
     // case the node is rolled back to DEAD and returned to `FreeList`.
     std::optional<uint32_t> AcquireNode(const float* query,
                                         uint64_t     now) noexcept;
@@ -103,7 +103,7 @@ private:
 
     MemoryArena& arena_;
     FreeList     free_list_;
-    L0Indices    l0_indices_;
+    L0Buffer     l0_buffer_;
 
     // `node_owner_`, a single-source-of-truth cluster ID tracker for every
     // clustered node. Unclustered nodes are considered `kUnclustered`.
@@ -116,7 +116,7 @@ private:
 // instantiates it pays for it.
 class VectorIndexBenchAccess {
 public:
-    static L0Indices& GetL0Indices(VectorIndex& index) noexcept {
-        return index.l0_indices_;
+    static L0Buffer& GetL0Buffer(VectorIndex& index) noexcept {
+        return index.l0_buffer_;
     }
 };

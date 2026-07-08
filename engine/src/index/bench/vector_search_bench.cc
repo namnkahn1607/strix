@@ -28,7 +28,7 @@ void FillVector(float* dst, const float value) {
 // Single-threaded latency at a fixed, fully-packed L0 ring. This is the number
 // to read as "the cost of one indirect AVX2 scan" isolated from any contention.
 //
-// Compare against bench/mpsc_bench.cc's raw L0Indices throughput to see how
+// Compare against bench/mpsc_bench.cc's raw L0Buffer throughput to see how
 // much of SearchL0's cost is the AVX2 kernel itself versus ring bookkeeping.
 // -----------------------------------------------------------------------------
 
@@ -90,8 +90,8 @@ static void BenchSearchL0_ConcurrentContention(benchmark::State& state) {
             index->AcquireNode(fill_vec, 0);
         }
 
-        L0Indices& ring = VectorIndexBenchAccess::GetL0Indices(*index);
-        workers         = new std::vector<std::thread>();
+        L0Buffer& ring = VectorIndexBenchAccess::GetL0Buffer(*index);
+        workers        = new std::vector<std::thread>();
 
         // Initiate one Consumer worker.
         workers->emplace_back([&ring] {

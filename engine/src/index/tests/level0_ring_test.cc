@@ -1,6 +1,6 @@
 // Author: namnkahn1607
 //
-// Unit tests for L0Indices. Single-threaded cases pin down FIFO ordering,
+// Unit tests for L0Buffer. Single-threaded cases pin down FIFO ordering,
 // capacity boundary behavior, and ring wraparound correctness; concurrent
 // cases assert no-overcommit / no-corrupt-read invariants under the
 // production access pattern: N concurrent Producer TryPush callers, one
@@ -17,22 +17,22 @@
 
 #include "gtest/gtest.h"
 
-TEST(L0IndicesSingleThread, AcceptsPowerOfTwoCapacity) {
-    EXPECT_NO_THROW(L0Indices(64));
+TEST(L0BufferSingleThread, AcceptsPowerOfTwoCapacity) {
+    EXPECT_NO_THROW(L0Buffer(64));
 }
 
-TEST(L0IndicesSingleThread, RejectsNonPowerOfTwoCapacity) {
-    EXPECT_THROW(L0Indices(100), std::invalid_argument);
+TEST(L0BufferSingleThread, RejectsNonPowerOfTwoCapacity) {
+    EXPECT_THROW(L0Buffer(100), std::invalid_argument);
 }
 
-TEST(L0IndicesSingleThread, PopOnEmptyReturnsEmpty) {
-    L0Indices ring(8);
-    EXPECT_EQ(ring.TryPop(), L0Indices::kEmpty);
+TEST(L0BufferSingleThread, PopOnEmptyReturnsEmpty) {
+    L0Buffer ring(8);
+    EXPECT_EQ(ring.TryPop(), L0Buffer::kEmpty);
 }
 
-TEST(L0IndicesSingleThread, FillsExactlyToCapacityThenRejects) {
+TEST(L0BufferSingleThread, FillsExactlyToCapacityThenRejects) {
     constexpr uint32_t kCapacity = 8;
-    L0Indices          ring(kCapacity);
+    L0Buffer           ring(kCapacity);
 
     for (uint32_t i = 0; i < kCapacity; ++i) {
         ASSERT_TRUE(ring.TryPush(i)) << "push " << i << " should succeed";
@@ -42,8 +42,8 @@ TEST(L0IndicesSingleThread, FillsExactlyToCapacityThenRejects) {
     EXPECT_FALSE(ring.TryPush(999));
 }
 
-TEST(L0IndicesSingleThread, PushPopIsFifo) {
-    L0Indices ring(8);
+TEST(L0BufferSingleThread, PushPopIsFifo) {
+    L0Buffer ring(8);
 
     ASSERT_TRUE(ring.TryPush(10));
     ASSERT_TRUE(ring.TryPush(20));
@@ -53,17 +53,17 @@ TEST(L0IndicesSingleThread, PushPopIsFifo) {
     EXPECT_EQ(ring.TryPop(), 10);
     EXPECT_EQ(ring.TryPop(), 20);
     EXPECT_EQ(ring.TryPop(), 30);
-    EXPECT_EQ(ring.TryPop(), L0Indices::kEmpty);
+    EXPECT_EQ(ring.TryPop(), L0Buffer::kEmpty);
 }
 
-TEST(L0IndicesSingleThread, SurvivesManyWrapsAroundCapacity) {
+TEST(L0BufferSingleThread, SurvivesManyWrapsAroundCapacity) {
     // Regression test for the monotonic-counter fix: push_head_ and
     // pop_tail_ must remain correct as occupancy counters well past the
     // point where either counter wraps past capacity, not just within
     // the first lap around the ring.
     constexpr uint32_t kCapacity   = 4;
     constexpr uint32_t kIterations = 100'000;
-    L0Indices          ring(kCapacity);
+    L0Buffer           ring(kCapacity);
 
     for (uint32_t i = 0; i < kIterations; ++i) {
         ASSERT_TRUE(ring.TryPush(i))
@@ -77,14 +77,14 @@ TEST(L0IndicesSingleThread, SurvivesManyWrapsAroundCapacity) {
                "ring wraparound has corrupted slot indexing.";
     }
 
-    EXPECT_EQ(ring.TryPop(), L0Indices::kEmpty);
+    EXPECT_EQ(ring.TryPop(), L0Buffer::kEmpty);
 }
 
-TEST(L0IndicesSingleThread, WrapsAroundWithPartiallyFullRing) {
+TEST(L0BufferSingleThread, WrapsAroundWithPartiallyFullRing) {
     // Push/pop with the ring never fully drained between operations,
     // forcing push_head_ and pop_tail_ to wrap at different times.
     constexpr uint32_t kCapacity = 4;
-    L0Indices          ring(kCapacity);
+    L0Buffer           ring(kCapacity);
 
     std::queue<uint32_t> expected_order;
     uint32_t             next_value = 0;
@@ -102,7 +102,7 @@ TEST(L0IndicesSingleThread, WrapsAroundWithPartiallyFullRing) {
         }
 
         const uint32_t popped = ring.TryPop();
-        if (popped != L0Indices::kEmpty) {
+        if (popped != L0Buffer::kEmpty) {
             ASSERT_FALSE(expected_order.empty());
             ASSERT_EQ(popped, expected_order.front());
             expected_order.pop();
@@ -120,7 +120,7 @@ namespace {
 // the same slot) and not fewer (a missed slot due to a lost CAS retry).
 void RunConcurrentProducersFillExactlyToCapacity(uint32_t capacity,
                                                  size_t   num_producers) {
-    L0Indices ring(capacity);
+    L0Buffer ring(capacity);
 
     std::vector<std::atomic<uint64_t>> per_thread_successes(num_producers);
     for (auto& c : per_thread_successes) {
@@ -167,19 +167,19 @@ void RunConcurrentProducersFillExactlyToCapacity(uint32_t capacity,
 
 }  // namespace
 
-TEST(L0IndicesConcurrency, TwoProducersFillExactlyToCapacity) {
+TEST(L0BufferConcurrency, TwoProducersFillExactlyToCapacity) {
     RunConcurrentProducersFillExactlyToCapacity(1024, 2);
 }
 
-TEST(L0IndicesConcurrency, ThreeProducersFillExactlyToCapacity) {
+TEST(L0BufferConcurrency, ThreeProducersFillExactlyToCapacity) {
     RunConcurrentProducersFillExactlyToCapacity(1024, 3);
 }
 
-TEST(L0IndicesConcurrency, FourProducersFillExactlyToCapacity) {
+TEST(L0BufferConcurrency, FourProducersFillExactlyToCapacity) {
     RunConcurrentProducersFillExactlyToCapacity(1024, 4);
 }
 
-TEST(L0IndicesConcurrency, EightProducersFillExactlyToCapacity) {
+TEST(L0BufferConcurrency, EightProducersFillExactlyToCapacity) {
     RunConcurrentProducersFillExactlyToCapacity(1024, 8);
 }
 
@@ -192,13 +192,13 @@ TEST(L0IndicesConcurrency, EightProducersFillExactlyToCapacity) {
 // consumer's acquire load of that slot.
 // -----------------------------------------------------------------------------
 
-TEST(L0IndicesConcurrency, ProducersAndConsumerNeverYieldUnknownValue) {
+TEST(L0BufferConcurrency, ProducersAndConsumerNeverYieldUnknownValue) {
     constexpr uint32_t kCapacity     = 256;
     constexpr size_t   kNumProducers = 4;
     constexpr uint32_t kMagic        = 0x00FFFFFFu;
     constexpr auto     kRunDuration  = std::chrono::milliseconds(500);
 
-    L0Indices ring(kCapacity);
+    L0Buffer ring(kCapacity);
 
     std::atomic<bool>     stop{false};
     std::atomic<uint64_t> next_tag{0};
@@ -227,7 +227,7 @@ TEST(L0IndicesConcurrency, ProducersAndConsumerNeverYieldUnknownValue) {
     std::thread           consumer([&] {
         while (!stop.load(std::memory_order_relaxed)) {
             const uint32_t v = ring.TryPop();
-            if (v == L0Indices::kEmpty) {
+            if (v == L0Buffer::kEmpty) {
                 continue;
             }
 
