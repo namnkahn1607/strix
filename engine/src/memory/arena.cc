@@ -26,9 +26,6 @@ namespace {
 // from stale or uninitialized bytes during GC snowplow traversal.
 inline constexpr uint32_t kValidIdentifier = 0xDEADBEEF;
 
-// Default ring buffer capacity for Production() config.
-inline constexpr uint64_t kPayloadBufferSize = 0x100000000ULL;  // 4 GB
-
 // Ring buffer occupancy thresholds that govern GC sleep intervals.
 // Below kLowWatermark  : buffer pressure is low; GC sleeps longer.
 // Above kHighWatermark : buffer pressure is high; GC runs near-continuously.
@@ -44,35 +41,23 @@ inline constexpr uint32_t kSweepInterval = 5'000;
 
 }  // namespace
 
-ArenaConfig ArenaConfig::Production() {
-    return {kTotalSlots, kPayloadBufferSize, false};
-}
-
-ArenaConfig ArenaConfig::Compact(const size_t slots) {
-    return {slots, 0, false};
-}
-
-ArenaConfig ArenaConfig::CompactLazy(const size_t slots) {
-    return {slots, 0, true};
-}
-
 MemoryArena::MemoryArena(const ArenaConfig& config)
-    : max_slots_(config.max_slots)
-    , payload_buf_size_(config.payload_buf_size)
+    : max_slots(config.max_slots)
+    , payload_buf_size(config.payload_buf_size)
     , write_head_(config.start_point)
     , read_tail_(config.start_point) {
-    if (!(max_slots_ != 0 && max_slots_ % 4 == 0)) {
+    if (!(max_slots != 0 && max_slots % 4 == 0)) {
         throw std::invalid_argument(
             "Arena slots must be non-zero and multiple of 4");
     }
 
-    if (payload_buf_size_ > 0) {
-        if ((payload_buf_size_ & (payload_buf_size_ - 1)) != 0) {
+    if (payload_buf_size > 0) {
+        if ((payload_buf_size & (payload_buf_size - 1)) != 0) {
             throw std::invalid_argument(
                 "Payload buffer size must be a power of 2");
         }
 
-        if (config.start_point >= payload_buf_size_) {
+        if (config.start_point >= payload_buf_size) {
             throw std::invalid_argument(
                 "Start point must be smaller than Payload buffer size");
         }
@@ -83,24 +68,24 @@ MemoryArena::MemoryArena(const ArenaConfig& config)
     }
 
     metadata_ = static_cast<MetaNode*>(
-        Alloc32(max_slots_ * sizeof(MetaNode), config.lazy_mapping));
+        Alloc32(max_slots * sizeof(MetaNode), config.lazy_mapping));
     vectors_ = static_cast<float*>(
-        Alloc32(max_slots_ * kVectorDim * sizeof(float), config.lazy_mapping));
+        Alloc32(max_slots * kVectorDim * sizeof(float), config.lazy_mapping));
 
-    if (payload_buf_size_ > 0) {
+    if (payload_buf_size > 0) {
         payload_buf_ = static_cast<uint8_t*>(
-            Alloc32(payload_buf_size_, config.lazy_mapping));
+            Alloc32(payload_buf_size, config.lazy_mapping));
     } else {
         payload_buf_ = nullptr;
     }
 }
 
 MemoryArena::~MemoryArena() {
-    munmap(metadata_, max_slots_ * sizeof(MetaNode));
-    munmap(vectors_, max_slots_ * kVectorDim * sizeof(float));
+    munmap(metadata_, max_slots * sizeof(MetaNode));
+    munmap(vectors_, max_slots * kVectorDim * sizeof(float));
 
     if (payload_buf_ != nullptr) {
-        munmap(payload_buf_, payload_buf_size_);
+        munmap(payload_buf_, payload_buf_size);
     }
 }
 
@@ -154,7 +139,7 @@ void MemoryArena::RunGarbageCollector(const std::atomic<bool>& g_shutdown_req) {
             // Not enough contiguous bytes remain before the buffer wraps to
             // hold a PayloadHeader. Skip the padding bytes and restart from
             // the beginning of the buffer.
-            if (const uint64_t padding = payload_buf_size_ - tail_index;
+            if (const uint64_t padding = payload_buf_size - tail_index;
                 padding < sizeof(PayloadHeader)) {
                 read_tail_.fetch_add(padding, std::memory_order_relaxed);
                 continue;
@@ -257,8 +242,8 @@ void MemoryArena::RunGarbageCollector(const std::atomic<bool>& g_shutdown_req) {
 
                 uint64_t bytes_left = text_len;
                 while (bytes_left > 0) {
-                    const uint64_t src_cont = payload_buf_size_ - src_idx;
-                    const uint64_t dst_cont = payload_buf_size_ - dst_idx;
+                    const uint64_t src_cont = payload_buf_size - src_idx;
+                    const uint64_t dst_cont = payload_buf_size - dst_idx;
                     const uint64_t chunk =
                         std::min({bytes_left, src_cont, dst_cont});
 
@@ -291,7 +276,7 @@ void MemoryArena::RunGarbageCollector(const std::atomic<bool>& g_shutdown_req) {
 }
 
 void MemoryArena::SweepStalePending(const uint64_t curr_time) noexcept {
-    for (size_t i = 0; i < max_slots_; ++i) {
+    for (uint32_t i = 0; i < max_slots; ++i) {
         MetaNode&      node = metadata_[i];
         const uint64_t ctrl =
             node.control_block.load(std::memory_order_acquire);
@@ -335,10 +320,10 @@ void MemoryArena::ReadPayload(const uint64_t v_offset, const uint32_t length,
     const uint64_t text_index = ActualIndex(v_offset + sizeof(PayloadHeader));
     char*          dst        = out_payload->data();
 
-    if (payload_buf_size_ - text_index >= length) {
+    if (payload_buf_size - text_index >= length) {
         std::memcpy(dst, payload_buf_ + text_index, length);
     } else {
-        const uint64_t chunk1 = payload_buf_size_ - text_index;
+        const uint64_t chunk1 = payload_buf_size - text_index;
         const uint64_t chunk2 = length - chunk1;
         std::memcpy(dst, payload_buf_ + text_index, chunk1);
         std::memcpy(dst + chunk1, payload_buf_, chunk2);
@@ -366,10 +351,10 @@ std::optional<uint64_t> MemoryArena::WritePayload(
     const uint64_t text_index =
         ActualIndex(header_index + sizeof(PayloadHeader));
 
-    if (payload_buf_size_ - text_index >= length) {
+    if (payload_buf_size - text_index >= length) {
         std::memcpy(payload_buf_ + text_index, in_payload, length);
     } else {
-        const uint64_t chunk1 = payload_buf_size_ - text_index;
+        const uint64_t chunk1 = payload_buf_size - text_index;
         const uint64_t chunk2 = length - chunk1;
         std::memcpy(payload_buf_ + text_index, in_payload, chunk1);
         std::memcpy(payload_buf_, in_payload + chunk1, chunk2);
@@ -383,13 +368,13 @@ std::optional<uint64_t> MemoryArena::AllocatePayload(
     assert(payload_buf_ != nullptr &&
            "AllocatePayload requires a payload buffer");
 
-    const size_t total_size = sizeof(PayloadHeader) + length;
-    uint64_t     curr_write = write_head_.load(std::memory_order_relaxed);
+    const uint64_t total_size = sizeof(PayloadHeader) + length;
+    uint64_t       curr_write = write_head_.load(std::memory_order_relaxed);
 
     while (true) {
         if (curr_write + total_size -
                 read_tail_.load(std::memory_order_relaxed) >=
-            payload_buf_size_) {
+            payload_buf_size) {
             // Expected under high load; not a programming error.
             return std::nullopt;
         }
@@ -399,8 +384,8 @@ std::optional<uint64_t> MemoryArena::AllocatePayload(
 
         // If the remaining contiguous bytes before the buffer wrap are not
         // enough to hold a PayloadHeader, skip them and restart from offset 0.
-        if (payload_buf_size_ - actual_index < sizeof(PayloadHeader)) {
-            padding = payload_buf_size_ - actual_index;
+        if (payload_buf_size - actual_index < sizeof(PayloadHeader)) {
+            padding = payload_buf_size - actual_index;
         }
 
         const uint64_t allocated_offset = curr_write + padding;
