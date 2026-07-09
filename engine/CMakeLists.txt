@@ -38,12 +38,13 @@ add_library(engine_options INTERFACE)
 target_compile_options(engine_options INTERFACE
     -march=x86-64-v3
     -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wunreachable-code
+    -include "${CMAKE_CURRENT_SOURCE_DIR}/src/config/assert_types.h">
 )
 
 # ===========================================================================
 # 3. AUTO-GENERATE CONTRACTS
 # ===========================================================================
-set(PROTO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../api/proto")
+set(PROTO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../api/proto/v1")
 set(PROTO_FILE "${PROTO_DIR}/strix.proto")
 set(PROTO_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
