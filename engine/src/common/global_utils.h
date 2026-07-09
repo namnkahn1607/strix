@@ -5,11 +5,11 @@
 
 #pragma once
 
-#include <cstdlib>
+#include <cstdint>
 
 // `Alloc32` utilizes `mmap` underneath, allocates a private anonymous mapping
 // of `size` bytes with read / write permissions. When `lazy` is false,
 // instruction to the kernel is offered to pre-fault all pages during the mmap
 // syscall, thus eliminating first-touch latency at the cost of longer
 // construction time.
-void* Alloc32(size_t size, bool lazy);
+void* Alloc32(uint64_t size, bool lazy);
