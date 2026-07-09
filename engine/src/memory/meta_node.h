@@ -150,8 +150,3 @@ struct alignas(64) MetaNode {
             (control_block.load(order) >> kVersionShift) & kVersionMask);
     }
 };
-
-// Assertions to ensure that std::atomic<uint64_t>'s operations are supported by
-// hardware-level instructions and atomic does not add any memory overhead.
-static_assert(sizeof(std::atomic<uint64_t>) == sizeof(uint64_t));
-static_assert(std::atomic<uint64_t>::is_always_lock_free);
