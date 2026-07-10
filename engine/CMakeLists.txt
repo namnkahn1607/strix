@@ -226,75 +226,68 @@ gtest_discover_tests(level0_ring_test)
 # ===========================================================================
 # 7. BENCHMARK EXECUTABLE(S)
 # ===========================================================================
-string(TOUPPER "${CMAKE_BUILD_TYPE}" UPPER_BUILD_TYPE)
+find_package(benchmark CONFIG REQUIRED)
 
-if (UPPER_BUILD_TYPE STREQUAL "RELEASE")
-    find_package(benchmark CONFIG REQUIRED)
+# Benchmark AVX2 Dot Product
+add_executable(avx2_kernel_bench src/index/bench/avx2_kernel_bench.cc)
+target_link_libraries(avx2_kernel_bench PRIVATE
+    engine_options
+    engine_common
+    engine_index
+    benchmark::benchmark
+)
 
-    # Benchmark AVX2 Dot Product
-    add_executable(avx2_kernel_bench src/index/bench/avx2_kernel_bench.cc)
-    target_link_libraries(avx2_kernel_bench PRIVATE
-        engine_options
-        engine_common
-        engine_index
-        benchmark::benchmark
-    )
+# Benchmark Inference model (Zero-shot)
+add_executable(inference_bench src/inference/bench/inference_bench.cc)
+target_link_libraries(inference_bench PRIVATE
+    engine_options
+    engine_common
+    engine_inference
+    benchmark::benchmark
+)
 
-    # Benchmark Inference model (Zero-shot)
-    add_executable(inference_bench src/inference/bench/inference_bench.cc)
-    target_link_libraries(inference_bench PRIVATE
-        engine_options
-        engine_common
-        engine_inference
-        benchmark::benchmark
-    )
+# Benchmark Inference model (Custom Ops)
+add_executable(custom_ops_bench src/inference/bench/custom_ops_bench.cc)
+target_link_libraries(custom_ops_bench PRIVATE
+    engine_options
+    engine_common
+    engine_inference
+    benchmark::benchmark
+)
 
-    # Benchmark Inference model (Custom Ops)
-    add_executable(custom_ops_bench src/inference/bench/custom_ops_bench.cc)
-    target_link_libraries(custom_ops_bench PRIVATE
-        engine_options
-        engine_common
-        engine_inference
-        benchmark::benchmark
-    )
+# Benchmark Payload Read/Write of Memory Arena
+add_executable(memory_arena_bench src/memory/bench/memory_arena_bench.cc)
+target_link_libraries(memory_arena_bench PRIVATE
+    engine_options
+    engine_common
+    engine_memory
+    benchmark::benchmark
+)
 
-    # Benchmark Payload Read/Write of Memory Arena
-    add_executable(memory_arena_bench src/memory/bench/memory_arena_bench.cc)
-    target_link_libraries(memory_arena_bench PRIVATE
-        engine_options
-        engine_common
-        engine_memory
-        benchmark::benchmark
-    )
+# Benchmark Free List operations
+add_executable(free_list_bench src/index/bench/free_list_bench.cc)
+target_link_libraries(free_list_bench PRIVATE
+    engine_options
+    engine_common
+    engine_index
+    benchmark::benchmark    
+)
 
-    # Benchmark Free List operations
-    add_executable(free_list_bench src/index/bench/free_list_bench.cc)
-    target_link_libraries(free_list_bench PRIVATE
-        engine_options
-        engine_common
-        engine_index
-        benchmark::benchmark    
-    )
+# Benchmark MPSC L0 ring buffer
+add_executable(level0_ring_bench src/index/bench/level0_ring_bench.cc)
+target_link_libraries(level0_ring_bench PRIVATE
+    engine_options
+    engine_common
+    engine_index
+    benchmark::benchmark
+)
 
-    # Benchmark MPSC L0 ring buffer
-    add_executable(level0_ring_bench src/index/bench/level0_ring_bench.cc)
-    target_link_libraries(level0_ring_bench PRIVATE
-        engine_options
-        engine_common
-        engine_index
-        benchmark::benchmark
-    )
-
-    # Benchmark Vector searching subroutines
-    add_executable(vector_search_bench src/index/bench/vector_search_bench.cc)
-    target_link_libraries(vector_search_bench PRIVATE
-        engine_options
-        engine_common
-        engine_memory
-        engine_index
-        benchmark::benchmark
-    )
-
-else()
-    message(STATUS "Skipping benchmark targets (only enabled in Release build)")
-endif()
+# Benchmark Vector searching subroutines
+add_executable(vector_search_bench src/index/bench/vector_search_bench.cc)
+target_link_libraries(vector_search_bench PRIVATE
+    engine_options
+    engine_common
+    engine_memory
+    engine_index
+    benchmark::benchmark
+)
