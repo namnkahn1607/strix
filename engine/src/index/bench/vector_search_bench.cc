@@ -12,6 +12,7 @@
 
 #include "arena.h"
 #include "constants.h"
+#include "level1_ivf.h"
 #include "vector_index.h"
 
 namespace {
@@ -34,7 +35,7 @@ void FillVector(float* dst, const float value) {
 
 static void BenchSearchL0_FixedOccupancy(benchmark::State& state) {
     MemoryArena arena(ArenaConfig::Compact(kL0Capacity));
-    VectorIndex index(arena, kL0Capacity);
+    VectorIndex index(arena, kL0Capacity, IvfConfig::Compact(4, 4, 16));
 
     alignas(32) float node_vec[kVectorDim];
     FillVector(node_vec, 0.1f);
@@ -79,8 +80,9 @@ static void BenchSearchL0_ConcurrentContention(benchmark::State& state) {
 
     if (state.thread_index() == 0) {
         arena = new MemoryArena(ArenaConfig::Compact(kL0Capacity));
-        index = new VectorIndex(*arena, kL0Capacity);
-        stop  = new std::atomic<bool>(false);
+        index =
+            new VectorIndex(*arena, kL0Capacity, IvfConfig::Compact(4, 4, 16));
+        stop = new std::atomic<bool>(false);
 
         // Half-fill the L0 ring buffer as initial state to almost alwasy
         // account rooms for Consumer and Producers.
