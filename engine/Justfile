@@ -126,10 +126,12 @@ clear preset="debug":
 
 # Remove artifacts across all presets
 clear-all:
-    @cmake --build --preset debug --target clean
-    @cmake --build --preset release --target clean
-    @cmake --build --preset asan --target clean
-    @cmake --build --preset tsan --target clean
+    #!/usr/bin/env bash
+    for preset in debug release asan tsan; do
+        if [ -d "out/$preset/" ]; then
+            cmake --build --preset "$preset" --target clean
+        fi
+    done
 
 # Wipe out everything including CMake cache
 nuke:
