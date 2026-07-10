@@ -1,12 +1,14 @@
 // Author: namnkahn1607
 //
-//
+// One generation of the L1 IVF layer.
+// Owns its centroids and cluster membership.
 
 #include "level1_ivf.h"
 
 #include <sys/mman.h>
 
 #include <atomic>
+#include <cstring>
 #include <memory>
 #include <stdexcept>
 
@@ -57,6 +59,11 @@ RoutingTable::RoutingTable(const IvfConfig& config)
 
 RoutingTable::~RoutingTable() {
     munmap(centroids_, num_clusters * kVectorDim * sizeof(float));
+}
+
+void RoutingTable::SeedCentroid(const uint32_t cluster_id,
+                                const float*   vector) noexcept {
+    std::memcpy(centroids_ + cluster_id * kVectorDim, vector, kVectorMemsize);
 }
 
 uint32_t RoutingTable::MatchCluster(const float* query) const noexcept {
