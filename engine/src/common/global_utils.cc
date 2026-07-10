@@ -9,7 +9,7 @@
 
 #include <stdexcept>
 
-inline void* Alloc32(const uint64_t size, const bool lazy) {
+void* Alloc32(const uint64_t size, const bool lazy) {
     const int flags = MAP_ANONYMOUS | MAP_PRIVATE | (lazy ? 0 : MAP_POPULATE);
 
     void* ptr = mmap(nullptr, size, PROT_READ | PROT_WRITE, flags, -1, 0);
