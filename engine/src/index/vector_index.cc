@@ -165,7 +165,7 @@ std::optional<SearchResult> VectorIndex::ScoreCandidates(
 
     TopTwoAccumulator acc;
 
-    auto score_batch = [&]() noexcept {
+    auto score_batch = [&]() __attribute__((always_inline)) noexcept {
         if (batch_count == 0) {
             return;
         }
