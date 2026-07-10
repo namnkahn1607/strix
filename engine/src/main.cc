@@ -14,6 +14,7 @@
 #include "avx2_kernel.h"
 #include "constants.h"
 #include "inference.h"
+#include "level1_ivf.h"
 #include "service.h"
 
 namespace {
@@ -203,7 +204,7 @@ int main() {
             std::make_unique<MemoryArena>(ArenaConfig::Production());
         std::cout << "[Vector Engine] Initialized Memory Arena.\n";
 
-        VectorIndex indexer(*arena, kL0Capacity);
+        VectorIndex indexer(*arena, kL0Capacity, IvfConfig::Production());
         std::cout << "[Vector Engine] Initialized Vector Index.\n";
 
         WarmupEngine(embedder);
