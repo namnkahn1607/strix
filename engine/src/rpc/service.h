@@ -7,10 +7,10 @@
 
 #include <grpcpp/grpcpp.h>
 
-#include "vector_index.h"
 #include "inference.h"
 #include "strix.grpc.pb.h"
 #include "strix.pb.h"
+#include "vector_index.h"
 
 // `CacheServiceImpl`, gRPC service implementation for the Strix semantic cache.
 //
@@ -18,7 +18,7 @@
 //   - Validate incoming RPC fields.
 //   - Orchestrate Vectorization -> Vector search -> Payload read/write.
 //   - Translate results and errors into gRPC Status codes and response protos.
-class CacheServiceImpl final : public proto::CacheService::Service {
+class CacheServiceImpl final : public proto::v1::CacheService::Service {
 public:
     // `CacheServiceImpl` holds references to `Embedder` and `MemoryArena`.
     explicit CacheServiceImpl(const Embedder& embedder, VectorIndex& index);
@@ -31,15 +31,15 @@ public:
     // `CheckCache()` encodes the request prompt, perform searching for a
     // similar vector, and returns the cached payload if a match above
     // the `kSimilarityThreshold` is found.
-    grpc::Status CheckCache(grpc::ServerContext*            context,
-                            const proto::CheckCacheRequest* request,
-                            proto::CheckCacheResponse*      response) override;
+    grpc::Status CheckCache(grpc::ServerContext*                context,
+                            const proto::v1::CheckCacheRequest* request,
+                            proto::v1::CheckCacheResponse* response) override;
 
     // `SetCache()` encodes the request prompt, writes the vector into a free
     // slot, and commits the payload to the ring buffer.
-    grpc::Status SetCache(grpc::ServerContext*          context,
-                          const proto::SetCacheRequest* request,
-                          proto::SetCacheResponse*      response) override;
+    grpc::Status SetCache(grpc::ServerContext*              context,
+                          const proto::v1::SetCacheRequest* request,
+                          proto::v1::SetCacheResponse*      response) override;
 
 private:
     const Embedder& embedder_;
@@ -51,5 +51,5 @@ private:
     // either `kHit` or `kPendingHit`; otherwise false and leaves `response` be
     // untouched, delegating further decisions to the caller.
     bool ProcessCandidate(const SearchOutcome& candidate, uint64_t timestamp,
-                          proto::CheckCacheResponse* response) const;
+                          proto::v1::CheckCacheResponse* response) const;
 };

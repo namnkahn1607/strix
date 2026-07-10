@@ -18,8 +18,8 @@ CacheServiceImpl::CacheServiceImpl(const Embedder& embedder, VectorIndex& index)
 
 grpc::Status CacheServiceImpl::CheckCache(
     [[maybe_unused]] grpc::ServerContext* context,
-    const proto::CheckCacheRequest*       request,
-    proto::CheckCacheResponse*            response) {
+    const proto::v1::CheckCacheRequest*   request,
+    proto::v1::CheckCacheResponse*        response) {
     try {
         if (request->prompt().empty()) {
             return {grpc::StatusCode::INVALID_ARGUMENT, "Prompt is empty"};
@@ -33,11 +33,11 @@ grpc::Status CacheServiceImpl::CheckCache(
         if (!encode_result.ok()) {
             switch (encode_result.error()) {
                 case EncodeError::kTokenLimitExceeded:
-                    response->set_check_state(proto::CACHE_STATE_REJECTED);
+                    response->set_check_state(proto::v1::CACHE_STATE_REJECTED);
                     return grpc::Status::OK;
 
                 case EncodeError::kDegeneratedVector:
-                    response->set_check_state(proto::CACHE_STATE_REJECTED);
+                    response->set_check_state(proto::v1::CACHE_STATE_REJECTED);
                     return {grpc::StatusCode::INTERNAL,
                             "Degenerate vector from model"};
             }
@@ -83,11 +83,11 @@ grpc::Status CacheServiceImpl::CheckCache(
 
         const auto node_id_opt = index_.AcquireNode(query, curr_time);
         if (!node_id_opt.has_value()) {
-            response->set_check_state(proto::CACHE_STATE_REJECTED);
+            response->set_check_state(proto::v1::CACHE_STATE_REJECTED);
             return grpc::Status::OK;
         }
 
-        response->set_check_state(proto::CACHE_STATE_MISS);
+        response->set_check_state(proto::v1::CACHE_STATE_MISS);
         response->set_node_id(*node_id_opt);
         return grpc::Status::OK;
 
@@ -101,7 +101,8 @@ grpc::Status CacheServiceImpl::CheckCache(
 
 grpc::Status CacheServiceImpl::SetCache(
     [[maybe_unused]] grpc::ServerContext* context,
-    const proto::SetCacheRequest* request, proto::SetCacheResponse* response) {
+    const proto::v1::SetCacheRequest*     request,
+    proto::v1::SetCacheResponse*          response) {
     try {
         const uint32_t     node_id = request->node_id();
         const std::string& payload = request->uncached_payload();
@@ -131,18 +132,18 @@ grpc::Status CacheServiceImpl::SetCache(
 
 bool CacheServiceImpl::ProcessCandidate(
     const SearchOutcome& candidate, const uint64_t timestamp,
-    proto::CheckCacheResponse* response) const {
+    proto::v1::CheckCacheResponse* response) const {
     const auto outcome =
         index_.FetchPayload(candidate.node_id, candidate.version, timestamp,
                             response->mutable_cached_payload());
 
     switch (outcome) {
         case CacheOutcome::kHit:
-            response->set_check_state(proto::CACHE_STATE_HIT);
+            response->set_check_state(proto::v1::CACHE_STATE_HIT);
             return true;
 
         case CacheOutcome::kPendingHit:
-            response->set_check_state(proto::CACHE_STATE_PENDING);
+            response->set_check_state(proto::v1::CACHE_STATE_PENDING);
             response->set_node_id(candidate.node_id);
             return true;
 
