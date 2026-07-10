@@ -71,6 +71,11 @@ public:
     const uint32_t num_clusters;
     const uint32_t max_cluster_size;
 
+    // `SeedCentroid()` fills a specified cluster's centroid with given vector.
+    // Used during the bootstrap phase of the system, while there're no initial
+    // vectors as centroids.
+    void SeedCentroid(uint32_t cluster_id, const float* vector) noexcept;
+
     // `MatchCluster()` searches for most suitable cluster for an input vector.
     uint32_t MatchCluster(const float* query) const noexcept;
 
