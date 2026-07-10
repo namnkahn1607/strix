@@ -38,7 +38,7 @@ add_library(engine_options INTERFACE)
 target_compile_options(engine_options INTERFACE
     -march=x86-64-v3
     -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wunreachable-code
-    -include "${CMAKE_CURRENT_SOURCE_DIR}/src/config/assert_types.h">
+    -include "${CMAKE_CURRENT_SOURCE_DIR}/src/config/assert_types.h"
 )
 
 # ===========================================================================
