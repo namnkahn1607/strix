@@ -8,20 +8,19 @@
 
 #include <cstdint>
 
-// Embedding vector dimension produced by all-MiniLM-L6-v2.
-// kVectorMemsize is the corresponding byte footprint of one vector.
-inline constexpr uint32_t kVectorDim     = 384;
+// Embedding vector dimension produced by `all-MiniLM-L6-v2`.
+inline constexpr uint32_t kVectorDim = 384;
+// The corresponding byte footprint of one vector.
 inline constexpr uint32_t kVectorMemsize = kVectorDim * sizeof(float);
 
 // Minimum cosine similarity for a cache hit.
 inline constexpr float kSimilarityThreshold = 0.85f;
 
-// Per-tier slot limits.
-// kTotalMaxSlots is the sum; used to size the unified MemoryArena.
-inline constexpr uint32_t kL0Capacity = 1 << 12;  // 4'096
-inline constexpr uint32_t kTotalSlots = 1 << 19;  // 524'288
+// L0 buffer's slot limits.
+inline constexpr uint32_t kL0Capacity = 1 << 12;
+// Total number of slots in the unified `MemoryArena`.
+inline constexpr uint32_t kTotalSlots = 1 << 19;
 
-// Maximum lifetime of a PENDING node in seconds.
-// Nodes that remain PENDING beyond this deadline are treated as stale by
-// the GC sweeper and by SearchL0 (skipped during scan).
+// Maximum lifetime of a `kPending` node in seconds.
+// Nodes remain `kPending` beyond this deadline are treated as stale by the GC.
 inline constexpr uint32_t kPendingLifespan = 30;
