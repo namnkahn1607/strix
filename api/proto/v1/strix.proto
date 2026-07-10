@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package proto.v1;
+
+option go_package = "gateway/internal/pb;pb";
+
+enum CacheState {
+  CACHE_STATE_UNSPECIFIED = 0;
+  CACHE_STATE_HIT = 1;
+  CACHE_STATE_MISS = 2;
+  CACHE_STATE_PENDING = 3;
+  CACHE_STATE_REJECTED = 4;
+}
+
+message CheckCacheRequest {
+  bytes prompt = 1; // Unescaped and not normalized
+}
+
+message CheckCacheResponse {
+  CacheState check_state = 1;
+  uint32 node_id = 2;
+  bytes cached_payload = 3;
+}
+
+message SetCacheRequest {
+  uint32 node_id = 1;
+  bytes uncached_payload = 2;
+}
+
+message SetCacheResponse {
+  bool success = 1;
+}
+
+service CacheService {
+  rpc CheckCache(CheckCacheRequest) returns (CheckCacheResponse); // READ
+  rpc SetCache(SetCacheRequest) returns (SetCacheResponse); // WRITE
+}

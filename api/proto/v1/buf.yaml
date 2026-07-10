@@ -1,0 +1,9 @@
+version: v2
+module:
+  - path: api
+lint:
+  use:
+    - STANDARD
+breaking:
+  use:
+    - FILE
