@@ -14,49 +14,60 @@
 #include "constants.h"
 #include "global_utils.h"
 
-namespace {
-
-static_assert(sizeof(std::atomic<uint16_t>) == sizeof(uint16_t));
-static_assert(std::atomic<uint16_t>::is_always_lock_free);
-
-static_assert(sizeof(std::atomic<uint32_t>) == sizeof(uint32_t));
-static_assert(std::atomic<uint32_t>::is_always_lock_free);
-
-}  // namespace
-
-RoutingTable::RoutingTable(const size_t num_clusters_,
-                           const size_t max_cluster_size_)
-    : num_clusters_(num_clusters_), max_cluster_size_(max_cluster_size_) {
-    if (num_clusters_ == 0 || max_cluster_size_ == 0) {
+RoutingTable::RoutingTable(const uint32_t num_clusters,
+                           const uint32_t max_cluster_size,
+                           const bool     lazy_mapping)
+    : num_clusters(num_clusters), max_cluster_size(max_cluster_size) {
+    if (num_clusters == 0 || max_cluster_size == 0) {
         throw std::invalid_argument(
             "Both number of clusters & cluster capacity must be non-zero");
     }
 
-    if (num_clusters_ % kBatchSize != 0) {
+    if (num_clusters % kBatchSize != 0) {
         throw std::invalid_argument(
             "Number of clusters must be a multiple of kernel batch size");
     }
 
     centroids_ = static_cast<float*>(
-        Alloc32(num_clusters_ * kVectorDim * sizeof(float), false));
-    cluster_sizes_   = std::make_unique<std::atomic<uint16_t>[]>(num_clusters_);
+        Alloc32(num_clusters * kVectorDim * sizeof(float), lazy_mapping));
+    cluster_sizes_   = std::make_unique<std::atomic<uint16_t>[]>(num_clusters);
     cluster_members_ = std::make_unique<std::atomic<uint32_t>[]>(
-        num_clusters_ * max_cluster_size_);
+        num_clusters * max_cluster_size);
+}
+
+RoutingTable::RoutingTable(const IvfConfig& config)
+    : num_clusters(config.num_clusters)
+    , max_cluster_size(config.max_cluster_size) {
+    if (num_clusters == 0 || max_cluster_size == 0) {
+        throw std::invalid_argument(
+            "Both number of clusters & cluster capacity must be non-zero");
+    }
+
+    if (num_clusters % kBatchSize != 0) {
+        throw std::invalid_argument(
+            "Number of clusters must be a multiple of kernel batch size");
+    }
+
+    centroids_       = static_cast<float*>(Alloc32(
+        num_clusters * kVectorDim * sizeof(float), config.lazy_mapping));
+    cluster_sizes_   = std::make_unique<std::atomic<uint16_t>[]>(num_clusters);
+    cluster_members_ = std::make_unique<std::atomic<uint32_t>[]>(
+        num_clusters * max_cluster_size);
 }
 
 RoutingTable::~RoutingTable() {
-    munmap(centroids_, num_clusters_ * kVectorDim * sizeof(float));
+    munmap(centroids_, num_clusters * kVectorDim * sizeof(float));
 }
 
-size_t RoutingTable::MatchCluster(const float* query) const noexcept {
-    float  best_score    = -1.0f;
-    size_t best_centroid = 0;
+uint32_t RoutingTable::MatchCluster(const float* query) const noexcept {
+    float    best_score    = -1.0f;
+    uint32_t best_centroid = 0;
 
-    for (size_t i = 0; i < num_clusters_; i += kBatchSize) {
+    for (uint32_t i = 0; i < num_clusters; i += kBatchSize) {
         float scores[kBatchSize];
         DotProductBatch(query, centroids_ + kVectorDim * i, scores);
 
-        for (size_t k = 0; k < kBatchSize; ++k) {
+        for (uint32_t k = 0; k < kBatchSize; ++k) {
             if (scores[k] > best_score) {
                 best_score    = scores[k];
                 best_centroid = i + k;
@@ -68,25 +79,25 @@ size_t RoutingTable::MatchCluster(const float* query) const noexcept {
 }
 
 bool RoutingTable::JoinCluster(const uint32_t node_id,
-                               const size_t   cluster_id) noexcept {
+                               const uint32_t cluster_id) noexcept {
     // Relaxed load due to concurrency model of `cluster_member_`.
     const uint16_t size =
         cluster_sizes_[cluster_id].load(std::memory_order_relaxed);
-    if (size >= max_cluster_size_) {
+    if (size >= max_cluster_size) {
         return false;
     }
 
     // Write ahead, Publish later.
-    cluster_members_[cluster_id * max_cluster_size_ + size].store(
+    cluster_members_[cluster_id * max_cluster_size + size].store(
         node_id, std::memory_order_relaxed);
     cluster_sizes_[cluster_id].store(size + 1, std::memory_order_release);
     return true;
 }
 
-bool RoutingTable::LeaveCluster(const size_t   cluster_id,
-                                const size_t   member_index,
+bool RoutingTable::LeaveCluster(const uint32_t cluster_id,
+                                const uint32_t member_index,
                                 const uint32_t expected_node_id) noexcept {
-    const size_t base = cluster_id * max_cluster_size_;
+    const size_t base = cluster_id * max_cluster_size;
 
     // Relaxed load due to concurrency model of `cluster_member_`.
     const uint16_t size =
