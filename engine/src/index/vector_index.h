@@ -126,6 +126,12 @@ private:
     // cluster to sweep on the next call.
     uint32_t reassignment_cursor_ = 0;
 
+    // `ScoreCandidate()` is a private helper of both vector search subroutines.
+    template <bool kBoundsSafe, typename NodeAt, typename CountAt>
+    std::optional<SearchResult> ScoreCandidates(
+        const float* query, NodeAt&& node_at,
+        CountAt&& count_at) const noexcept;
+
     // `RunCompaction()` sequentially migrates nodes from L0 Buffer to L1 IVF.
     void RunCompaction() noexcept;
 

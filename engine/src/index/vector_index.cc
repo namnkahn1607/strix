@@ -114,23 +114,56 @@ namespace {
 // 2 batch-4 iterations ahead of the position currently being scored.
 inline constexpr uint32_t kPrefetchDistance = 2 * kBatchSize;
 
+struct TopTwoAccumulator {
+    float    fst_score = -1.0f, sec_score = -1.0f;
+    uint32_t fst_id = 0, sec_id = 0;
+    uint8_t  fst_ver = 0, sec_ver = 0;
+
+    inline void Consider(uint32_t id, uint8_t ver, float score) noexcept {
+        if (score > fst_score) {
+            sec_id    = fst_id;
+            sec_score = fst_score;
+            sec_ver   = fst_ver;
+
+            fst_id    = id;
+            fst_score = score;
+            fst_ver   = ver;
+        } else if (score > sec_score) {
+            sec_id    = id;
+            sec_score = score;
+            sec_ver   = ver;
+        }
+    }
+
+    inline std::optional<SearchResult> Finalize() const noexcept {
+        if (fst_score > kSimilarityThreshold) {
+            return std::nullopt;
+        }
+
+        SearchResult res;
+        res.primary = {fst_id, fst_ver};
+        if (sec_score > kSimilarityThreshold) {
+            res.secondary = {sec_id, sec_ver};
+        }
+
+        return res;
+    }
+};
+
 }  // namespace
 
-std::optional<SearchResult> VectorIndex::SearchL0(
-    const float* query) const noexcept {
-    const uint32_t right = l0_buffer_.SnapPushHead();
-    const uint32_t left  = l0_buffer_.SnapPopTail();
-
+// 1. `kBoundsSafe == true`  : For ring buffer has natural wrap-around (using
+//                             AND arithmetic). No manual bounds check needed.
+// 2. `kBoundsSafe == false` : For flat array with fixed size. Ensure safety by
+//                             evaluating bounds check.
+template <bool kBoundsSafe, typename NodeAt, typename CountAt>
+std::optional<SearchResult> VectorIndex::ScoreCandidates(
+    const float* query, NodeAt&& node_at, CountAt&& count_at) const noexcept {
     uint8_t  batch_vers[kBatchSize];
     uint32_t batch_ids[kBatchSize];
     uint32_t batch_count = 0;
 
-    float    fst_score = -1.0f;
-    uint8_t  fst_ver;
-    uint32_t fst_id;
-    float    sec_score = -1.0f;
-    uint8_t  sec_ver;
-    uint32_t sec_id;
+    TopTwoAccumulator acc;
 
     auto score_batch = [&]() noexcept {
         if (batch_count == 0) {
@@ -139,7 +172,7 @@ std::optional<SearchResult> VectorIndex::SearchL0(
 
         // Pad unused lanes by duplicating the last valid pointer so the batch-4
         // kernel never dereferences garbage.
-        for (size_t i = batch_count; i < kBatchSize; ++i) {
+        for (uint32_t i = batch_count; i < kBatchSize; ++i) {
             batch_ids[i] = batch_ids[batch_count - 1];
         }
 
@@ -150,72 +183,96 @@ std::optional<SearchResult> VectorIndex::SearchL0(
                                 arena_.GetVector(batch_ids[3]), scores);
 
         // Cautious: Only consider non-padding items.
-        for (size_t k = 0; k < batch_count; ++k) {
-            const uint32_t id       = batch_ids[k];
-            const uint8_t  curr_ver = arena_.GetNode(id).LoadVersion();
+        for (uint32_t k = 0; k < batch_count; ++k) {
+            const uint32_t id = batch_ids[k];
+
+            const uint8_t curr_ver = arena_.GetNode(id).LoadVersion();
             if (curr_ver != batch_vers[k]) {
                 continue;
             }
 
-            if (scores[k] > fst_score) {
-                sec_id    = fst_id;
-                sec_score = fst_score;
-                sec_ver   = fst_ver;
-
-                fst_id    = id;
-                fst_score = scores[k];
-                fst_ver   = curr_ver;
-            } else if (scores[k] > sec_score) {
-                sec_id    = id;
-                sec_score = scores[k];
-                sec_ver   = curr_ver;
-            }
+            acc.Consider(id, curr_ver, scores[k]);
         }
 
         batch_count = 0;
     };
 
-    for (uint32_t i = left; i != right; ++i) {
-        const uint32_t pf_id = l0_buffer_.LoadSlot(i + kPrefetchDistance);
-        if (pf_id != L0Buffer::kEmpty) {
-            const float* pf_vec = arena_.GetVector(pf_id);
+    for (uint32_t i = 0;; ++i) {
+        const uint32_t count = count_at();
+        if (i >= count) {
+            break;
+        }
+
+        uint32_t record;
+        if constexpr (kBoundsSafe) {
+            // L0 vector search falls here. No branching check.
+            const uint32_t pf_id = node_at(i + kPrefetchDistance);
+            if (pf_id != L0Buffer::kEmpty) {
+                const float* pf_vec = arena_.GetVector(pf_id);
+                __builtin_prefetch(pf_vec, /*rw=*/0, /*locality=*/3);
+                __builtin_prefetch(reinterpret_cast<const char*>(pf_vec) + 256,
+                                   /*rw=*/0, /*locality=*/3);
+            }
+
+            record = node_at(i);
+            if (record == L0Buffer::kEmpty) {
+                continue;
+            }
+
+        } else if (i + kPrefetchDistance < count) {
+            // L1 vector search falls here.
+            const uint32_t pf_id  = node_at(i + kPrefetchDistance);
+            const float*   pf_vec = arena_.GetVector(pf_id);
             __builtin_prefetch(pf_vec, /*rw=*/0, /*locality=*/3);
             __builtin_prefetch(reinterpret_cast<const char*>(pf_vec) + 256,
                                /*rw=*/0, /*locality=*/3);
+
+            record = node_at(i);
         }
 
-        const uint32_t node_id = l0_buffer_.LoadSlot(i);
-        if (node_id == L0Buffer::kEmpty) {
-            continue;
-        }
+        const uint32_t& node_id = record;
 
         batch_ids[batch_count]  = node_id;
         batch_vers[batch_count] = arena_.GetNode(node_id).LoadVersion();
         ++batch_count;
 
-        const float* vec = arena_.GetVector(node_id);
-        __builtin_prefetch(vec, /*rw=*/0, /*locality=*/3);
-        __builtin_prefetch(reinterpret_cast<const char*>(vec) + 256, /*rw*/ 0,
-                           /*locality=*/3);
-
-        if (batch_count == 4) {
+        if (batch_count == kBatchSize) {
             score_batch();
         }
     }
 
     score_batch();
+    return acc.Finalize();
+}
 
-    if (fst_score < kSimilarityThreshold) {
-        return std::nullopt;
-    }
+std::optional<SearchResult> VectorIndex::SearchL0(
+    const float* query) const noexcept {
+    const uint32_t right = l0_buffer_.SnapPushHead();
+    const uint32_t left  = l0_buffer_.SnapPopTail();
 
-    SearchResult result;
-    result.primary = {fst_id, fst_ver};
-    if (sec_score >= kSimilarityThreshold) {
-        result.secondary = {sec_id, sec_ver};
-    }
+    uint32_t count = right - left;
+    return ScoreCandidates</*kBoundsSafe=*/true>(
+        query,
+        [&](uint32_t idx) noexcept { return l0_buffer_.LoadSlot(left + idx); },
+        [count]() noexcept { return count; });
+}
 
-    return result;
+std::optional<SearchResult> VectorIndex::SearchL1(
+    const float* query) const noexcept {
+    const uint8_t       active = active_route_.load(std::memory_order_acquire);
+    const RoutingTable& table  = routes_[active];
+
+    const uint32_t cluster_id = table.MatchCluster(query);
+    auto           members    = table.ClusterMemberIds(cluster_id);
+
+    return ScoreCandidates</*kBoundsSafe=*/false>(
+        query,
+        [&](uint32_t idx) noexcept {
+            return members[idx].load(std::memory_order_acquire);
+        },
+        [&table, cluster_id]() noexcept {
+            return table.ClusterSize(cluster_id);
+        });
 }
 
 // -----------------------------------------------------------------------------
