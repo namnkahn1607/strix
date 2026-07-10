@@ -13,6 +13,7 @@
 #include "arena.h"
 #include "free_list.h"
 #include "level0_ring.h"
+#include "level1_ivf.h"
 
 // `CacheOutcome` stimulates part of the cache states returned by Data plane to
 // the Control plane.
@@ -46,13 +47,10 @@ class VectorIndexBenchAccess;
 // Not copyable, not movable.
 class VectorIndex {
 public:
-    // `kUnclustered` is a `node_owner_` state which stands for "not yet
-    // assigned to any cluster". Hence, every L0 node is unclustered.
-    static constexpr uint16_t kUnclustered = 0xFFFF;
-
     // `VectorIndex` holds a reference to `MemoryArena`, and each instance of
     // type `FreeList` and `L0Buffer`.
-    explicit VectorIndex(MemoryArena& arena, const size_t l0_cap);
+    explicit VectorIndex(MemoryArena& arena, size_t l0_cap,
+                         const IvfConfig& config);
 
     VectorIndex(const VectorIndex&)            = delete;
     VectorIndex& operator=(const VectorIndex&) = delete;
@@ -98,8 +96,16 @@ public:
     bool CommitPayload(uint32_t node_id, const uint8_t* in,
                        uint32_t length) noexcept;
 
+    // `RunCoordinator()` triggers background coordinator worker that schedules
+    // and performs Compaction, Recalibration, Reassignment.
+    void RunCoordinator(const std::atomic<bool>& shutdown_req);
+
 private:
     friend class VectorIndexBenchAccess;
+
+    // `kUnclustered` is a `node_owner_` state which stands for "not yet
+    // assigned to any cluster". Hence, every L0 node is unclustered.
+    static constexpr uint32_t kUnclustered = 0xFFFFFFFFU;
 
     MemoryArena& arena_;
     FreeList     free_list_;
@@ -107,7 +113,29 @@ private:
 
     // `node_owner_`, a single-source-of-truth cluster ID tracker for every
     // clustered node. Unclustered nodes are considered `kUnclustered`.
-    std::unique_ptr<std::atomic<uint16_t>[]> node_owner_;
+    std::unique_ptr<std::atomic<uint32_t>[]> node_owner_;
+
+    RoutingTable         routes_[2];
+    std::atomic<uint8_t> active_route_{0};
+    std::atomic_flag     recalibration_in_progress = ATOMIC_FLAG_INIT;
+
+    const uint32_t kmeans_sample_size_;
+    float*         kmeans_sample_;
+
+    // Round-robin cursor only for `RunReassignment()` to determine which
+    // cluster to sweep on the next call.
+    uint32_t reassignment_cursor_ = 0;
+
+    // `RunCompaction()` sequentially migrates nodes from L0 Buffer to L1 IVF.
+    void RunCompaction() noexcept;
+
+    void RunRecalibration() noexcept;  // Draft
+
+    // `RunReassignment()` sweeps each cluster per called. Remove `kDead` node
+    // ID of that cluster and move datapoint to closer cluster.
+    // A generation change (node be evicted and re-acquired) mid-process are
+    // skipped to determine on another pass.
+    void RunReassignment() noexcept;
 };
 
 // `VectorIndexBenchAccess` defined out-of-line so ordinary callers never see
