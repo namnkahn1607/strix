@@ -66,6 +66,11 @@ void RoutingTable::SeedCentroid(const uint32_t cluster_id,
     std::memcpy(centroids_ + cluster_id * kVectorDim, vector, kVectorMemsize);
 }
 
+const float* RoutingTable::CentroidRow(
+    const uint32_t cluster_id) const noexcept {
+    return centroids_ + cluster_id * kVectorDim;
+}
+
 uint32_t RoutingTable::MatchCluster(const float* query) const noexcept {
     float    best_score    = -1.0f;
     uint32_t best_centroid = 0;
