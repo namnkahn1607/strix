@@ -76,6 +76,11 @@ public:
     // vectors as centroids.
     void SeedCentroid(uint32_t cluster_id, const float* vector) noexcept;
 
+    // `CentroidRow()` returns a read-only access to a centroid vector. Used by
+    // K-means++ seeding in Recalibration to measure sample distance to current
+    // centroid and by the mini-batch step.
+    const float* CentroidRow(uint32_t cluster_id) const noexcept;
+
     // `MatchCluster()` searches for most suitable cluster for an input vector.
     uint32_t MatchCluster(const float* query) const noexcept;
 
