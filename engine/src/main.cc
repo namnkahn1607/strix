@@ -10,11 +10,11 @@
 #include <thread>
 
 #include "aligned_vec.h"
-#include "arena.h"
 #include "avx2_kernel.h"
 #include "constants.h"
 #include "inference.h"
 #include "level1_ivf.h"
+#include "memory_arena.h"
 #include "service.h"
 
 namespace {
