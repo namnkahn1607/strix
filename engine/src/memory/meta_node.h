@@ -15,34 +15,30 @@
 #include <atomic>
 #include <cstdint>
 
-// NodeState
+// `NodeState`, lifecycle state machine for a single arena slot.
 //
-// Lifecycle state machine for a single arena slot.
-//
-//   - `DEAD`    -> `PENDING` : a writer holding a node_id from FreeList has
-//                              finished copying vector data and stamped
-//                              `created_at`; the slot is now searchable but
-//                              has no payload yet.
-//   - `PENDING` -> `READY`   : payload committed; slot is fully searchable.
-//   - `READY`   -> `DEAD`    : cold node evicted; slot released back to pool.
-//
-// GC skips CLAIMED & MIGRATING nodes (data intact; ownership transferred to
-// L1). Readers may still serve MIGRATING nodes during the migration window.
+//   - `kDead`    -> `kPending` : a writer holding a `node_id` from `FreeList`
+//                                has finished copying vector data and stamped
+//                                `created_at`; the slot is now searchable but
+//                                has no payload yet.
+//   - `kPending` -> `kReady`   : payload committed; slot is fully searchable.
+//   - `kReady`   -> `kDead`    : cold node evicted; slot released back to pool.
 enum class NodeState : uint8_t {
     kDead    = 0,
     kPending = 1,
     kReady   = 2,
 };
 
-// EvictState: CLOCK algorithm reference bit.
-//   - `HOT`  -> node was accessed since the last GC sweep; spare from eviction.
-//   - `COLD` -> node is a candidate for eviction on the next GC pass.
+// `EvictState`, CLOCK algorithm reference bit.
+//
+//   - `kHot`  : node was accessed since the last GC sweep; spare from eviction.
+//   - `kCold` : node is a candidate for eviction on the next GC pass.
 enum class EvictState : uint8_t {
     kCold = 0,
     kHot  = 1,
 };
 
-// UnpackedControl: decoded view of a MetaNode control block.
+// `UnpackedControl` is decoded view of a MetaNode control block.
 // Produced by `UnpackControl()`; consumed by any logical worker that interacts
 // with control block of a node.
 struct Control {
@@ -53,13 +49,11 @@ struct Control {
     uint64_t   virtual_offset;
 };
 
-// Bit-field shifts for PackControl() / UnpackControl().
 inline constexpr uint32_t kNodeStateShift = 62;
 inline constexpr uint32_t kVersionShift   = 58;
 inline constexpr uint32_t kEvictShift     = 57;
 inline constexpr uint32_t kLengthShift    = 36;
 
-// Bit-field masks for PackControl() / UnpackControl().
 inline constexpr uint64_t kNodeStateMask     = 0x3ULL;
 inline constexpr uint64_t kVersionMask       = 0xFULL;
 inline constexpr uint64_t kEvictMask         = 0x1ULL;
@@ -76,7 +70,7 @@ static_assert(kLengthShift + 21 == kEvictShift,
 static_assert(kLengthShift == 36,
               "'virtual offset' occupies bits [0, 36) unconditionally");
 
-// PackControl encodes a (`state`, `ref_bit`, `version`, `length`, `offset`)
+// `PackControl()` encodes a (`state`, `ref_bit`, `version`, `length`, `offset`)
 // tuple into a 64-bit control block word.
 inline uint64_t PackControl(const NodeState state, const EvictState ref_bit,
                             const uint8_t version, const uint32_t length,
@@ -88,7 +82,7 @@ inline uint64_t PackControl(const NodeState state, const EvictState ref_bit,
            (offset & kVirtualOffsetMask);
 }
 
-// UnpackControl decodes a raw 64-bit control block word into
+// `UnpackControl()` decodes a raw 64-bit control block word into
 // an `UnpackedControl` struct.
 inline Control UnpackControl(const uint64_t control) noexcept {
     return {
@@ -99,9 +93,7 @@ inline Control UnpackControl(const uint64_t control) noexcept {
         control & kVirtualOffsetMask};
 }
 
-// NextVersion
-//
-// Advances a 4-bit version counter with wraparound.
+// `NextVersion()` advances a 4-bit version counter with wraparound.
 //
 // Used only by the MISS-ed search path that acquires a fresh `node_id` from
 // the `FreeList` and commits its vector data. GC releasing a node back to
@@ -114,32 +106,30 @@ inline uint8_t NextVersion(const uint8_t version) noexcept {
     return (version + 1) & kVersionMask;
 }
 
-// MetaNode
+// `MetaNode`, metadata control block for one arena slot.
 //
-// Metadata control block for one arena slot.
-//
-// alignas(64): each `MetaNode` occupies exactly one cache line, preventing
+// `alignas(64)`: each `MetaNode` occupies exactly one cache line, preventing
 // False Sharing between adjacent slots under concurrent access.
 struct alignas(64) MetaNode {
     // Unix timestamp (seconds) at which this slot was claimed.
-    // Used by the GC to identify expired PENDING nodes.
-    // Always written by the acquiring writer before that writer publishes
-    // NodeState::kPending, so any reader that observes kPending via an
-    // acquire load of control_block is guaranteed to see a valid,
-    // freshly-written  created_at - never a stale value left over from
-    // this slot's previous occupant.
+    // Used by the GC to identify expired `kPending` nodes.
+    // Always written by the acquiring writer before that writer publishes, so
+    // any reader that observes `kPending` is guaranteed to see a valid,
+    // freshly-written `created_at` - never a stale value left over from this
+    // slot's previous occupant.
     std::atomic<uint64_t> created_at;
 
-    // Packed control block; encode/decode via PackControl/UnpackControl.
+    // Packed control block; `PackControl()` / `UnpackControl()` is used to
+    // encode/decode it.
     std::atomic<uint64_t> control_block;
 
-    // LoadControl atomically loads and decodes the control block.
+    // `LoadControl()` atomically loads and decodes the control block.
     Control LoadControl(const std::memory_order order =
                             std::memory_order_acquire) const noexcept {
         return UnpackControl(control_block.load(order));
     }
 
-    // LoadVersion extracts only the version field without decoding the
+    // `LoadVersion()` extracts only the version field without decoding the
     // rest of the control word.
     // Used on both sides of a seqlock-style vector read (snapshot before,
     // snapshot after) so the hot search path pays for one shift-and-mask

@@ -143,14 +143,13 @@ public:
     void PrefaultBuffer() const noexcept;
 
 private:
-    // Metadata array: one MetaNode per slot, mmap-allocated.
+    // Metadata array: one MetaNode per slot, allocated using `mmap`.
     MetaNode* metadata_;
 
-    // Vector arena: kVectorDim floats per slot, mmap-allocated.
-    // Row-major layout: slot i starts at vectors_ + kVectorDim * i.
+    // Vector arena: `kVectorDim` floats per slot, allocated using `mmap`.
     float* vectors_;
 
-    // Payload ring buffer (nullptr when payload_buf_size_ == 0).
+    // Payload ring buffer (`nullptr` when `payload_buf_size_ == 0`).
     uint8_t* payload_buf_;
 
     std::atomic<uint64_t> write_head_;
