@@ -22,7 +22,7 @@
 
 #include <benchmark/benchmark.h>
 
-#include "arena.h"
+#include "memory_arena.h"
 
 namespace {
 

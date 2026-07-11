@@ -19,12 +19,12 @@
 //
 // All configs use lazy_mapping = true (no MAP_POPULATE).
 
+#include "memory_arena.h"
+
 #include <gtest/gtest.h>
 
 #include <stdexcept>
 #include <string>
-
-#include "arena.h"
 
 namespace {
 

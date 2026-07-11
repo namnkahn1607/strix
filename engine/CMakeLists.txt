@@ -93,7 +93,7 @@ target_include_directories(engine_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/
 target_link_libraries(engine_common PRIVATE engine_options)
 
 # Module 2: Memory
-add_library(engine_memory STATIC src/memory/arena.cc)
+add_library(engine_memory STATIC src/memory/memory_arena.cc)
 target_include_directories(engine_memory PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/memory)
 target_link_libraries(engine_memory PRIVATE engine_options engine_common)
 
