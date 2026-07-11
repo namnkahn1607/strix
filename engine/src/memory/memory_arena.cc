@@ -3,7 +3,7 @@
 // MemoryArena implementation: construction, destruction, payload ring buffer
 // read/write, lock-free allocation, and the Snowplow garbage collector.
 
-#include "arena.h"
+#include "memory_arena.h"
 
 #include <sys/mman.h>
 
