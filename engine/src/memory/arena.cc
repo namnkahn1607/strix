@@ -22,13 +22,13 @@
 
 namespace {
 
-// Magic number written into every PayloadHeader to distinguish valid headers
+// Magic number written into every `PayloadHeader` to distinguish valid headers
 // from stale or uninitialized bytes during GC snowplow traversal.
 inline constexpr uint32_t kValidIdentifier = 0xDEADBEEF;
 
 // Ring buffer occupancy thresholds that govern GC sleep intervals.
-// Below kLowWatermark  : buffer pressure is low; GC sleeps longer.
-// Above kHighWatermark : buffer pressure is high; GC runs near-continuously.
+// Below `kLowWatermark`  : buffer pressure is low; GC sleeps longer.
+// Above `kHighWatermark` : buffer pressure is high; GC runs near-continuously.
 inline constexpr uint64_t kLowWatermark  = 0x80000000ULL;  // 2 GB
 inline constexpr uint64_t kHighWatermark = 0xE0000000ULL;  // 3.5 GB
 
@@ -36,7 +36,7 @@ inline constexpr uint64_t kHighWatermark = 0xE0000000ULL;  // 3.5 GB
 inline constexpr uint32_t kLowGCSleep  = 10;
 inline constexpr uint32_t kHighGCSleep = 1;
 
-// How often SweepStalePending() is invoked by the GC loop (milliseconds).
+// How often `SweepStalePending()` is invoked by the GC loop (milliseconds).
 inline constexpr uint32_t kSweepInterval = 5'000;
 
 }  // namespace
