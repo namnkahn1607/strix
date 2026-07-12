@@ -11,42 +11,40 @@
 
 #include "aligned_vec.h"
 #include "avx2_kernel.h"
+#include "cache_service.h"
 #include "constants.h"
 #include "inference_model.h"
 #include "level1_ivf.h"
 #include "memory_arena.h"
-#include "cache_service.h"
 
 namespace {
 
 // File descriptor index of the Death Pipe reader end.
-// The pipe is created by the Control plane and in herited by this process
-// on spawn. EOF on this fd signals that this process must shut down.
-inline constexpr int32_t kPipeReaderFD = 3;
+// The pipe is created by the Control plane and inherited by this process
+// on spawn. EOF on this signals that this process must shut down.
+inline constexpr uint32_t kPipeReaderFD = 3;
 
 // Vector Engine's graceful shutdown timeout in second(s).
 inline constexpr uint32_t kShutdownTimeout = 5;
 
-// WarmupEngine()
-//
-// Drives the ONNX runtime and AVX2 dispatch through one full execution path
-// before the server starts accepting requests, eliminating JIT compilation
-// and cold-cache latency from the first real request.
+// `WarmupEngine()` drives the ONNX runtime and AVX2 dispatch through one full
+// execution path before the server starts accepting requests, eliminating JIT
+// initialization and cold-cache latency from the first real request.
 void WarmupEngine(const Embedder& embedder) {
     std::cout << "[Vector Engine] Warming up ONNX runtime...\n";
 
-    constexpr int32_t WARMUP_ROUNDS = 3;
-    const std::string dummy_prompt  = "Hello, World!";
+    constexpr uint32_t kWarmupRounds = 3;
+    const std::string  dummy_prompt  = "Hello, World!";
 
     AlignedVec dummy_vec;
-    for (int32_t i = 0; i < WARMUP_ROUNDS; ++i) {
+    for (uint32_t i = 0; i < kWarmupRounds; ++i) {
         auto result = embedder.Encode(dummy_prompt);
         if (result.ok()) {
             dummy_vec = std::move(result.value());
         }
     }
 
-    // Warm-up AVX2 dispatch with a zero-initialised batch.
+    // Warm-up AVX2 dispatch with a zero-initialized batch.
     auto dummy_batch = CreateAlignedVector(4 * kVectorDim);
     std::memset(dummy_batch.get(), 0, 4 * kVectorMemsize);
 
@@ -58,12 +56,11 @@ void WarmupEngine(const Embedder& embedder) {
     std::cout << "[Vector Engine] Warm-up completed.\n";
 }
 
-// RunServer()
-//
-// Starts the gRPC server and GC background thread, then blocks on the epoll
-// event loop until a shutdown signal arrives (Death Pipe EOF or
-// SIGINT/SIGTERM). `fd_sig` must be a `signalfd` created in `main()` after
-// the signal mask is set.
+// `RunServer()` starts the gRPC server and GC background thread, then blocks on
+// the epoll event loop until a shutdown signal arrives (Death Pipe EOF or
+// SIGINT/SIGTERM).
+// `fd_sig` must be a `signalfd` created by `main()` after the signal mask is
+// set.
 void RunServer(const Embedder& embedder, VectorIndex& index, MemoryArena& arena,
                std::atomic<bool>& g_shutdown_req, int fd_sig) {
     const std::string server_address{"unix:///tmp/strix.sock"};
@@ -198,7 +195,7 @@ int main() {
 
     try {
         const Embedder embedder(tok_path, bert_path);
-        std::cout << "[Vector Engine] Initialized Inference model.\n";
+        std::cout << "[Vector Engine] Initialized Inference Model.\n";
 
         const auto arena =
             std::make_unique<MemoryArena>(ArenaConfig::Production());
