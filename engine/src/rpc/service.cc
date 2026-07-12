@@ -6,11 +6,11 @@
 
 #include <grpcpp/support/status.h>
 
-#include <chrono>
 #include <exception>
 #include <optional>
 
 #include "strix.pb.h"
+#include "syscall_utils.h"
 
 CacheServiceImpl::CacheServiceImpl(const Embedder& embedder, VectorIndex& index)
     : embedder_(embedder), index_(index) {
@@ -49,9 +49,7 @@ grpc::Status CacheServiceImpl::CheckCache(
         // Vector Searching: HIT path
         // ------------------------------------------------------------------
 
-        const auto wall = std::chrono::system_clock::now().time_since_epoch();
-        const uint64_t curr_time = static_cast<uint64_t>(
-            std::chrono::duration_cast<std::chrono::seconds>(wall).count());
+        const uint64_t curr_time = common::MonotonicNow();
 
         const auto l0_result = index_.SearchL0(query);
         if (l0_result.has_value()) {
