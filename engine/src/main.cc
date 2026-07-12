@@ -12,7 +12,7 @@
 #include "aligned_vec.h"
 #include "avx2_kernel.h"
 #include "constants.h"
-#include "inference.h"
+#include "inference_model.h"
 #include "level1_ivf.h"
 #include "memory_arena.h"
 #include "cache_service.h"
