@@ -88,9 +88,9 @@ target_include_directories(engine_contract PUBLIC "${PROTO_GEN_DIR}")
 # 4. DATA PLANE MODULES
 # ===========================================================================
 # Module 1: Common
-add_library(engine_common STATIC src/common/global_utils.cc)
-target_include_directories(engine_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/common)
-target_link_libraries(engine_common PRIVATE engine_options)
+add_library(engine_common INTERFACE)
+target_include_directories(engine_common INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/src/common)
+target_link_libraries(engine_common INTERFACE engine_options)
 
 # Module 2: Memory
 add_library(engine_memory STATIC src/memory/memory_arena.cc)
