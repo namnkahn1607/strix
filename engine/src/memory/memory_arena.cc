@@ -17,8 +17,8 @@
 #include <thread>
 
 #include "constants.h"
-#include "global_utils.h"
 #include "meta_node.h"
+#include "syscall_utils.h"
 
 namespace {
 
@@ -68,24 +68,24 @@ MemoryArena::MemoryArena(const ArenaConfig& config)
     }
 
     metadata_ = static_cast<MetaNode*>(
-        Alloc32(max_slots * sizeof(MetaNode), config.lazy_mapping));
-    vectors_ = static_cast<float*>(
-        Alloc32(max_slots * kVectorDim * sizeof(float), config.lazy_mapping));
+        common::AllocMMap(max_slots * sizeof(MetaNode), config.lazy_mapping));
+    vectors_ = static_cast<float*>(common::AllocMMap(
+        max_slots * kVectorDim * sizeof(float), config.lazy_mapping));
 
     if (payload_buf_size > 0) {
         payload_buf_ = static_cast<uint8_t*>(
-            Alloc32(payload_buf_size, config.lazy_mapping));
+            common::AllocMMap(payload_buf_size, config.lazy_mapping));
     } else {
         payload_buf_ = nullptr;
     }
 }
 
 MemoryArena::~MemoryArena() {
-    munmap(metadata_, max_slots * sizeof(MetaNode));
-    munmap(vectors_, max_slots * kVectorDim * sizeof(float));
+    common::DeallocMMap(metadata_, max_slots * sizeof(MetaNode));
+    common::DeallocMMap(vectors_, max_slots * kVectorMemsize);
 
     if (payload_buf_ != nullptr) {
-        munmap(payload_buf_, payload_buf_size);
+        common::DeallocMMap(payload_buf_, payload_buf_size);
     }
 }
 
@@ -105,12 +105,7 @@ void MemoryArena::RunGarbageCollector(const std::atomic<bool>& g_shutdown_req) {
             if (std::chrono::duration_cast<std::chrono::milliseconds>(
                     now - last_sweep)
                     .count() >= kSweepInterval) {
-                const auto wall =
-                    std::chrono::system_clock::now().time_since_epoch();
-                const uint64_t curr_time = static_cast<uint64_t>(
-                    std::chrono::duration_cast<std::chrono::seconds>(wall)
-                        .count());
-                SweepStalePending(curr_time);
+                SweepStalePending(common::MonotonicNow());
                 last_sweep = now;
             }
 
