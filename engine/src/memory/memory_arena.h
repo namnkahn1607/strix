@@ -32,7 +32,7 @@
 //                           to exercise wrap-around behaviour.
 struct ArenaConfig {
     const uint32_t max_slots;
-    const uint64_t payload_buf_size;
+    const size_t   payload_buf_size;
     const bool     lazy_mapping;
     const uint64_t start_point = 0;
 
@@ -40,7 +40,7 @@ struct ArenaConfig {
     // pre-fault pages enabled.
     static ArenaConfig Production() {
         // Default ring buffer capacity for `Production()` config.
-        constexpr uint64_t kPayloadBufferSize = 0x100000000ULL;  // 4 GB
+        constexpr size_t kPayloadBufferSize = 0x100000000ULL;  // 4 GB
         return {kTotalSlots, kPayloadBufferSize, false};
     }
 
@@ -79,7 +79,7 @@ public:
     MemoryArena& operator=(MemoryArena&&)      = delete;
 
     const uint32_t max_slots;
-    const uint64_t payload_buf_size;
+    const size_t   payload_buf_size;
 
     // `ReadPayload()`: copies `length` bytes starting at `v_offset` from the
     // ring buffer into `out_payload`. Caller must resize the destination buffer
@@ -119,8 +119,9 @@ public:
 
     // `GetVector()` returns a pointer to the first float of the vector at
     // position `node_id`. The vector occupies `kVectorDim` contiguous floats.
+    // Caller must ensure `node_id` < `max_slots`.
     inline float* GetVector(const uint32_t node_id) const noexcept {
-        return vectors_ + kVectorDim * node_id;
+        return vectors_ + node_id * kVectorDim;
     }
 
     // `GetWriteHead()` returns the current write head offset.
