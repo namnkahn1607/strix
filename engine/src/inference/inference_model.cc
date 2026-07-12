@@ -4,7 +4,7 @@
 // Encode() runs two sequential ORT sessions (tokenizer -> transformer)
 // and returns a mean-pooled, L2-normalised embedding vector.
 
-#include "inference.h"
+#include "inference_model.h"
 
 #include <onnxruntime/onnxruntime_cxx_api.h>
 
