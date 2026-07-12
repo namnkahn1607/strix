@@ -69,8 +69,8 @@ MemoryArena::MemoryArena(const ArenaConfig& config)
 
     metadata_ = static_cast<MetaNode*>(
         common::AllocMMap(max_slots * sizeof(MetaNode), config.lazy_mapping));
-    vectors_ = static_cast<float*>(common::AllocMMap(
-        max_slots * kVectorDim * sizeof(float), config.lazy_mapping));
+    vectors_ = static_cast<float*>(
+        common::AllocMMap(max_slots * kVectorMemsize, config.lazy_mapping));
 
     if (payload_buf_size > 0) {
         payload_buf_ = static_cast<uint8_t*>(
