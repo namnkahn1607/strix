@@ -2,7 +2,7 @@
 //
 // CacheServiceImpl method definitions: CheckCache and SetCache RPC handlers.
 
-#include "service.h"
+#include "cache_service.h"
 
 #include <grpcpp/support/status.h>
 

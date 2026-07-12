@@ -15,7 +15,7 @@
 #include "inference.h"
 #include "level1_ivf.h"
 #include "memory_arena.h"
-#include "service.h"
+#include "cache_service.h"
 
 namespace {
 
