@@ -168,8 +168,8 @@ private:
     // Returns the virtual offset at which the caller may begin writing.
     std::optional<uint64_t> AllocatePayload(uint32_t length) noexcept;
 
-    // `SweepStalePending()` scans the metadata array and transitions stale
-    // PENDING nodes to DEAD.
+    // `SweepStalePending()` scans the metadata array and transitions all
+    // stale `kPending` nodes to `kDead`.
     void SweepStalePending(uint64_t curr_time) noexcept;
 };
 
