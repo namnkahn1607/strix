@@ -98,7 +98,7 @@ target_include_directories(engine_memory PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/
 target_link_libraries(engine_memory PRIVATE engine_options engine_common)
 
 # Module 3: Inference
-add_library(engine_inference STATIC src/inference/inference.cc)
+add_library(engine_inference STATIC src/inference/inference_model.cc)
 target_include_directories(engine_inference PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/inference)
 target_link_libraries(engine_inference PRIVATE engine_options engine_common)
 target_link_libraries(engine_inference PUBLIC ONNXRuntime)
