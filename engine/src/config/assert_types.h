@@ -1,6 +1,6 @@
 // Author: namnkahn1607
 //
-// Compile-time assertions to achieve expected hardware-level features.
+// Compile-time assertions to achieve expected lock-free features.
 
 #pragma once
 
