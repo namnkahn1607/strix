@@ -5,8 +5,8 @@
 //
 // Control block bit layout (64 bits):
 //   Bits 63–62  (2 bits)  : NodeState
-//   Bit  61-58  (4 bits)  : Version     (seqlock-style read validation)
-//   Bits 57     (1 bit)   : EvictState  (CLOCK algorithm reference bit)
+//   Bit  61-58  (1 bit)   : EvictState  (CLOCK algorithm reference bit)
+//   Bits 60-57  (4 bits)  : Version     (seqlock-style read validation)
 //   Bits 56–36  (21 bits) : Payload length  (max 2 MB - 1 byte)
 //   Bits 35–0   (36 bits) : Virtual offset  (max 64 GB; epoch-safe)
 
@@ -50,23 +50,23 @@ struct Control {
 };
 
 inline constexpr uint32_t kNodeStateShift = 62;
-inline constexpr uint32_t kVersionShift   = 58;
-inline constexpr uint32_t kEvictShift     = 57;
+inline constexpr uint32_t kEvictShift     = 61;
+inline constexpr uint32_t kVersionShift   = 57;
 inline constexpr uint32_t kLengthShift    = 36;
 
 inline constexpr uint64_t kNodeStateMask     = 0x3ULL;
+inline constexpr uint64_t kEvictStateMask    = 0x1ULL;
 inline constexpr uint64_t kVersionMask       = 0xFULL;
-inline constexpr uint64_t kEvictMask         = 0x1ULL;
 inline constexpr uint64_t kVirtualOffsetMask = 0xF'FFFF'FFFFULL;
 inline constexpr uint32_t kMaxPayloadLength  = 0x1F'FFFFU;
 
 // Assertions to ensure bit layout are configured correctly.
-static_assert(kVersionShift + 4 == kNodeStateShift,
-              "'version' field must occupy the 4 bits directly below 'state'");
-static_assert(kEvictShift + 1 == kVersionShift,
-              "'evict' bit must sit directly below the version 'field'");
-static_assert(kLengthShift + 21 == kEvictShift,
-              "'length' field must sit directly below the 'evict' bit");
+static_assert(kEvictShift + 1 == kNodeStateShift,
+              "'evict' bit must sit below the 'state' field");
+static_assert(kVersionShift + 4 == kEvictShift,
+              "'version' field must occupy the 4 bits below the 'evict' bit");
+static_assert(kLengthShift + 21 == kVersionShift,
+              "'length' field must sit below the 'version' field");
 static_assert(kLengthShift == 36,
               "'virtual offset' occupies bits [0, 36) unconditionally");
 
@@ -76,8 +76,8 @@ inline uint64_t PackControl(const NodeState state, const EvictState ref_bit,
                             const uint8_t version, const uint32_t length,
                             const uint64_t offset) noexcept {
     return (static_cast<uint64_t>(state) << kNodeStateShift) |
-           ((static_cast<uint64_t>(version) & kVersionMask) << kVersionShift) |
            (static_cast<uint64_t>(ref_bit) << kEvictShift) |
+           ((static_cast<uint64_t>(version) & kVersionMask) << kVersionShift) |
            (static_cast<uint64_t>(length & kMaxPayloadLength) << kLengthShift) |
            (offset & kVirtualOffsetMask);
 }
@@ -87,7 +87,7 @@ inline uint64_t PackControl(const NodeState state, const EvictState ref_bit,
 inline Control UnpackControl(const uint64_t control) noexcept {
     return {
         static_cast<NodeState>((control >> kNodeStateShift) & kNodeStateMask),
-        static_cast<EvictState>((control >> kEvictShift) & kEvictMask),
+        static_cast<EvictState>((control >> kEvictShift) & kEvictStateMask),
         static_cast<uint8_t>((control >> kVersionShift) & kVersionMask),
         static_cast<uint32_t>((control >> kLengthShift) & kMaxPayloadLength),
         control & kVirtualOffsetMask};

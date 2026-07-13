@@ -1,15 +1,71 @@
 // Author: namnkahn1607
 //
 // Unit tests for PackControl() and UnpackControl() - the bit-manip
-// operations that encode/decode the 64-bit control block of MetaNode.
+// operations that encode/decode the 64-bit control block of MetaNode,
+// NextVersion(), and atomic accessors LoadControl() & LoadVersion().
 
 #include <gtest/gtest.h>
 
+#include <atomic>
+
 #include "meta_node.h"
+
+// =============================================================================
+// Section 1: Raw-bit anchoring.
+//
+// Compare the packed uint64_t word against a hand-computed literal, WITHOUT
+// going through UnpackControl(). Only comparing against a fixed literal,
+// derived from the documented bit layout, can detect a wrong shift value same
+// way in both PackControl() and UnpackControl().
+// =============================================================================
+
+TEST(RawBitLayoutTest, ZeroInputProducesZero) {
+    const auto packed =
+        PackControl(NodeState::kDead, EvictState::kCold, 0, 0, 0);
+    EXPECT_EQ(packed, 0x0ULL);
+}
+
+TEST(RawBitLayoutTest, NodeStateOccupiesBits63To62) {
+    const auto packed =
+        PackControl(NodeState::kReady, EvictState::kCold, 0, 0, 0);
+    EXPECT_EQ(packed, uint64_t{0b10} << 62);
+}
+
+TEST(RawBitLayoutTest, EvictOccupiesBit61) {
+    const auto packed =
+        PackControl(NodeState::kDead, EvictState::kHot, 0, 0, 0);
+    EXPECT_EQ(packed, uint64_t{0x1} << 61);
+}
+
+TEST(RawBitLayoutTest, VersionOccupiesBits60To57) {
+    const auto packed =
+        PackControl(NodeState::kDead, EvictState::kCold, 0xF, 0, 0);
+    EXPECT_EQ(packed, uint64_t{kVersionMask} << 57);
+}
+
+TEST(RawBitLayoutTest, LengthOccupiesBits56To36) {
+    const auto packed = PackControl(NodeState::kDead, EvictState::kCold, 0,
+                                    kMaxPayloadLength, 0);
+    EXPECT_EQ(packed, uint64_t{kMaxPayloadLength} << 36);
+}
+
+TEST(RawBitLayoutTest, OffsetOccupiesBits35To0) {
+    const auto packed = PackControl(NodeState::kDead, EvictState::kCold, 0, 0,
+                                    kVirtualOffsetMask);
+    EXPECT_EQ(packed, uint64_t{kVirtualOffsetMask});
+}
+
+// =============================================================================
+// Section 2: Round-trip correctness per field.
+//
+// These confirm Pack -> Unpack recovers the original value without creating
+// mask errors, sign-extension bugs, and enum cast issues..
+// =============================================================================
 
 namespace {
 
-// RoundTrip(): pack and unpack immediately, return the UnpackedControl.
+// `RoundTrip()` packs arguments and unpacks ti immediately, return
+// a `UnpackedControl` as result.
 Control RoundTrip(const NodeState state, const EvictState ref_bit,
                   const uint8_t version, const uint32_t length,
                   const uint64_t v_offset) {
@@ -19,25 +75,7 @@ Control RoundTrip(const NodeState state, const EvictState ref_bit,
 
 }  // namespace
 
-// -----------------------------------------------------------------------------
-// ZeroInputProducesZero
-// PackControl with all-zero fields must produce a zero word.
-// DEAD=0, COLD=0, length=0, offset=0 -> 0x0.
-// -----------------------------------------------------------------------------
-
-TEST(PackControlTest, ZeroInputProducesZero) {
-    const auto packed =
-        PackControl(NodeState::kDead, EvictState::kCold, 0, 0, 0);
-    EXPECT_EQ(packed, 0x0ULL);
-}
-
-// -----------------------------------------------------------------------------
-// RoundTrip_AllStates
-// Every NodeState value round-trips correctly through Pack/Unpack.
-// Verifies the 3-bit state field does not overflow into adjacent bits.
-// -----------------------------------------------------------------------------
-
-TEST(PackControlTest, RoundTrip_AllStates) {
+TEST(RoundTripTest, AllNodeStates) {
     const NodeState states[] = {
         NodeState::kDead,
         NodeState::kPending,
@@ -50,12 +88,7 @@ TEST(PackControlTest, RoundTrip_AllStates) {
     }
 }
 
-// -----------------------------------------------------------------------------
-// RoundTrip_BothEvictStates
-// Both EvictState values (COLD=0, HOT=1) round-trip correctly.
-// -----------------------------------------------------------------------------
-
-TEST(PackControlTest, RoundTrip_BothEvictStates) {
+TEST(RoundTripTest, BothEvictStates) {
     const auto cold = RoundTrip(NodeState::kReady, EvictState::kCold, 0, 0, 0);
     EXPECT_EQ(cold.ref_bit, EvictState::kCold);
 
@@ -63,13 +96,8 @@ TEST(PackControlTest, RoundTrip_BothEvictStates) {
     EXPECT_EQ(hot.ref_bit, EvictState::kHot);
 }
 
-// -----------------------------------------------------------------------------
-// RoundTrip_VersionBoundaries
-// Length field is 4 bits: valid range [0, 0xF].
-// Tests zero, one, midpoint (0x8), and max.
-// -----------------------------------------------------------------------------
-
-TEST(PackControlTest, RoundTrip_VersionBoundaries) {
+TEST(RoundTripTest, VersionBoundaries) {
+    // Version field is 4 bits wide. Valid range: [0, 0xF].
     const uint8_t versions[] = {0, 1, 0x8, 0xF};
     for (const auto ver : versions) {
         const auto result =
@@ -78,13 +106,8 @@ TEST(PackControlTest, RoundTrip_VersionBoundaries) {
     }
 }
 
-// -----------------------------------------------------------------------------
-// RoundTrip_LengthBoundaries
-// Length field is 21 bits: valid range [0, 0x1FFFFF].
-// Tests zero, one, midpoint (0xFFFFF), and max.
-// -----------------------------------------------------------------------------
-
-TEST(PackControlTest, RoundTrip_LengthBoundaries) {
+TEST(RoundTripTest, LengthBoundaries) {
+    // Length field is 21 bits wide. Valid range: [0, 0x1FFFFF].
     const uint32_t lengths[] = {0, 1, 0xFFFFF, kMaxPayloadLength};
     for (const auto len : lengths) {
         const auto result =
@@ -93,13 +116,8 @@ TEST(PackControlTest, RoundTrip_LengthBoundaries) {
     }
 }
 
-// -----------------------------------------------------------------------------
-// RoundTrip_OffsetBoundaries
-// Offset field is 36 bits: valid range [0, 0xFFFFFFFFF].
-// Tests zero, one, midpoint (0x7FFFFFFFF), and max.
-// -----------------------------------------------------------------------------
-
-TEST(PackControlTest, RoundTrip_OffsetBoundaries) {
+TEST(RoundTripTest, OffsetBoundaries) {
+    // Offset field is 36 bits. Valid range: [0, 0xFFFFFFFFF].
     const uint64_t offsets[] = {0, 1, 0x7FFFFFFFFULL, kVirtualOffsetMask};
     for (const auto offset : offsets) {
         const auto result =
@@ -109,18 +127,10 @@ TEST(PackControlTest, RoundTrip_OffsetBoundaries) {
     }
 }
 
-// -----------------------------------------------------------------------------
-// RoundTrip_AllFieldsMaxed
-// All fields at maximum simultaneously. Verifies no field bleeds into another
-// when all bits are set.
-// -----------------------------------------------------------------------------
-
-TEST(PackControlTest, RoundTrip_AllFieldsMaxed) {
-    const auto result = RoundTrip(NodeState::kReady,  // 0b10 = max 2-bit state
-                                  EvictState::kHot,   // 1
-                                  kVersionMask,       // 0xF
-                                  kMaxPayloadLength,  // 0xFFFFFF
-                                  kVirtualOffsetMask);  // 0xFFFFFFFFF
+TEST(RoundTripTest, AllFieldsMaxedSimultaneously) {
+    const auto result =
+        RoundTrip(NodeState::kReady, EvictState::kHot, kVersionMask,
+                  kMaxPayloadLength, kVirtualOffsetMask);
 
     EXPECT_EQ(result.state, NodeState::kReady);
     EXPECT_EQ(result.ref_bit, EvictState::kHot);
@@ -129,14 +139,16 @@ TEST(PackControlTest, RoundTrip_AllFieldsMaxed) {
     EXPECT_EQ(result.virtual_offset, kVirtualOffsetMask);
 }
 
-// -----------------------------------------------------------------------------
-// Isolation_StateDoesNotCorruptOtherFields
-// Changing only the state field must leave all other fields unchanged.
-// -----------------------------------------------------------------------------
+// =============================================================================
+// Section 3: Field isolation.
+//
+// Sweeping one field across its full range must never perturb the other four.
+// Proves that no field bleeds into its adjacent neighbor(s).
+// =============================================================================
 
-TEST(PackControlTest, Isolation_StateDoesNotCorruptOtherFields) {
+TEST(IsolationTest, NodeStateDoesNotCorruptOtherFields) {
     constexpr uint8_t  kVersion = 0xA;
-    constexpr uint32_t kLength  = 0xABCDE;
+    constexpr uint32_t kLength  = 0xABCDEU;
     constexpr uint64_t kOffset  = 0x123456789ULL;
 
     const NodeState states[] = {
@@ -155,14 +167,9 @@ TEST(PackControlTest, Isolation_StateDoesNotCorruptOtherFields) {
     }
 }
 
-// -----------------------------------------------------------------------------
-// Isolation_RefBitDoesNotCorruptOtherFields
-// Toggling the ref_bit must leave all other fields unchanged.
-// -----------------------------------------------------------------------------
-
-TEST(PackControlTest, Isolation_RefBitDoesNotCorruptOtherFields) {
+TEST(IsolationTest, RefBitDoesNotCorruptOtherFields) {
     constexpr uint8_t  kVersion = 0xB;
-    constexpr uint32_t kLength  = 0x10000;
+    constexpr uint32_t kLength  = 0x10000U;
     constexpr uint64_t kOffset  = 0xABCDEF012ULL;
 
     for (const auto ev : {EvictState::kCold, EvictState::kHot}) {
@@ -176,14 +183,8 @@ TEST(PackControlTest, Isolation_RefBitDoesNotCorruptOtherFields) {
     }
 }
 
-// -----------------------------------------------------------------------------
-// Isolation_VersionDoesNotCorruptOtherFields
-// Sweeping through representative version values must leave all other fields
-// unchanged.
-// -----------------------------------------------------------------------------
-
-TEST(PackControlTest, Isolation_VersionDoesNotCorruptOtherFields) {
-    constexpr uint32_t kLength = 0x12345;
+TEST(IsolationTest, VersionDoesNotCorruptOtherFields) {
+    constexpr uint32_t kLength = 0x12345U;
     constexpr uint64_t kOffset = 0x123ABC456ULL;
 
     const uint8_t versions[] = {0, 1, 0x6, 0x7, 0x8, 0xF};
@@ -198,17 +199,11 @@ TEST(PackControlTest, Isolation_VersionDoesNotCorruptOtherFields) {
     }
 }
 
-// -----------------------------------------------------------------------------
-// Isolation_LengthDoesNotCorruptOtherFields
-// Sweeping through representative length values must leave all other fields
-// unchanged.
-// -----------------------------------------------------------------------------
-
-TEST(PackControlTest, Isolation_LengthDoesNotCorruptOtherFields) {
+TEST(IsolationTest, LengthDoesNotCorruptOtherFields) {
     constexpr uint8_t  kVersion = 0xD;
     constexpr uint64_t kOffset  = 0x1FFFFFFF0ULL;
 
-    const uint32_t lengths[] = {0, 1, 0x80000, kMaxPayloadLength};
+    const uint32_t lengths[] = {0, 1, 0x80000U, kMaxPayloadLength};
     for (const uint32_t len : lengths) {
         const auto result = RoundTrip(NodeState::kReady, EvictState::kCold,
                                       kVersion, len, kOffset);
@@ -220,15 +215,9 @@ TEST(PackControlTest, Isolation_LengthDoesNotCorruptOtherFields) {
     }
 }
 
-// -----------------------------------------------------------------------------
-// Isolation_OffsetDoesNotCorruptOtherFields
-// Sweeping through representative offset values must leave all other fields
-// unchanged.
-// -----------------------------------------------------------------------------
-
-TEST(PackControlTest, Isolation_OffsetDoesNotCorruptOtherFields) {
+TEST(IsolationTest, OffsetDoesNotCorruptOtherFields) {
     constexpr uint8_t  kVersion = 0xE;
-    constexpr uint32_t kLength  = 0xFFFFF;
+    constexpr uint32_t kLength  = 0xFFFFFU;
 
     const uint64_t offsets[] = {0, 1, 0x800000000ULL, kVirtualOffsetMask};
     for (const uint64_t offset : offsets) {
@@ -242,13 +231,36 @@ TEST(PackControlTest, Isolation_OffsetDoesNotCorruptOtherFields) {
     }
 }
 
-// -----------------------------------------------------------------------------
-// LengthOverflowIsTruncated
-// PackControl masks length to 21 bits. Passing a value larger than
-// MAX_PAYLOAD_LENGTH must silently truncate, not corrupt adjacent fields.
-// -----------------------------------------------------------------------------
+// =============================================================================
+// Section 4: Overflow masking.
+//
+// Every field with a mask (version, length, offset) must silently truncate
+// on overflow input rather than bleeding into the adjacent field.
+//
+// NOTE: state and ref_bit are omitted here on purpose. state is a 2-bit field
+// fed from a 3-value enum (max encoding 0b10) while ref_bit from a 1-bit enum
+// (max 0b1), so neither can overflow its own field width.
+// =============================================================================
 
-TEST(PackControlTest, LengthOverflowIsTruncated) {
+TEST(OverflowTest, VersionOverflowIsTruncated) {
+    // 0xFF = 8 bits set; only the low 4 bits (0xF) should survive.
+    constexpr uint8_t  kOverflowVersion = 0xFF;
+    constexpr uint8_t  kExpectedVersion = 0xF;
+    constexpr uint32_t kLength          = 0x555U;
+    constexpr uint64_t kOffset          = 0x200ULL;
+
+    const auto result = RoundTrip(NodeState::kPending, EvictState::kCold,
+                                  kOverflowVersion, kLength, kOffset);
+
+    EXPECT_EQ(result.version, kExpectedVersion)
+        << "overflow bits must be masked";
+    EXPECT_EQ(result.state, NodeState::kPending);
+    EXPECT_EQ(result.ref_bit, EvictState::kCold);
+    EXPECT_EQ(result.length, kLength) << "length must not be corrupted";
+    EXPECT_EQ(result.virtual_offset, kOffset) << "offset must not be corrupted";
+}
+
+TEST(OverflowTest, LengthOverflowIsTruncated) {
     // 0x3FFFFF = 22 bits set; only low 21 bits (0x1FFFFF) should survive.
     constexpr uint32_t kOverflowLength = 0x3FFFFFU;
     constexpr uint32_t kExpectedLength = 0x1FFFFFU;
@@ -261,17 +273,11 @@ TEST(PackControlTest, LengthOverflowIsTruncated) {
     EXPECT_EQ(result.length, kExpectedLength) << "overflow bits must be masked";
     EXPECT_EQ(result.state, NodeState::kReady);
     EXPECT_EQ(result.ref_bit, EvictState::kHot);
-    EXPECT_EQ(result.version, kVersion);
+    EXPECT_EQ(result.version, kVersion) << "version must not be corrupted";
     EXPECT_EQ(result.virtual_offset, kOffset) << "offset must not be corrupted";
 }
 
-// -----------------------------------------------------------------------------
-// OffsetOverflowIsTruncated
-// PackControl masks offset to 36 bits. Bits above VIRTUAL_OFFSET_MASK
-// must be silently discarded without corrupting adjacent fields.
-// -----------------------------------------------------------------------------
-
-TEST(PackControlTest, OffsetOverflowIsTruncated) {
+TEST(OverflowTest, OffsetOverflowIsTruncated) {
     // Set bits 37-38 (above the 36-bit mask) - should be stripped.
     constexpr uint64_t kOverflowOfs = 0x7FFFFFFFFFULL;     // 39 bits set
     constexpr uint64_t kExpectedOfs = kVirtualOffsetMask;  // 36 bits
@@ -283,6 +289,68 @@ TEST(PackControlTest, OffsetOverflowIsTruncated) {
         << "overflow bits must be masked";
     EXPECT_EQ(result.state, NodeState::kPending);
     EXPECT_EQ(result.ref_bit, EvictState::kCold);
-    EXPECT_EQ(result.version, 0);
-    EXPECT_EQ(result.length, 0U);
+    EXPECT_EQ(result.version, 0) << "version must not be corrupted";
+    EXPECT_EQ(result.length, 0U) << "length must not be corrupted";
+}
+
+// =============================================================================
+// Section 5: Next version wrap-around.
+//
+// The wraparound at the 4-bit boundary 0xF must fold back to 0x0 under the
+// mask, not saturate or overflow silently in some other way.
+// =============================================================================
+
+TEST(NextVersionTest, IncrementNormally) {
+    EXPECT_EQ(NextVersion(0x0), 0x1);
+    EXPECT_EQ(NextVersion(0x1), 0x2);
+    EXPECT_EQ(NextVersion(0xE), 0xF);
+}
+
+TEST(NextVersionTest, WrapsAroundAtMax) {
+    EXPECT_EQ(NextVersion(0xF), 0x0);
+}
+
+TEST(NextVersionTest, IgnoresBitsAboveMask) {
+    EXPECT_EQ(NextVersion(0xFF) & ~kVersionMask, 0);
+}
+
+// =============================================================================
+// Section 6: MetaNode atomic accessors.
+//
+// LoadControl() and LoadVersion() are two independent code paths that both
+// extract fields from the same packed word.
+// =============================================================================
+
+class MetaNodeAccessorsTest : public ::testing::Test {
+protected:
+    MetaNode node;
+};
+
+TEST_F(MetaNodeAccessorsTest, LoadControlReflectsStoredWord) {
+    constexpr uint8_t  kVersion = 0x7;
+    constexpr uint32_t kLength  = 0x1234U;
+    constexpr uint64_t kOffset  = 0xABCDEULL;
+
+    const auto packed = PackControl(NodeState::kReady, EvictState::kHot,
+                                    kVersion, kLength, kOffset);
+    node.control_block.store(packed, std::memory_order_relaxed);
+
+    const auto [state, ref_bit, version, length, v_offset] = node.LoadControl();
+    EXPECT_EQ(state, NodeState::kReady);
+    EXPECT_EQ(ref_bit, EvictState::kHot);
+    EXPECT_EQ(version, kVersion);
+    EXPECT_EQ(length, kLength);
+    EXPECT_EQ(v_offset, kOffset);
+}
+
+TEST_F(MetaNodeAccessorsTest, LoadVersionAgreesWithLoadControl) {
+    for (uint8_t ver = 0; ver <= kVersionMask; ++ver) {
+        const auto packed =
+            PackControl(NodeState::kPending, EvictState::kCold, ver, 0, 0);
+        node.control_block.store(packed, std::memory_order_relaxed);
+
+        EXPECT_EQ(node.LoadVersion(), ver);
+        EXPECT_EQ(node.LoadControl().version, ver)
+            << "LoadVersion/LoadControl disagree at version=" << ver;
+    }
 }
