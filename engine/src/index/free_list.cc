@@ -8,7 +8,7 @@
 #include <atomic>
 #include <memory>
 
-FreeList::FreeList(const size_t capacity) {
+FreeList::FreeList(const uint32_t capacity) {
     if (capacity == 0) {
         free_head_.store({kEmpty, 0}, std::memory_order_relaxed);
         return;
