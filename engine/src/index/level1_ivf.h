@@ -141,7 +141,8 @@ public:
     // member IDs of specified cluster.
     inline const std::atomic<uint32_t>* ClusterMemberIds(
         const uint32_t cluster_id) const noexcept {
-        return cluster_members_.get() + cluster_id * max_cluster_size;
+        return cluster_members_.get() +
+               static_cast<size_t>(cluster_id) * max_cluster_size;
     }
 
     // `ClusterSize()` retrieves a cluster's current size through specified
