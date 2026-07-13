@@ -104,7 +104,6 @@ class RoutingTable {
 public:
     explicit RoutingTable(uint32_t num_clusters, uint32_t max_cluster_size,
                           bool lazy_mapping);
-    explicit RoutingTable(const IvfConfig& config);
     ~RoutingTable();
 
     RoutingTable(const RoutingTable&)            = delete;
@@ -123,7 +122,7 @@ public:
     // `CentroidRow()` returns a read-only access to a centroid vector. Used by
     // K-means++ seeding in Recalibration to measure sample distance to current
     // centroid and by the mini-batch step.
-    const float* CentroidRow(uint32_t cluster_id) const noexcept;
+    const float* CentroidVector(uint32_t cluster_id) const noexcept;
 
     // `MatchCluster()` searches for most suitable cluster for an input vector.
     uint32_t MatchCluster(const float* query) const noexcept;
@@ -147,7 +146,7 @@ public:
 
     // `ClusterSize()` retrieves a cluster's current size through specified
     // memory order load.
-    inline uint16_t ClusterSize(
+    inline uint32_t ClusterSize(
         const uint32_t    cluster_id,
         std::memory_order order = std::memory_order_acquire) const noexcept {
         return cluster_sizes_[cluster_id].load(order);
@@ -155,7 +154,7 @@ public:
 
 private:
     float*                                   centroids_;
-    std::unique_ptr<std::atomic<uint16_t>[]> cluster_sizes_;
+    std::unique_ptr<std::atomic<uint32_t>[]> cluster_sizes_;
 
     // Cluster datapoint tracker. Concurrency model: multiple Reader, single
     // Writer (Compaction, Reassignment).

@@ -27,7 +27,7 @@ class FreeList {
 public:
     static constexpr uint32_t kEmpty = 0xFFFFFFFFU;
 
-    explicit FreeList(const size_t capacity);
+    explicit FreeList(uint32_t capacity);
 
     FreeList(const FreeList&)            = delete;
     FreeList& operator=(const FreeList&) = delete;

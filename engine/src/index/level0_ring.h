@@ -7,7 +7,6 @@
 #pragma once
 
 #include <atomic>
-#include <cstddef>
 #include <cstdint>
 #include <memory>
 
@@ -16,12 +15,14 @@ class L0Buffer {
 public:
     static constexpr uint32_t kEmpty = 0xFFFFFFFFU;
 
-    explicit L0Buffer(size_t capacity);
+    explicit L0Buffer(uint32_t capacity);
 
     L0Buffer(const L0Buffer&)            = delete;
     L0Buffer& operator=(const L0Buffer&) = delete;
     L0Buffer(L0Buffer&&)                 = delete;
     L0Buffer& operator=(L0Buffer&&)      = delete;
+
+    const uint32_t capacity;
 
     // `TryPush()` attempts to register a `node_id` onto L0 buffer.
     // MISS-ed search path get a `node_id` slot allocated from `FreeList`,
@@ -34,7 +35,7 @@ public:
 
     // `LoadSlot()` loads slot's `node_id` content.
     uint32_t LoadSlot(const uint32_t ring_pos) const noexcept {
-        return slots_[ring_pos & (capacity_ - 1)].load(
+        return slots_[ring_pos & (capacity - 1)].load(
             std::memory_order_acquire);
     }
 
@@ -50,16 +51,11 @@ public:
         return pop_tail_.load(std::memory_order_relaxed);
     }
 
-    size_t Capacity() const noexcept {
-        return capacity_;
-    }
-
 private:
-    const size_t                             capacity_;
-    std::unique_ptr<std::atomic<uint32_t>[]> slots_;
-
     // alignas(64): each isolated onto its own cache line to avoid
     // False Sharing with each other.
     alignas(64) std::atomic<uint32_t> push_head_{0};
     alignas(64) std::atomic<uint32_t> pop_tail_{0};
+
+    std::unique_ptr<std::atomic<uint32_t>[]> slots_;
 };

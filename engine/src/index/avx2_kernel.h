@@ -11,7 +11,7 @@
 // as each of the 4 accumulators maps to to one YMM lane pair, and the final
 // horizontal reduction folds all 4 scores in a single _mm_add_ps pass.
 // Changing this constant requires re-writing the kernel.
-inline constexpr size_t kBatchSize = 4;
+inline constexpr uint32_t kBatchSize = 4;
 
 #if defined(__x86_64__) || defined(_M_X64)
 
