@@ -114,14 +114,14 @@ public:
     // `GetNode()` returns a reference to the `MetaNode` at `node_id`.
     // Caller must ensure `node_id` < `max_slots`.
     inline MetaNode& GetNode(const uint32_t node_id) const noexcept {
-        return metadata_[node_id];
+        return metadata_[static_cast<size_t>(node_id)];
     }
 
     // `GetVector()` returns a pointer to the first float of the vector at
     // position `node_id`. The vector occupies `kVectorDim` contiguous floats.
     // Caller must ensure `node_id` < `max_slots`.
     inline float* GetVector(const uint32_t node_id) const noexcept {
-        return vectors_ + node_id * kVectorDim;
+        return vectors_ + static_cast<size_t>(node_id) * kVectorDim;
     }
 
     // `GetWriteHead()` returns the current write head offset.
