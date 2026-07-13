@@ -9,7 +9,7 @@
 #include <memory>
 #include <stdexcept>
 
-L0Buffer::L0Buffer(const size_t capacity) : capacity_(capacity) {
+L0Buffer::L0Buffer(const uint32_t capacity) : capacity(capacity) {
     if ((capacity & (capacity - 1)) != 0) {
         throw std::invalid_argument("L0 capacity must be a power of 2.");
     }
@@ -17,7 +17,7 @@ L0Buffer::L0Buffer(const size_t capacity) : capacity_(capacity) {
     slots_ = std::make_unique_for_overwrite<std::atomic<uint32_t>[]>(capacity);
 
     // Initialize all slots to empty.
-    for (size_t i = 0; i < capacity_; ++i) {
+    for (uint32_t i = 0; i < capacity; ++i) {
         slots_[i].store(kEmpty, std::memory_order_relaxed);
     }
 }
@@ -26,8 +26,7 @@ bool L0Buffer::TryPush(const uint32_t node_id) noexcept {
     uint32_t curr_push = push_head_.load(std::memory_order_relaxed);
 
     while (true) {
-        if (curr_push - pop_tail_.load(std::memory_order_relaxed) >=
-            capacity_) {
+        if (curr_push - pop_tail_.load(std::memory_order_relaxed) >= capacity) {
             // L0 buffer full, fails the registration immediately.
             return false;
         }
@@ -45,7 +44,7 @@ bool L0Buffer::TryPush(const uint32_t node_id) noexcept {
     }
 
     // This Producer won the CAS race.
-    const uint32_t ring_pos = curr_push & (capacity_ - 1);
+    const uint32_t ring_pos = curr_push & (capacity - 1);
     slots_[ring_pos].store(node_id, std::memory_order_release);
     return true;
 }
@@ -58,7 +57,7 @@ uint32_t L0Buffer::TryPop() noexcept {
         return kEmpty;
     }
 
-    const uint32_t ring_pos = curr_pop & (capacity_ - 1);
+    const uint32_t ring_pos = curr_pop & (capacity - 1);
     const uint32_t node_id  = slots_[ring_pos].load(std::memory_order_acquire);
     slots_[ring_pos].store(kEmpty, std::memory_order_relaxed);
 

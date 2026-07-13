@@ -14,7 +14,7 @@
 
 #include "avx2_kernel.h"
 #include "constants.h"
-#include "global_utils.h"
+#include "syscall_utils.h"
 
 RoutingTable::RoutingTable(const uint32_t num_clusters,
                            const uint32_t max_cluster_size,
@@ -31,34 +31,14 @@ RoutingTable::RoutingTable(const uint32_t num_clusters,
     }
 
     centroids_ = static_cast<float*>(
-        Alloc32(num_clusters * kVectorDim * sizeof(float), lazy_mapping));
-    cluster_sizes_   = std::make_unique<std::atomic<uint16_t>[]>(num_clusters);
-    cluster_members_ = std::make_unique<std::atomic<uint32_t>[]>(
-        num_clusters * max_cluster_size);
-}
-
-RoutingTable::RoutingTable(const IvfConfig& config)
-    : num_clusters(config.num_clusters)
-    , max_cluster_size(config.max_cluster_size) {
-    if (num_clusters == 0 || max_cluster_size == 0) {
-        throw std::invalid_argument(
-            "Both number of clusters & cluster capacity must be non-zero");
-    }
-
-    if (num_clusters % kBatchSize != 0) {
-        throw std::invalid_argument(
-            "Number of clusters must be a multiple of kernel batch size");
-    }
-
-    centroids_       = static_cast<float*>(Alloc32(
-        num_clusters * kVectorDim * sizeof(float), config.lazy_mapping));
-    cluster_sizes_   = std::make_unique<std::atomic<uint16_t>[]>(num_clusters);
-    cluster_members_ = std::make_unique<std::atomic<uint32_t>[]>(
+        common::AllocMMap(num_clusters * kVectorMemsize, lazy_mapping));
+    cluster_sizes_   = std::make_unique<std::atomic<uint32_t>[]>(num_clusters);
+    cluster_members_ = std::make_unique_for_overwrite<std::atomic<uint32_t>[]>(
         num_clusters * max_cluster_size);
 }
 
 RoutingTable::~RoutingTable() {
-    munmap(centroids_, num_clusters * kVectorDim * sizeof(float));
+    common::DeallocMMap(centroids_, num_clusters * kVectorMemsize);
 }
 
 void RoutingTable::SeedCentroid(const uint32_t cluster_id,
@@ -66,7 +46,7 @@ void RoutingTable::SeedCentroid(const uint32_t cluster_id,
     std::memcpy(centroids_ + cluster_id * kVectorDim, vector, kVectorMemsize);
 }
 
-const float* RoutingTable::CentroidRow(
+const float* RoutingTable::CentroidVector(
     const uint32_t cluster_id) const noexcept {
     return centroids_ + cluster_id * kVectorDim;
 }
@@ -93,7 +73,7 @@ uint32_t RoutingTable::MatchCluster(const float* query) const noexcept {
 bool RoutingTable::JoinCluster(const uint32_t node_id,
                                const uint32_t cluster_id) noexcept {
     // Relaxed load due to concurrency model of `cluster_member_`.
-    const uint16_t size =
+    const uint32_t size =
         cluster_sizes_[cluster_id].load(std::memory_order_relaxed);
     if (size >= max_cluster_size) {
         return false;
@@ -109,12 +89,12 @@ bool RoutingTable::JoinCluster(const uint32_t node_id,
 bool RoutingTable::LeaveCluster(const uint32_t cluster_id,
                                 const uint32_t member_index,
                                 const uint32_t expected_node_id) noexcept {
-    const size_t base = cluster_id * max_cluster_size;
+    const uint32_t base = cluster_id * max_cluster_size;
 
     // Relaxed load due to concurrency model of `cluster_member_`.
-    const uint16_t size =
+    const uint32_t len =
         cluster_sizes_[cluster_id].load(std::memory_order_relaxed);
-    if (member_index >= size) {
+    if (member_index >= len) {
         return false;
     }
 
@@ -126,7 +106,7 @@ bool RoutingTable::LeaveCluster(const uint32_t cluster_id,
     }
 
     // Write ahead, Publish later.
-    const uint16_t last_index = size - 1;
+    const uint32_t last_index = len - 1;
     if (member_index != last_index) {
         const uint32_t tail_value =
             cluster_members_[base + last_index].load(std::memory_order_relaxed);
