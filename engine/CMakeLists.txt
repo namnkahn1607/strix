@@ -108,6 +108,7 @@ add_library(engine_index STATIC
     src/index/free_list.cc
     src/index/level0_ring.cc
     src/index/level1_ivf.cc
+    src/index/recalibration.cc
     src/index/vector_index.cc
 )
 target_include_directories(engine_index PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/index)
