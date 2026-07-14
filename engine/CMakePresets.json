@@ -12,6 +12,7 @@
             "generator": "Ninja",
             "environment": {
                 "VCPKG_MAX_CONCURRENCY": "4",
+                "VCPKG_DOWNLOADS": "$env{HOME}/.cache/vcpkg-downloads",
                 "VCPKG_BINARY_SOURCES": "clear;files,$env{HOME}/.cache/vcpkg-archives,readwrite"
             },
             "cacheVariables": {
