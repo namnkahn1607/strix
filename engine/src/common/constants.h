@@ -24,3 +24,7 @@ inline constexpr uint32_t kTotalSlots = 1 << 19;
 // Maximum lifetime of a `kPending` node in seconds.
 // Nodes remain `kPending` beyond this deadline are treated as stale by the GC.
 inline constexpr uint32_t kPendingLifespan = 30;
+
+// A state which stands for "not yet assigned to any cluster".
+// Hence, every L0 node is unclustered.
+inline constexpr uint32_t kUnclustered = 0xFFFFFFFFU;
