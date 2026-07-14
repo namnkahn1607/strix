@@ -10,7 +10,7 @@
 #include <atomic>
 #include <thread>
 
-#include "arena.h"
+#include "memory_arena.h"
 #include "constants.h"
 #include "level1_ivf.h"
 #include "vector_index.h"
