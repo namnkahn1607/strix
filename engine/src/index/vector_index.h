@@ -15,6 +15,7 @@
 #include "level1_ivf.h"
 #include "memory_arena.h"
 #include "search_inl.h"
+#include "recalibration.h"
 
 // `CacheOutcome` represents part of the cache states returned by Data plane to
 // the Control plane.
@@ -104,6 +105,9 @@ private:
 
     // `RunCompaction()` sequentially migrates nodes from L0 Buffer to L1 IVF.
     void RunCompaction() noexcept;
+
+    // IVF's `Recalibrator` - the calibration state-machine controller.
+    Recalibrator recalibrator_;
 
     // Round-robin cursor only for `RunReassignment()` to determine which
     // cluster to sweep on the next call.
