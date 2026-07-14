@@ -18,6 +18,7 @@
 #include "level0_ring.h"
 #include "level1_ivf.h"
 #include "meta_node.h"
+#include "recalibration.h"
 #include "search_inl.h"
 
 // All nodes are intialized to `kUnclustered` (being a L0 node) at the start.
@@ -35,7 +36,8 @@ VectorIndex::VectorIndex(MemoryArena& arena, const uint32_t l0_cap,
     , routes_(RoutingTable(config.num_clusters, config.max_cluster_size,
                            config.lazy_mapping),
               RoutingTable(config.num_clusters, config.max_cluster_size,
-                           config.lazy_mapping)) {
+                           config.lazy_mapping))
+    , recalibrator_(routes_, &active_route_, config) {
     // Initialize all nodes (slots) as unclustered.
     for (size_t i = 0; i < arena.max_slots; ++i) {
         node_owner_[i].store(kUnclustered, std::memory_order_relaxed);
