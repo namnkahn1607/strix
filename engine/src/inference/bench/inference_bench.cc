@@ -13,7 +13,7 @@
 #include <stdexcept>
 #include <string>
 
-#include "inference.h"
+#include "inference_model.h"
 
 namespace {
 

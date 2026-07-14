@@ -18,7 +18,7 @@
 #include <memory>
 #include <mutex>
 
-#include "inference.h"
+#include "inference_model.h"
 
 namespace {
 
