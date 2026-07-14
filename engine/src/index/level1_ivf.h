@@ -8,6 +8,10 @@
 #include <atomic>
 #include <memory>
 
+// A state which stands for "not yet assigned to any cluster".
+// Hence, every L0 node is unclustered.
+inline constexpr uint32_t kUnclustered = 0xFFFFFFFFU;
+
 // `IvfConfig` describes the specifications of IVF at construction time. Note
 // that all validation is performed inside the constructor.
 //
