@@ -6,55 +6,43 @@
 #include "vector_index.h"
 
 #include <atomic>
+#include <cmath>
 #include <cstring>
 #include <exception>
 #include <memory>
 #include <optional>
-#include <stdexcept>
 #include <string>
 
-#include "avx2_kernel.h"
 #include "constants.h"
 #include "free_list.h"
-#include "global_utils.h"
 #include "level0_ring.h"
 #include "level1_ivf.h"
 #include "meta_node.h"
+#include "search_inl.h"
 
 // All nodes are intialized to `kUnclustered` (being a L0 node) at the start.
-// `l0_cap` sizes the `L0Buffer` ring; the capacity of `FreeList` is derived
+// The `L0Buffer` ring size is `l0_cap`; the capacity of `FreeList` is derived
 // directly from `arena.MaxSlots()` so it can never drift out of sync with the
 // arena it allocates `node_id` values into.
-VectorIndex::VectorIndex(MemoryArena& arena, const size_t l0_cap,
+VectorIndex::VectorIndex(MemoryArena& arena, const uint32_t l0_cap,
                          const IvfConfig& config)
     : arena_(arena)
     , free_list_(arena.max_slots)
     , l0_buffer_(l0_cap)
     , node_owner_(std::make_unique_for_overwrite<std::atomic<uint32_t>[]>(
           arena.max_slots))
-    , routes_(RoutingTable(config), RoutingTable(config))
-    , kmeans_sample_size_(config.kmeans_sample_size) {
-    // Argument sanity checks
-    if (config.kmeans_sample_size >= kUnclustered) {
-        throw std::invalid_argument(
-            "Number of clusters must be lower than kUnclustered identifier, "
-            "which is " +
-            std::to_string(kUnclustered));
-    }
-
-    if (config.kmeans_sample_size == 0) {
-        throw std::invalid_argument(
-            "K-means sample buffer size must be non-zero");
-    }
-
+    , ivf_config_(config)
+    , routes_(RoutingTable(config.num_clusters, config.max_cluster_size,
+                           config.lazy_mapping),
+              RoutingTable(config.num_clusters, config.max_cluster_size,
+                           config.lazy_mapping)) {
     // Initialize all nodes (slots) as unclustered.
     for (size_t i = 0; i < arena.max_slots; ++i) {
         node_owner_[i].store(kUnclustered, std::memory_order_relaxed);
     }
-
-    kmeans_sample_ = static_cast<float*>(
-        Alloc32(kmeans_sample_size_ * kVectorMemsize, config.lazy_mapping));
 }
+
+VectorIndex::~VectorIndex() = default;
 
 // -----------------------------------------------------------------------------
 // Acquire/Release Node
@@ -108,143 +96,7 @@ void VectorIndex::ReleaseNode(const uint32_t node_id) noexcept {
 // Vector Searching
 // -----------------------------------------------------------------------------
 
-namespace {
-
-// Lookahead distance for the software prefetcher: 8 vectors, which is
-// 2 batch-4 iterations ahead of the position currently being scored.
-inline constexpr uint32_t kPrefetchDistance = 2 * kBatchSize;
-
-struct TopTwoAccumulator {
-    float    fst_score = -1.0f, sec_score = -1.0f;
-    uint32_t fst_id = 0, sec_id = 0;
-    uint8_t  fst_ver = 0, sec_ver = 0;
-
-    inline void Consider(uint32_t id, uint8_t ver, float score) noexcept {
-        if (score > fst_score) {
-            sec_id    = fst_id;
-            sec_score = fst_score;
-            sec_ver   = fst_ver;
-
-            fst_id    = id;
-            fst_score = score;
-            fst_ver   = ver;
-        } else if (score > sec_score) {
-            sec_id    = id;
-            sec_score = score;
-            sec_ver   = ver;
-        }
-    }
-
-    inline std::optional<SearchResult> Finalize() const noexcept {
-        if (fst_score > kSimilarityThreshold) {
-            return std::nullopt;
-        }
-
-        SearchResult res;
-        res.primary = {fst_id, fst_ver};
-        if (sec_score > kSimilarityThreshold) {
-            res.secondary = {sec_id, sec_ver};
-        }
-
-        return res;
-    }
-};
-
-}  // namespace
-
-// 1. `kBoundsSafe == true`  : For ring buffer has natural wrap-around (using
-//                             AND arithmetic). No manual bounds check needed.
-// 2. `kBoundsSafe == false` : For flat array with fixed size. Ensure safety by
-//                             evaluating bounds check.
-template <bool kBoundsSafe, typename NodeAt, typename CountAt>
-std::optional<SearchResult> VectorIndex::ScoreCandidates(
-    const float* query, NodeAt&& node_at, CountAt&& count_at) const noexcept {
-    uint8_t  batch_vers[kBatchSize];
-    uint32_t batch_ids[kBatchSize];
-    uint32_t batch_count = 0;
-
-    TopTwoAccumulator acc;
-
-    auto score_batch = [&]() __attribute__((always_inline)) noexcept {
-        if (batch_count == 0) {
-            return;
-        }
-
-        // Pad unused lanes by duplicating the last valid pointer so the batch-4
-        // kernel never dereferences garbage.
-        for (uint32_t i = batch_count; i < kBatchSize; ++i) {
-            batch_ids[i] = batch_ids[batch_count - 1];
-        }
-
-        float scores[kBatchSize];
-        DotProductIndirectBatch(query, arena_.GetVector(batch_ids[0]),
-                                arena_.GetVector(batch_ids[1]),
-                                arena_.GetVector(batch_ids[2]),
-                                arena_.GetVector(batch_ids[3]), scores);
-
-        // Cautious: Only consider non-padding items.
-        for (uint32_t k = 0; k < batch_count; ++k) {
-            const uint32_t id = batch_ids[k];
-
-            const uint8_t curr_ver = arena_.GetNode(id).LoadVersion();
-            if (curr_ver != batch_vers[k]) {
-                continue;
-            }
-
-            acc.Consider(id, curr_ver, scores[k]);
-        }
-
-        batch_count = 0;
-    };
-
-    for (uint32_t i = 0;; ++i) {
-        const uint32_t count = count_at();
-        if (i >= count) {
-            break;
-        }
-
-        uint32_t record;
-        if constexpr (kBoundsSafe) {
-            // L0 vector search falls here. No branching check.
-            const uint32_t pf_id = node_at(i + kPrefetchDistance);
-            if (pf_id != L0Buffer::kEmpty) {
-                const float* pf_vec = arena_.GetVector(pf_id);
-                __builtin_prefetch(pf_vec, /*rw=*/0, /*locality=*/3);
-                __builtin_prefetch(reinterpret_cast<const char*>(pf_vec) + 256,
-                                   /*rw=*/0, /*locality=*/3);
-            }
-
-            record = node_at(i);
-            if (record == L0Buffer::kEmpty) {
-                continue;
-            }
-
-        } else if (i + kPrefetchDistance < count) {
-            // L1 vector search falls here.
-            const uint32_t pf_id  = node_at(i + kPrefetchDistance);
-            const float*   pf_vec = arena_.GetVector(pf_id);
-            __builtin_prefetch(pf_vec, /*rw=*/0, /*locality=*/3);
-            __builtin_prefetch(reinterpret_cast<const char*>(pf_vec) + 256,
-                               /*rw=*/0, /*locality=*/3);
-
-            record = node_at(i);
-        }
-
-        const uint32_t& node_id = record;
-
-        batch_ids[batch_count]  = node_id;
-        batch_vers[batch_count] = arena_.GetNode(node_id).LoadVersion();
-        ++batch_count;
-
-        if (batch_count == kBatchSize) {
-            score_batch();
-        }
-    }
-
-    score_batch();
-    return acc.Finalize();
-}
-
+//
 std::optional<SearchResult> VectorIndex::SearchL0(
     const float* query) const noexcept {
     const uint32_t right = l0_buffer_.SnapPushHead();
@@ -252,7 +104,7 @@ std::optional<SearchResult> VectorIndex::SearchL0(
 
     uint32_t count = right - left;
     return ScoreCandidates</*kBoundsSafe=*/true>(
-        query,
+        arena_, query,
         [&](uint32_t idx) noexcept { return l0_buffer_.LoadSlot(left + idx); },
         [count]() noexcept { return count; });
 }
@@ -266,7 +118,7 @@ std::optional<SearchResult> VectorIndex::SearchL1(
     auto           members    = table.ClusterMemberIds(cluster_id);
 
     return ScoreCandidates</*kBoundsSafe=*/false>(
-        query,
+        arena_, query,
         [&](uint32_t idx) noexcept {
             return members[idx].load(std::memory_order_acquire);
         },
@@ -355,7 +207,6 @@ bool VectorIndex::CommitPayload(const uint32_t node_id, const uint8_t* in,
 // Background Coordinators
 // -----------------------------------------------------------------------------
 
-//
 void VectorIndex::RunCompaction() noexcept {
     const uint32_t node_id = l0_buffer_.TryPop();
     if (node_id == L0Buffer::kEmpty) {
