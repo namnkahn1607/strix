@@ -10,30 +10,16 @@
 #include <memory>
 #include <optional>
 
-#include "arena.h"
 #include "free_list.h"
 #include "level0_ring.h"
 #include "level1_ivf.h"
+#include "memory_arena.h"
+#include "search_inl.h"
 
-// `CacheOutcome` stimulates part of the cache states returned by Data plane to
+// `CacheOutcome` represents part of the cache states returned by Data plane to
 // the Control plane.
 // Used as classification result of `VectorIndex::FetchPayload()`.
 enum class CacheOutcome : uint8_t { kMiss, kPendingHit, kHit };
-
-// `SearchOutcome` describes result of a vector search against either tier.
-// Only record information of a node whose similarity score exceeds the
-// pre-defined `kSimiarityThreshold`.
-struct SearchOutcome {
-    uint32_t node_id;
-    uint8_t  version;
-};
-
-// `SearchResult` tracks not just the champion but also the runner-up.
-// The runner-up entry is optional.
-struct SearchResult {
-    SearchOutcome                primary;
-    std::optional<SearchOutcome> secondary;
-};
 
 // `VectorIndexBenchAccess` grants benchmark code direct access to the private
 // member `L0Buffer` field of `VectorIndex`.
@@ -49,8 +35,9 @@ class VectorIndex {
 public:
     // `VectorIndex` holds a reference to `MemoryArena`, and each instance of
     // type `FreeList` and `L0Buffer`.
-    explicit VectorIndex(MemoryArena& arena, size_t l0_cap,
+    explicit VectorIndex(MemoryArena& arena, uint32_t l0_cap,
                          const IvfConfig& config);
+    ~VectorIndex();
 
     VectorIndex(const VectorIndex&)            = delete;
     VectorIndex& operator=(const VectorIndex&) = delete;
@@ -103,10 +90,6 @@ public:
 private:
     friend class VectorIndexBenchAccess;
 
-    // `kUnclustered` is a `node_owner_` state which stands for "not yet
-    // assigned to any cluster". Hence, every L0 node is unclustered.
-    static constexpr uint32_t kUnclustered = 0xFFFFFFFFU;
-
     MemoryArena& arena_;
     FreeList     free_list_;
     L0Buffer     l0_buffer_;
@@ -115,27 +98,16 @@ private:
     // clustered node. Unclustered nodes are considered `kUnclustered`.
     std::unique_ptr<std::atomic<uint32_t>[]> node_owner_;
 
+    IvfConfig            ivf_config_;
     RoutingTable         routes_[2];
     std::atomic<uint8_t> active_route_{0};
-    std::atomic_flag     recalibration_in_progress = ATOMIC_FLAG_INIT;
-
-    const uint32_t kmeans_sample_size_;
-    float*         kmeans_sample_;
-
-    // Round-robin cursor only for `RunReassignment()` to determine which
-    // cluster to sweep on the next call.
-    uint32_t reassignment_cursor_ = 0;
-
-    // `ScoreCandidate()` is a private helper of both vector search subroutines.
-    template <bool kBoundsSafe, typename NodeAt, typename CountAt>
-    std::optional<SearchResult> ScoreCandidates(
-        const float* query, NodeAt&& node_at,
-        CountAt&& count_at) const noexcept;
 
     // `RunCompaction()` sequentially migrates nodes from L0 Buffer to L1 IVF.
     void RunCompaction() noexcept;
 
-    void RunRecalibration() noexcept;  // Draft
+    // Round-robin cursor only for `RunReassignment()` to determine which
+    // cluster to sweep on the next call.
+    uint32_t reassignment_cursor_ = 0;
 
     // `RunReassignment()` sweeps each cluster per called. Remove `kDead` node
     // ID of that cluster and move datapoint to closer cluster.
