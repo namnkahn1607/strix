@@ -2,4 +2,6 @@
 .vscode
 bin
 data
-model/*.onnx
+
+model
+
