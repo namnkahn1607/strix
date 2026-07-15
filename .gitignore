@@ -2,8 +2,4 @@
 .vscode
 bin
 data
-
-gateway/.idea
-gateway/build
-
-model/*.onnx
+model
