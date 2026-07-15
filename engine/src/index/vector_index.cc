@@ -11,6 +11,7 @@
 #include <exception>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 
 #include "constants.h"
@@ -37,7 +38,25 @@ VectorIndex::VectorIndex(MemoryArena& arena, const uint32_t l0_cap,
                            config.lazy_mapping),
               RoutingTable(config.num_clusters, config.max_cluster_size,
                            config.lazy_mapping))
-    , recalibrator_(routes_, &active_route_, config) {
+    , recalibrator_(arena, routes_, &active_route_, config) {
+    // Arguments check & sanitizing.
+    if (config.kmeans_sample_size >= kUnclustered) {
+        throw std::invalid_argument(
+            "Number of clusters must be lower than kUnclustered identifier, "
+            "which is " +
+            std::to_string(kUnclustered));
+    }
+
+    if (config.kmeans_sample_size == 0) {
+        throw std::invalid_argument(
+            "K-means sample buffer size must be non-zero");
+    }
+
+    if (config.kmeans_sample_size % kBatchSize != 0) {
+        throw std::invalid_argument(
+            "K-means sample size must be a multiple of kernel batch size");
+    }
+
     // Initialize all nodes (slots) as unclustered.
     for (size_t i = 0; i < arena.max_slots; ++i) {
         node_owner_[i].store(kUnclustered, std::memory_order_relaxed);
