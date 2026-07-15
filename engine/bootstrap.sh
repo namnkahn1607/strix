@@ -148,7 +148,7 @@ fi
 # ==============================================================================
 log "[6/$TOTAL_PHASE] Synchronize and bootstrap vcpkg"
 
-git -C "$REPO_ROOT" submodule update --init --recursive
+git -C "$REPO_ROOT" submodule update --init --recursive --filter=blob:none
 
 mkdir -p "$HOME/.cache/vcpkg-archives" "$HOME/.cache/vcpkg-downloads"
 
