@@ -246,7 +246,7 @@ EOF
             ;;
 
         *)
-            die "Unsupported/wrong build type: $build_type" >&2
+            die "Unsupported/wrong build type: $build_type"
             ;;
     esac
 }
