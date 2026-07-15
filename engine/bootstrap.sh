@@ -217,6 +217,39 @@ echo "  [n] Debug + Asan + Tsan   (development, release stays unconfigured)"
 echo "  [a] All                   (might take longer)"
 read -rp "Choice [Y/n/a]: " answer
 answer="${answer:-Y}"
+
+compile_database() {
+    local build_type="$1"
+    local output_file=".clangd"
+
+    if [[ -z "$build_type" ]]; then
+        die "Missing build type argument to compile_database()."
+    fi
+
+    case "$build_type" in
+        "debug" | "asan" | "tsan") 
+            cat << 'EOF' > "$output_file"
+---
+CompileFlags:
+  CompilationDatabase: out/debug
+EOF
+            log "Generated compile database for build type: $build_type"
+            ;;
+        
+        "release")
+            cat << 'EOF' > "$output_file"
+---
+CompileFlags:
+  CompilationDatabase: out/release
+EOF
+            log "Generating compile database for build type: $build_type"
+            ;;
+
+        *)
+            die "Unsupported/wrong build type: $build_type" >&2
+            ;;
+    esac
+}
  
 case "$answer" in
     [Aa]*)
@@ -225,17 +258,20 @@ case "$answer" in
         "$CMAKE_BIN" --preset asan
         "$CMAKE_BIN" --preset tsan
         "$CMAKE_BIN" --preset release
+        compile_database "release"
         ;;
     [Nn]*)
         log "Configuring debug, asan, tsan (shared vcpkg triplet)."
         "$CMAKE_BIN" --preset debug
         "$CMAKE_BIN" --preset asan
         "$CMAKE_BIN" --preset tsan
+        compile_database "debug"
         log "release not configured. Run '$CMAKE_BIN --preset release' when you need it."
         ;;
     *)
         log "Configuring release only."
         "$CMAKE_BIN" --preset release
+        compile_database "release"
         ;;
 esac
 
