@@ -158,10 +158,18 @@ else
     log "vcpkg is already bootstrapped."
 fi
 
+# Ensure the current baseline commit hash is reachable in object database.
 BASELINE_COMMIT=$(grep -oP '"builtin-baseline"\s*:\s*"\K[a-f0-9]{40}' "$PROJECT_ROOT/vcpkg.json")
 if ! git -C "$PROJECT_ROOT/vendor/vcpkg" cat-file -e "${BASELINE_COMMIT}" 2>/dev/null; then
     log "Baseline commit not present in vendored vcpkg. Fetching..."
     git -C "$PROJECT_ROOT/vendor/vcpkg" fetch origin "${BASELINE_COMMIT}"
+fi
+
+# Ensure it's being checked out in the vendor submodule.
+CURRENT_HEAD=$(git -C "$PROJECT_ROOT/vendor/vcpkg" rev-parse HEAD)
+if [[ "$CURRENT_HEAD" != "$BASELINE_COMMIT" ]]; then
+    warn "vendor/vcpkg HEAD ($CURRENT_HEAD) != builtin-baseline ($BASELINE_COMMIT). Checking out correct commit."
+    git -C "$PROJECT_ROOT/vendor/vcpkg" checkout "$BASELINE_COMMIT"
 fi
 
 # ==============================================================================
