@@ -10,6 +10,7 @@
 #include <random>
 
 #include "level1_ivf.h"
+#include "memory_arena.h"
 
 // `Recalibrator` operates the Recalibration phase and provides API to IVF's
 // background coordination.
@@ -17,7 +18,7 @@
 // Ownership model: intialized once, reference owned by `VectorIndex`.
 class Recalibrator {
 public:
-    explicit Recalibrator(RoutingTable*         routes,
+    explicit Recalibrator(MemoryArena& arena, RoutingTable* routes,
                           std::atomic<uint8_t>* active_route,
                           const IvfConfig&      config);
     ~Recalibrator();
@@ -30,6 +31,7 @@ public:
     // `Phase` enum represents the state machine of Recalibration.
     enum class Phase : uint8_t {
         kIdle,
+        kGathering,
         kKMeansSeeding,
         kMiniBatch,
     };
@@ -50,6 +52,7 @@ public:
 
 private:
     // Non-owning (borrowed) fields from `VectorIndex`.
+    MemoryArena&          arena_;
     RoutingTable*         routes_;
     std::atomic<uint8_t>* active_route_;
     IvfConfig             config_;
@@ -61,6 +64,10 @@ private:
     uint32_t recalibration_count_  = 0;  // Episode published so far
     uint32_t compaction_performed_ = 0;
     uint64_t last_publish_time_    = 0;  // Unix seconds
+
+    uint32_t gathered_count_ = 0;
+
+    void StepGathering() noexcept;
 
     // K-means++ seeding only-state.
     uint32_t                 kmeanspp_seeded_ = 0;

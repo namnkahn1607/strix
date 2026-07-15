@@ -1,26 +1,27 @@
 // Author: namnkahn1607
 //
-// The K-means++ seeding and mini-batch Lloyd's iteration state
-// machine that periodically rebuilds the IVF.
+// Recalibrator implementation: gathering, K-means++ seeding, mini-batch
+// Lloyd's iteration, and publish.
 
 #include "recalibration.h"
 
 #include <atomic>
 #include <cmath>
+#include <cstring>
 #include <memory>
 #include <random>
-#include <stdexcept>
-#include <string>
 
 #include "avx2_kernel.h"
 #include "constants.h"
 #include "level1_ivf.h"
+#include "memory_arena.h"
 #include "syscall_utils.h"
 
-Recalibrator::Recalibrator(RoutingTable*         routes,
+Recalibrator::Recalibrator(MemoryArena& arena, RoutingTable* routes,
                            std::atomic<uint8_t>* active_route,
                            const IvfConfig&      config)
-    : routes_(routes)
+    : arena_(arena)
+    , routes_(routes)
     , active_route_(active_route)
     , config_(config)
     , rng_(std::random_device{}())
@@ -28,23 +29,6 @@ Recalibrator::Recalibrator(RoutingTable*         routes,
           std::make_unique_for_overwrite<float[]>(config.kmeans_sample_size))
     , kmeans_cluster_counts_(
           std::make_unique_for_overwrite<uint32_t[]>(config.num_clusters)) {
-    if (config.kmeans_sample_size >= kUnclustered) {
-        throw std::invalid_argument(
-            "Number of clusters must be lower than kUnclustered identifier, "
-            "which is " +
-            std::to_string(kUnclustered));
-    }
-
-    if (config.kmeans_sample_size == 0) {
-        throw std::invalid_argument(
-            "K-means sample buffer size must be non-zero");
-    }
-
-    if (config.kmeans_sample_size % kBatchSize == 0) {
-        throw std::invalid_argument(
-            "K-means sample size must be a multiple of kernel batch size");
-    }
-
     kmeans_sample_ = static_cast<float*>(common::AllocMMap(
         config.kmeans_sample_size * kVectorMemsize, config.lazy_mapping));
 }
@@ -72,23 +56,14 @@ void Recalibrator::Tick() noexcept {
             // Reset the epoch counter.
             compaction_performed_ = 0;
 
-            if (recalibration_count_ == 0) {
-                kmeanspp_seeded_ = 0;
-                phase_           = Phase::kKMeansSeeding;
-                [[fallthrough]];
-            } else {
-                const uint8_t active =
-                    active_route_->load(std::memory_order_acquire);
-                const uint8_t inactive = 1 - active;
-                for (uint32_t c = 0; c < config_.num_clusters; ++c) {
-                    routes_[inactive].SeedCentroid(
-                        c, routes_[active].CentroidVector(c));
-                }
-
-                StartMiniBatchPhase();
-                return;
-            }
+            gathered_count_ = 0;
+            phase_          = Phase::kGathering;
+            return;
         }
+
+        case Phase::kGathering:
+            StepGathering();
+            return;
 
         case Phase::kKMeansSeeding:
             StepKmeansPPSeeding();
@@ -100,6 +75,73 @@ void Recalibrator::Tick() noexcept {
     }
 }
 
+void Recalibrator::StepGathering() noexcept {
+    const uint8_t active = active_route_->load(std::memory_order_acquire);
+    RoutingTable& table  = routes_[active];
+
+    std::uniform_int_distribution<uint32_t> cluster_dist(
+        0, table.num_clusters - 1);
+
+    for (uint32_t attempt = 0; attempt < config_.mini_batch_size; ++attempt) {
+        if (gathered_count_ >= config_.kmeans_sample_size) {
+            break;
+        }
+
+        const uint32_t cluster_id   = cluster_dist(rng_);
+        const uint32_t cluster_size = table.ClusterSize(cluster_id);
+        if (cluster_size == 0) {
+            continue;
+        }
+
+        std::uniform_int_distribution<uint32_t> mem_dist(0, cluster_size - 1);
+        const uint32_t                          member_idx = mem_dist(rng_);
+
+        const uint32_t node_id =
+            table.ClusterMemberIds(cluster_id)[member_idx].load(
+                std::memory_order_acquire);
+
+        MetaNode& node = arena_.GetNode(node_id);
+        const auto [state, ref_bit, version, length, offset] =
+            node.LoadControl();
+
+        if (state == NodeState::kDead) {
+            continue;
+        }
+
+        // `kPending` is also a valid state. K-means only cares about vector
+        // geomeotry, not payload status.
+        const float* vec = arena_.GetVector(node_id);
+        float*       dst = kmeans_sample_ + gathered_count_ * kVectorDim;
+        std::memcpy(dst, vec, kVectorMemsize);
+
+        if (node.LoadVersion(std::memory_order_acquire) != version) {
+            // Encountered a torn read. Try again.
+            continue;
+        }
+
+        ++gathered_count_;
+    }
+
+    if (gathered_count_ < config_.kmeans_sample_size) {
+        // Not gathered enough. Resume on next call to Tick().
+        return;
+    }
+
+    if (recalibration_count_ == 0) {
+        // First recalibration phase. Nothing to warm-start from yet.
+        kmeanspp_seeded_ = 0;
+        phase_           = Phase::kKMeansSeeding;
+    } else {
+        const uint8_t inactive = 1 - active;
+        for (uint32_t c = 0; c < config_.num_clusters; ++c) {
+            routes_[inactive].SeedCentroid(c,
+                                           routes_[active].CentroidVector(c));
+        }
+
+        StartMiniBatchPhase();
+    }
+}
+
 void Recalibrator::StepKmeansPPSeeding() noexcept {
     const uint8_t inactive = 1 - active_route_->load(std::memory_order_acquire);
     RoutingTable& table    = routes_[inactive];
@@ -107,8 +149,8 @@ void Recalibrator::StepKmeansPPSeeding() noexcept {
     uint32_t chosen_idx;
 
     if (kmeanspp_seeded_ == 0) {
-        // This is the first centroid, nothing to weight against.
-        // Pick uniformly at random.
+        // First centroid: nothing chosen yet to weight against. Pick uniformly
+        // at random.
         std::uniform_int_distribution<uint32_t> dist(
             0, config_.kmeans_sample_size - 1);
         chosen_idx = dist(rng_);
@@ -218,8 +260,8 @@ void Recalibrator::StepMiniBatch() noexcept {
         for (size_t d = 0; d < kVectorDim; ++d) {
             dot_old_new += old_centroid[d] * updated[d];
         }
-
         total_movement += 2.0f * (1.0f - dot_old_new);
+
         table.SeedCentroid(cluster_id, updated);
     }
 
