@@ -1,12 +1,18 @@
 # ==============================================================================
 # strix/engine/Justfile
+# Can be used only after executing 'bash bootstrap.sh'.
 #
 # Requires: just (https://github.com/casey/just)
 # Help:     just --list
 # ==============================================================================
 
-set dotenv-load # Automatically load .env if present
+# Automatically load .env, failed if not present.
+set dotenv-required := true
 set shell := ["bash", "-euo", "pipefail", "-c"]
+
+cmake_bin := if path_exists("vendor/cmake/bin/cmake") == "true" {
+    "vendor/cmake/bin/cmake"      
+} else { "cmake" }
 
 # List all available recipes
 default:
@@ -30,11 +36,11 @@ init-env:
 
 # Configure specified preset
 config preset="debug":
-    @cmake --preset {{preset}}
+    @{{cmake_bin}} --preset {{preset}}
 
 # Build specified preset
 build preset="debug" target="strix_engine":
-    @cmake --build --preset {{preset}} --target {{target}}
+    @{{cmake_bin}} --build --preset {{preset}} --target {{target}}
 
 # Configure & build under Release
 release: (config "release") (build "release")
@@ -54,7 +60,7 @@ bench name: (config "release") (build "release" name + "_bench")
 bench-all: (config "release")
     #!/usr/bin/env bash
     for name in {{bench_names}}; do
-        cmake --build --preset release --target ${name}_bench 2>&1 | grep -v '^$'
+        {{cmake_bin}} --build --preset release --target ${name}_bench 2>&1 | grep -v '^$'
     done
     for name in {{bench_names}}; do
         ./out/release/${name}_bench
@@ -72,7 +78,7 @@ test name preset="debug": (config preset) (build preset name + "_test")
 test-preset preset="debug": (config preset)
     #!/usr/bin/env bash
     for name in {{test_names}}; do
-        cmake --build --preset {{preset}} --target ${name}_test
+        {{cmake_bin}} --build --preset {{preset}} --target ${name}_test
     done
     for name in {{test_names}}; do
         ./out/{{preset}}/${name}_test
@@ -93,7 +99,7 @@ asan name: (config "asan") (build "asan" name + "_test")
 asan-all: (config "asan")
     #!/usr/bin/env bash
     for name in {{test_names}}; do
-        cmake --build --preset asan --target ${name}_test
+        {{cmake_bin}} --build --preset asan --target ${name}_test
     done
     for name in {{test_names}}; do
         ./out/asan/${name}_test
@@ -107,7 +113,7 @@ tsan name: (config "tsan") (build "tsan" name + "_test")
 tsan-all: (config "tsan")
     #!/usr/bin/env bash
     for name in {{test_names}}; do
-        cmake --build --preset tsan --target ${name}_test
+        {{cmake_bin}} --build --preset tsan --target ${name}_test
     done
     for name in {{test_names}}; do
         ./out/tsan/${name}_test
@@ -122,14 +128,14 @@ sanitize: asan-all tsan-all
 
 # Remove artifacts of specified preset
 clear preset="debug":
-    @cmake --build --preset {{preset}} --target clean
+    @{{cmake_bin}} --build --preset {{preset}} --target clean
 
 # Remove artifacts across all presets
 clear-all:
     #!/usr/bin/env bash
     for preset in debug release asan tsan; do
         if [ -d "out/$preset/" ]; then
-            cmake --build --preset "$preset" --target clean
+            {{cmake_bin}} --build --preset "$preset" --target clean
         fi
     done
 

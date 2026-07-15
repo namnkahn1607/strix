@@ -11,16 +11,22 @@
             "hidden": true,
             "generator": "Ninja",
             "environment": {
-                "VCPKG_MAX_CONCURRENCY": "4"
+                "VCPKG_MAX_CONCURRENCY": "4",
+                "VCPKG_DOWNLOADS": "$env{HOME}/.cache/vcpkg-downloads",
+                "VCPKG_BINARY_SOURCES": "clear;files,$env{HOME}/.cache/vcpkg-archives,readwrite"
             },
             "cacheVariables": {
                 "CMAKE_C_COMPILER": "/usr/bin/clang-17",
                 "CMAKE_CXX_COMPILER": "/usr/bin/clang++-17",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-                "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+                "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/vendor/vcpkg/scripts/buildsystems/vcpkg.cmake",
                 "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=lld-17",
                 "CMAKE_SHARED_LINKER_FLAGS": "-fuse-ld=lld-17",
-                "CMAKE_MODULE_LINKER_FLAGS": "-fuse-ld=lld-17"
+                "CMAKE_MODULE_LINKER_FLAGS": "-fuse-ld=lld-17",
+                "VCPKG_INSTALLED_DIR": "${sourceDir}/out/vcpkg_installed",
+                "VCPKG_TARGET_TRIPLET": "x64-linux",
+                "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/cmake/vcpkg-triplets",
+                "VCPKG_INSTALL_OPTIONS": "--clean-after-build"
             }
         },
         {
@@ -28,9 +34,7 @@
             "inherits": "base-wsl",
             "displayName": "Debug (Clang-17)",
             "binaryDir": "${sourceDir}/out/debug",
-            "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug"
-            }
+            "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
         },
         {
             "name": "release",
@@ -38,7 +42,8 @@
             "displayName": "Release (Clang-17)",
             "binaryDir": "${sourceDir}/out/release",
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Release"
+                "CMAKE_BUILD_TYPE": "Release",
+                "VCPKG_TARGET_TRIPLET": "x64-linux-release"
             }
         },
         {
@@ -65,47 +70,15 @@
         }
     ],
     "buildPresets": [
-        {
-            "name": "debug",
-            "configurePreset": "debug",
-            "jobs": 4
-        },
-        {
-            "name": "release",
-            "configurePreset": "release",
-            "jobs": 4
-        },
-        {
-            "name": "asan",
-            "configurePreset": "asan",
-            "jobs": 4
-        },
-        {
-            "name": "tsan",
-            "configurePreset": "tsan",
-            "jobs": 4
-        }
+        { "name": "debug", "configurePreset": "debug", "jobs": 4 },
+        { "name": "release", "configurePreset": "release", "jobs": 4 },
+        { "name": "asan", "configurePreset": "asan", "jobs": 4 },
+        { "name": "tsan", "configurePreset": "tsan", "jobs": 4 }
     ],
     "testPresets": [
-        {
-            "name": "debug",
-            "configurePreset": "debug",
-            "output": { "outputOnFailure": true }
-        },
-        {
-            "name": "release",
-            "configurePreset": "release",
-            "output": { "outputOnFailure": true }
-        },
-        {
-            "name": "asan",
-            "configurePreset": "asan",
-            "output": { "outputOnFailure": true }
-        },
-        {
-            "name": "tsan",
-            "configurePreset": "tsan",
-            "output": { "outputOnFailure": true }
-        }
+        { "name": "debug", "configurePreset": "debug", "output": { "outputOnFailure": true } },
+        { "name": "release", "configurePreset": "release", "output": { "outputOnFailure": true } },
+        { "name": "asan", "configurePreset": "asan", "output": { "outputOnFailure": true } },
+        { "name": "tsan", "configurePreset": "tsan", "output": { "outputOnFailure": true } }
     ]
 }

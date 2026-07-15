@@ -8,14 +8,6 @@ updates:
       go-deps:
         patterns: ["*"]
 
-  - package-ecosystem: "vcpkg"
-    directory: "/engine"
-    schedule:
-      interval: "weekly"
-    groups:
-      cpp-deps:
-        patterns: ["*"]
-
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
