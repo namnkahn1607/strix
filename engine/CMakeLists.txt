@@ -152,12 +152,6 @@ set_target_properties(strix_engine PROPERTIES
     INSTALL_RPATH "$ORIGIN"
 )
 
-# Clone a dynamic library file into the binary directory
-add_custom_command(TARGET strix_engine POST_BUILD
-    COMMAND cp -P ${ORT_ROOT}/lib/libonnxruntime.so* "$<TARGET_FILE_DIR:strix_engine>/"
-    COMMENT "Copying ONNX Runtime shared libraries (with symlinks) to binary directory"
-)
-
 # ===========================================================================
 # 6. TESTING EXECUTABLE(S)
 # ===========================================================================
