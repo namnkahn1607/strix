@@ -1,9 +1,0 @@
-.cache/
-.idea/
-.state/
-.vscode/
-out/
-
-.clangd
-.env
-tmp.txt
