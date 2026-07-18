@@ -1,7 +1,14 @@
-.venv
-.vscode
-bin
-data
+.cache/
+.idea/
+.state/
+.venv/
+.vscode/
+bin/
+out/
+data/
+model/
+tools/
 
-model
-
+.clangd
+.env
+tmp.txt
