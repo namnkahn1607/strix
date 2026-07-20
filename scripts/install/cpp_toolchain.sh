@@ -3,14 +3,14 @@
 # Idempotent installer/bootstrapper for engine/ devtools.
 #
 # Usage:
-#   bash bootstrap.sh <target> [<target> ...]
-#   bash bootstrap.sh all
+#   bash cpp_toolchain.sh <target> [<target> ...]
+#   bash cpp_toolchain.sh all
 #
 # Targets:
 #   ninja   Ninja generator
 #   cmake   CMake build system, vendored fallback.
 #           Resolved binary path is persisited to .state/cmake_bin.
-#   utils   base utilities (git, python3, pkg-config, curl, tar, zip, unzip, realpath)
+#   utils   base utilities (python3, pkg-config, curl, tar, zip, unzip, realpath)
 #   llvm    clang/clang++/clang-tidy/lld/lldb, pinned to LLVM_VERSION
 #   just    `just`` task runner
 #   vcpkg   vcpkg submodule sync + bootstrap + builtin-baseline pin.
@@ -20,8 +20,9 @@
 
 set -euo pipefail
 
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" # strix/engine/
-REPO_ROOT="$(dirname "$PROJECT_ROOT")"                       # strix/
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)" # strix/
+PROJECT_ROOT="$REPO_ROOT/engine"
 cd "$PROJECT_ROOT"
 
 log() { echo "[INFO] $*"; }
@@ -108,7 +109,7 @@ install_cmake() {
 # ==============================================================================
 install_utils() {
     log "Check & install system base utilities."
-    local required=(git python3 pkg-config curl tar zip unzip realpath)
+    local required=(python3 pkg-config curl tar zip unzip realpath)
     local missing=()
 
     for tool in "${required[@]}"; do
