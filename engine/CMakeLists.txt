@@ -10,7 +10,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 find_package(Protobuf CONFIG REQUIRED)
 find_package(gRPC CONFIG REQUIRED)
 
-# ===========================================================================
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/vendored-protoc.cmake)
+
+# ==============================================================================
 # 1. ORT LIBRARY PATH
 # ORT is vendored as a pre-built shared library under ort/, bypassing vcpkg.
 # The library is compiled DYNAMICALLY using clang++-17. Also, ORT and ORT-EXT
@@ -19,9 +21,7 @@ find_package(gRPC CONFIG REQUIRED)
 # Consequence: updating ORT requires a manual swap of the ort/ directory.
 # There is no version check here. If the wrong binary is dropped in, the
 # build succeeds silently and the runtime segfaults on dlopen().
-#
-# Mitigation: CI should verify the soname before packaging.
-# ===========================================================================
+# =============================================================================
 set(ORT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/ort")
 add_library(ONNXRuntime SHARED IMPORTED)
 set_target_properties(ONNXRuntime PROPERTIES
@@ -44,15 +44,15 @@ target_compile_options(engine_options INTERFACE
 # ===========================================================================
 # 3. AUTO-GENERATE CONTRACTS
 # ===========================================================================
-set(PROTO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../api/proto/v1")
+set(PROTO_DIR "${STRIX_REPO_ROOT}/api/proto/v1")
 set(PROTO_FILE "${PROTO_DIR}/strix.proto")
 set(PROTO_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
 # Pre-make directory in case of non-existing
 file(MAKE_DIRECTORY ${PROTO_GEN_DIR})
 
-# Get protoc and grpc_cpp_plugin from vcpkg
-set(PROTOC_EXEC "$<TARGET_FILE:protobuf::protoc>")
+# Get vendored protoc and grpc_cpp_plugin from vcpkg
+set(PROTOC_EXEC "${PROTOC_EXECUTABLE}")
 set(GRPC_PLUGIN_EXEC "$<TARGET_FILE:gRPC::grpc_cpp_plugin>")
 
 # Execute command to generate contracts
@@ -71,7 +71,7 @@ add_custom_command(
         "${PROTO_FILE}"
     DEPENDS
         "${PROTO_FILE}"
-        protobuf::protoc
+        "${PROTOC_EXEC}"
         gRPC::grpc_cpp_plugin
     COMMENT "Generating C++ gRPC stubs from strix.proto..."
 )
