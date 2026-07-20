@@ -8,7 +8,9 @@ out/
 data/
 model/
 tools/
+__pycache__/
 
 .clangd
 .env
 tmp.txt
+*.code-workspace
