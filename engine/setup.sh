@@ -17,8 +17,8 @@
 
 set -euo pipefail
 
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" # strix/engine/
-REPO_ROOT="$(dirname "$PROJECT_ROOT")"                       # strix/
+REPO_ROOT="$(git rev-parse --show-toplevel)" # strix/
+PROJECT_ROOT="$REPO_ROOT/engine"
 cd "$PROJECT_ROOT"
 
 log() { echo "[INFO] $*"; }
@@ -31,10 +31,10 @@ TOTAL_PHASE=3
 # 1. Install all devtools/dependencies
 # ==============================================================================
 log "[1/$TOTAL_PHASE] Installing devtools & dependencies."
-bash "$PROJECT_ROOT/bootstrap.sh" all
+bash "$REPO_ROOT/scripts/install/cpp_toolchain.sh" all
 
 CMAKE_BIN_STATE="$PROJECT_ROOT/.state/cmake_bin"
-[[ -f "$CMAKE_BIN_STATE" ]] || die "Missing $CMAKE_BIN_STATE - bootstrap.sh cmake did not run or failed."
+[[ -f "$CMAKE_BIN_STATE" ]] || die "Missing $CMAKE_BIN_STATE - Install script did not run or failed."
 CMAKE_BIN="$(cat "$CMAKE_BIN_STATE")"
 [[ "$CMAKE_BIN" == "cmake" || -x "$CMAKE_BIN" ]] || die "Resolved CMAKE_BIN ('$CMAKE_BIN') is not executable."
  
