@@ -38,9 +38,6 @@ release: (contract)
     @mkdir -p bin/release
     @CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/release/strix_gateway .
     @echo "Finished. Check out bin/release/"
-    @mkdir -p ../bin/
-    @cp bin/release/strix_gateway ../bin/
-    @echo "Copied artifact to strix/bin/"
 
 # Build final Debug artifact
 debug: (contract)
