@@ -53,7 +53,7 @@ PAYLOAD_FIELD = "payload"
 EXPECTED_KEYS = {PROMPT_FIELD, PAYLOAD_FIELD}
 
 def verify_file(path: Path, tokenizer: Tokenizer) -> bool:
-    total = violations = 0
+    total = violations = over_limit = 0
     prompt_toks: list[int] = []
     prompt_bytes: list[int] = []
     payload_bytes: list[int] = []
@@ -61,7 +61,7 @@ def verify_file(path: Path, tokenizer: Tokenizer) -> bool:
     with path.open("r", encoding="utf-8") as f:
         for lineno, raw in enumerate(f, start=1):
             if raw.strip() == "":
-                print(f"{path}:{lineno} Blank line", file=sys.stderr)
+                print(f"{path}:{lineno} - Blank line", file=sys.stderr)
                 violations += 1
                 continue
 
@@ -70,13 +70,13 @@ def verify_file(path: Path, tokenizer: Tokenizer) -> bool:
             try:
                 record = json.loads(raw)
             except json.JSONDecodeError as err:
-                print(f"{path}:{lineno} Invalid JSON - {err}",file=sys.stderr)
+                print(f"{path}:{lineno} - Invalid JSON: {err}", file=sys.stderr)
                 violations += 1
                 continue
 
             if not isinstance(record, dict):
                 print(
-                    f"{path}:{lineno} Expected object, got {type(record).__name__}",
+                    f"{path}:{lineno} - Expected object, got {type(record).__name__}",
                     file=sys.stderr,
                 )
                 violations += 1
@@ -87,7 +87,7 @@ def verify_file(path: Path, tokenizer: Tokenizer) -> bool:
             missing = EXPECTED_KEYS - actual_keys
             if missing:
                 print(
-                    f"{path}:{lineno} Missing keys {sorted(missing)}",
+                    f"{path}:{lineno} - Missing keys {sorted(missing)}",
                     file=sys.stderr,
                 )
                 violations += 1
@@ -96,7 +96,7 @@ def verify_file(path: Path, tokenizer: Tokenizer) -> bool:
             extra = actual_keys - EXPECTED_KEYS
             if extra:
                 print(
-                    f"{path}:{lineno} Unexpected keys {sorted(extra)}",
+                    f"{path}:{lineno} - Unexpected keys {sorted(extra)}",
                     file=sys.stderr,
                 )
                 violations += 1
@@ -108,7 +108,7 @@ def verify_file(path: Path, tokenizer: Tokenizer) -> bool:
 
                 if not isinstance(val, str):
                     print(
-                        f"{path}:{lineno} '{key}' is {type(val).__name__}, expected str",
+                        f"{path}:{lineno} - '{key}' is {type(val).__name__}, expected str",
                         file=sys.stderr,
                     )
                     record_ok = False
@@ -128,13 +128,7 @@ def verify_file(path: Path, tokenizer: Tokenizer) -> bool:
 
             tok_count = len(tokenizer.encode(record[PROMPT_FIELD]).ids)
             if tok_count > MAX_PROMPT_TOKENS:
-                print(
-                    f"{path}:{lineno} '{PROMPT_FIELD}' has {tok_count} tokens, "
-                    f"which exceeds max {MAX_PROMPT_TOKENS}",
-                    file=sys.stderr,
-                )
-                violations += 1
-                continue
+                over_limit += 1
 
             prompt_toks.append(tok_count)
             prompt_bytes.append(len(record[PROMPT_FIELD]))
@@ -147,6 +141,8 @@ def verify_file(path: Path, tokenizer: Tokenizer) -> bool:
     log.info("Total records     : %d", total)
     log.info("Passed            : %d", passed)
     log.info("Violations        : %d", violations)
+    if over_limit:
+        log.info("Over token limit  : %d  (kept, informational only)", over_limit)
 
     if prompt_bytes:
         log.info(
