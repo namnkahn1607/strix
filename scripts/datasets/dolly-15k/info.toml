@@ -1,0 +1,4 @@
+# dolly-15k/info.toml
+repo_id = "databricks/databricks-dolly-15k"
+revision = "bdd27f4d94b9c1f951818a7da7fd7aeea5dbff1a"
+file_path = "databricks-dolly-15k.jsonl"
