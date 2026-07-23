@@ -2,3 +2,4 @@
 repo_id = "sahil2801/CodeAlpaca-20k"
 revision = "152bb5e9a29651266b018106053980070a0521a1"
 file_path = "code_alpaca_20k.json"
+local_name = "codealpaca_20k"
