@@ -30,7 +30,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Callable, Iterator
 
-from _common import assert_in_venv, default_tokenizer_path
+from _common import assert_in_venv, default_tokenizer_path, repo_root
 
 # MUST run before any third-party import.
 assert_in_venv()
@@ -96,23 +96,33 @@ def run(input_path: Path, output_path: Path,
     for tag, count in flagged.most_common():
         log.info("Flagged (%-12s): %d  (kept, not excluded)", tag, count)
     log.info("Output        : %s", output_path.resolve())
-    
-def entrypoint(iter_raw_records: IterFn, 
-               process_record: ProcessFn, 
-               description: str | None = None) -> int:
+
+def parse_args(description: str | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=description,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+
     parser.add_argument(
-        "input", type=Path, help="Path to the raw dataset file")
-    parser.add_argument(
-        "output", type=Path, help="Path for the processed JSONL output")
+        "input", type=Path,
+        help="Path to the raw dataset file"
+    )
+
+    return parser.parse_args()
     
-    args = parser.parse_args()
-    if not args.input.exists():
-        log.error("Input raw not found: %s", args.input)
+def entrypoint(iter_raw_records: IterFn, process_record: ProcessFn, 
+               description: str | None = None) -> int:
+    args = parse_args(description)
+
+    input_path = args.input.resolve()
+    if not input_path.exists():
+        log.error("Raw input dataset not found: %s", args.input)
         return 1
- 
-    run(args.input, args.output, iter_raw_records, process_record)
-    return 0
+    if not input_path.is_file():
+        log.error("Input path must be a file, not a directory: %s", args.input)
+        return 1
+
+    dataset_name = input_path.stem
+    output_path = repo_root() / "data" / f"{dataset_name}.jsonl"
+    run(input_path, output_path, iter_raw_records, process_record)
+    return 0 
