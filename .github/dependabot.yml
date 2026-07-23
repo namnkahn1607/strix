@@ -8,8 +8,8 @@ updates:
       go-deps:
         patterns: ["*"]
 
-  - package-ecosystem: "pip"
-    directory: "/"
+  - package-ecosystem: "uv"
+    directory: "/scripts"
     schedule:
       interval: "weekly"
     groups:
