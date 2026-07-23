@@ -115,3 +115,7 @@ def load_manifest(info_toml: Path) -> Manifest:
 def raw_dataset_path(manifest: Manifest) -> Path:
     """Default raw dataset path resolver."""
     return default_cache_dir() / f"{manifest.local_name}{manifest.raw_ext}"
+
+def processed_dataset_path(manifest: Manifest) -> Path:
+    """Default processed dataset path resolver."""
+    return repo_root() / "data" / f"{manifest.local_name}.jsonl"
