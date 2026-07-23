@@ -53,7 +53,7 @@ PAYLOAD_FIELD = "payload"
 EXPECTED_KEYS = {PROMPT_FIELD, PAYLOAD_FIELD}
 
 def verify_file(path: Path, tokenizer: Tokenizer) -> bool:
-    total = violations = over_limit = 0
+    total = violations = blanks = overlimit = 0
     prompt_toks: list[int] = []
     prompt_bytes: list[int] = []
     payload_bytes: list[int] = []
@@ -62,7 +62,7 @@ def verify_file(path: Path, tokenizer: Tokenizer) -> bool:
         for lineno, raw in enumerate(f, start=1):
             if raw.strip() == "":
                 print(f"{path}:{lineno} - Blank line", file=sys.stderr)
-                violations += 1
+                blanks += 1
                 continue
 
             total += 1
@@ -128,7 +128,7 @@ def verify_file(path: Path, tokenizer: Tokenizer) -> bool:
 
             tok_count = len(tokenizer.encode(record[PROMPT_FIELD]).ids)
             if tok_count > MAX_PROMPT_TOKENS:
-                over_limit += 1
+                overlimit += 1
 
             prompt_toks.append(tok_count)
             prompt_bytes.append(len(record[PROMPT_FIELD]))
@@ -141,8 +141,8 @@ def verify_file(path: Path, tokenizer: Tokenizer) -> bool:
     log.info("Total records     : %d", total)
     log.info("Passed            : %d", passed)
     log.info("Violations        : %d", violations)
-    if over_limit:
-        log.info("Over token limit  : %d  (kept, informational only)", over_limit)
+    log.info("Blank             : %d", blanks)
+    log.info("Overlimit (token) : %d", overlimit)
 
     if prompt_bytes:
         log.info(
@@ -207,6 +207,15 @@ def main() -> int:
             log.error("File not found: %s", path)
             all_passed = False
             continue
+        if not path.is_file():
+            log.error("Not a file: %s", path)
+            all_passed = False
+            continue
+        if not path.suffix == ".jsonl":
+            log.warning(
+                "Not a JSONL file: %s. Make sure this is a processed dataset.",
+                path,
+            )
 
         result = verify_file(path, tokenizer)
         all_passed = all_passed and result
