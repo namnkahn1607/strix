@@ -15,12 +15,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/vendored-protoc.cmake)
 # ==============================================================================
 # 1. ORT LIBRARY PATH
 # ORT is vendored as a pre-built shared library under ort/, bypassing vcpkg.
-# The library is compiled DYNAMICALLY using clang++-17. Also, ORT and ORT-EXT
-# has historically version mismatch and ODR violation.
-#
-# Consequence: updating ORT requires a manual swap of the ort/ directory.
-# There is no version check here. If the wrong binary is dropped in, the
-# build succeeds silently and the runtime segfaults on dlopen().
+# The library is compiled DYNAMICALLY using clang++-17.
 # =============================================================================
 set(ORT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/ort")
 add_library(ONNXRuntime SHARED IMPORTED)
@@ -147,7 +142,6 @@ target_link_libraries(strix_engine PRIVATE
 
 # Hardcode ORT library path into binary
 set_target_properties(strix_engine PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/../bin"
     BUILD_WITH_INSTALL_RPATH TRUE
     INSTALL_RPATH "$ORIGIN"
 )
