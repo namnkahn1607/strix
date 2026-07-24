@@ -14,6 +14,7 @@
 #   llvm    clang/clang++/clang-tidy/lld/lldb, pinned to LLVM_VERSION
 #   just    `just`` task runner
 #   vcpkg   vcpkg submodule sync + bootstrap + builtin-baseline pin.
+#   ort     onnxruntime submodule sync + Clang patch series + build + harvest.
 
 # Exit non-zero on failure or unknown target.
 ################################################################################
@@ -36,10 +37,10 @@ assert_platform() {
 
 usage() {
     cat <<'EOF'
-Usage: bash bootstrap.sh <target> [<target> ...]
-       bash bootstrap.sh all
+Usage: bash cpp_toolchain.sh <target> [<target> ...]
+       bash cpp_toolchain.sh all
     
-Targets: ninja  cmake  utils  llvm  just  vcpkg  all
+Targets: ninja  cmake  utils  llvm  just  vcpkg  ort  all
 EOF
 }
 
@@ -169,9 +170,10 @@ install_just() {
 # ==============================================================================
 # vcpkg
 # ==============================================================================
-install_vcpkg() {
-    log "Synchronize submodule & bootstrap"
-    git -C "$REPO_ROOT" submodule update --init --recursive --filter=blob:none
+bootstrap_vcpkg() {
+    log "Synchronize & bootstrap vcpkg"
+    git -C "$REPO_ROOT" submodule update --init --recursive --filter=blob:none \
+        -- engine/vendor/vcpkg
 
     mkdir -p "$HOME/.cache/vcpkg-archives" "$HOME/.cache/vcpkg-downloads"
 
@@ -202,6 +204,108 @@ install_vcpkg() {
 }
 
 # ==============================================================================
+# ort
+# ==============================================================================
+# ORT build requires CMake >= 3.28
+ORT_CMAKE_VERSION="3.28.6"
+
+_resolve_ort_cmake() {
+    local vendor_dir="$PROJECT_ROOT/vendor/cmake-ort"
+    if [[ ! -x "$vendor_dir/bin/cmake" ]]; then
+        log "Installing dedicated CMake $ORT_CMAKE_VERSION for ORT build."
+        mkdir -p "$vendor_dir"
+        
+        local tarfile="cmake-${ORT_CMAKE_VERSION}-linux-x86_64.tar.gz"
+        curl -fsSL -o "/tmp/$tarfile" \
+            "https://github.com/Kitware/CMake/releases/download/v${ORT_CMAKE_VERSION}/${tarfile}"
+        tar -xzf "/tmp/$tarfile" -C "$vendor_dir" --strip-components=1
+        rm -f "/tmp/$tarfile"
+    fi
+    echo "$vendor_dir/bin/cmake"
+}
+
+ORT_TAG="v1.23.2"
+EXPECTED_ORT_COMMIT="a83fc4d58cb48eb68890dd689f94f28288cf2278"
+
+ORT_PATCH_DIR="$PROJECT_ROOT/vendor/patches/onnxruntime"
+ORT_SRC_DIR="$PROJECT_ROOT/vendor/onnxruntime"
+ORT_HARVEST_DIR="$PROJECT_ROOT/ort"
+ORT_BUILT_MARKER="$ORT_HARVEST_DIR/.built_commit"
+
+bootstrap_ort() {
+    log "Synchronize & bootstrap onnxruntime $ORT_TAG"
+    git -C "$REPO_ROOT" submodule update --init --recursive --filter=blob:none \
+        -- engine/vendor/onnxruntime
+
+    local actual_ort_commit
+    actual_ort_commit=$(git -C "$ORT_SRC_DIR" rev-parse HEAD)
+    if [[ "$actual_ort_commit" != "$EXPECTED_ORT_COMMIT" ]]; then
+        die "onnxruntime local HEAD resolves to $actual_ort_commit, " \
+            "expected $EXPECTED_ORT_COMMIT. "
+    fi
+
+    # Idempotent ensurance: Reset the submodule to pristine state BEFORE
+    # applying any patches.
+    git -C "$ORT_SRC_DIR" checkout --force "$actual_ort_commit"
+    git -C "$ORT_SRC_DIR" clean -fdx
+    git -C "$ORT_SRC_DIR" submodule foreach --recursive \
+        'git checkout --force . && git clean -fdx'
+
+    log "Applying clang-17 compatibility patch series."
+    shopt -s nullglob
+    local patches=("$ORT_PATCH_DIR"/*.diff)
+    shopt -u nullglob
+
+    if [[ ${#patches[@]} -eq 0 ]]; then
+        warn "No patches found in $ORT_PATCH_DIR. Skipping patch step."
+    else
+        for p in "${patches[@]}"; do
+            git -C "$ORT_SRC_DIR" apply --check "$p" || die \
+                "Patch $p failed against $actual_ort_commit. " \
+                "Patch series might be stale - regenerate it (see bumping procedure doc)." 
+        done
+        for p in "${patches[@]}"; do
+            git -C "$ORT_SRC_DIR" apply "$p"
+        done
+    fi
+
+    # Skip rebuild + reharvest if already done it.
+    if [[ -f "$ORT_BUILT_MARKER" ]] && [[ "$(cat "$ORT_BUILT_MARKER")" == "$actual_ort_commit" ]]; then
+        log "Already harvested for $actual_ort_commit. Skipping build."
+        return 0
+    fi
+
+    local cmake_ort_bin
+    cmake_ort_bin="$(_resolve_ort_cmake)"
+
+    log "Building onnxruntime. Might take a while."
+    (
+        cd "$ORT_SRC_DIR"
+        ./build.sh \
+            --cmake_path "$cmake_ort_bin" \
+            --cmake_generator Ninja \
+            --config Release \
+            --build_shared_lib \
+            --parallel 4 \
+            --use_extensions \
+            --skip_tests \
+            --cmake_extra_defines \
+                CMAKE_C_COMPILER=/usr/bin/clang-17 \
+                CMAKE_CXX_COMPILER=/usr/bin/clang++-17 \
+                CMAKE_CXX_FLAGS="-Wno-error -O3 -march=x86-64-v3" \
+                CMAKE_C_FLAGS="-Wno-error -O3 -march=x86-64-v3"
+    ) || die "Build failed."
+
+    log "Harvesting artifacts & onnxruntime headers."
+    mkdir -p "$ORT_HARVEST_DIR/lib" "$ORT_HARVEST_DIR/include"
+    cp -a "$ORT_SRC_DIR"/build/Linux/Release/libonnxruntime.so* "$ORT_HARVEST_DIR/lib/"
+    cp -a "$ORT_SRC_DIR"/include/onnxruntime/core/session/. "$ORT_HARVEST_DIR/include/"
+
+    echo "$actual_ort_commit" > "$ORT_BUILT_MARKER"
+    log "onnxruntime ready ($actual_ort_commit)."
+}
+
+# ==============================================================================
 # Entry point
 # ==============================================================================
 main() {
@@ -209,7 +313,7 @@ main() {
     assert_platform
 
     local targets=("$@")
-    [[ "${targets[0]}" == "all" ]] && targets=(ninja cmake utils llvm just vcpkg)
+    [[ "${targets[0]}" == "all" ]] && targets=(ninja cmake utils llvm just vcpkg ort)
  
     for target in "${targets[@]}"; do
         case "$target" in
@@ -218,7 +322,8 @@ main() {
             utils)  install_utils ;;
             llvm)   install_llvm ;;
             just)   install_just ;;
-            vcpkg)  install_vcpkg ;;
+            vcpkg)  bootstrap_vcpkg ;;
+            ort)    bootstrap_ort ;;
             *) die "Unknown target: '$target'. Run without args to see usage." ;;
         esac
     done
