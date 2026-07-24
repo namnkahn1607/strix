@@ -3,12 +3,13 @@
 .state/
 .venv/
 .vscode/
+__pycache__/
 bin/
 out/
+ort/
 data/
 model/
 tools/
-__pycache__/
 
 .clangd
 .env
