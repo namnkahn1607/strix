@@ -1,3 +1,6 @@
 [submodule "engine/vendor/vcpkg"]
 	path = engine/vendor/vcpkg
 	url = https://github.com/microsoft/vcpkg
+[submodule "engine/vendor/onnxruntime"]
+	path = engine/vendor/onnxruntime
+	url = https://github.com/microsoft/onnxruntime.git
