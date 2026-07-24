@@ -15,3 +15,5 @@ tools/
 .env
 tmp.txt
 *.code-workspace
+
+engine/vendor/cmake-ort
