@@ -6,7 +6,7 @@
 
 #include "inference_model.h"
 
-#include <onnxruntime/onnxruntime_cxx_api.h>
+#include <onnxruntime_cxx_api.h>
 
 #include <array>
 #include <cmath>
