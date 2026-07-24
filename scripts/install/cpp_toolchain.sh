@@ -272,6 +272,9 @@ bootstrap_ort() {
     # Skip rebuild + reharvest if already done it.
     if [[ -f "$ORT_BUILT_MARKER" ]] && [[ "$(cat "$ORT_BUILT_MARKER")" == "$actual_ort_commit" ]]; then
         log "Already harvested for $actual_ort_commit. Skipping build."
+        log "Revert to pristine state after applying patches."
+        git -C "$ORT_SRC_DIR" reset --hard HEAD
+        git -C "$ORT_SRC_DIR" clean -fdx
         return 0
     fi
 
@@ -300,8 +303,11 @@ bootstrap_ort() {
     mkdir -p "$ORT_HARVEST_DIR/lib" "$ORT_HARVEST_DIR/include"
     cp -a "$ORT_SRC_DIR"/build/Linux/Release/libonnxruntime.so* "$ORT_HARVEST_DIR/lib/"
     cp -a "$ORT_SRC_DIR"/include/onnxruntime/core/session/. "$ORT_HARVEST_DIR/include/"
-
     echo "$actual_ort_commit" > "$ORT_BUILT_MARKER"
+
+    log "Revert to pristine state after applying patches."
+    git -C "$ORT_SRC_DIR" reset --hard HEAD
+    git -C "$ORT_SRC_DIR" clean -fdx
     log "onnxruntime ready ($actual_ort_commit)."
 }
 
