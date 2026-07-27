@@ -26,7 +26,7 @@ REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)" # strix/
 PROJECT_ROOT="$REPO_ROOT/engine"
 cd "$PROJECT_ROOT"
 
-log() { echo "[INFO] $*"; }
+log() { echo "[INFO] $*" >&2; }
 warn() { echo "[WARN] $*" >&2; }
 die() { echo "[ERROR] $*" >&2; exit 1; }
 

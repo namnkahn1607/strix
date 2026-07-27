@@ -19,7 +19,7 @@ mkdir -p "$MODEL_DIR"
 
 TRANSFORMER="$MODEL_DIR/transformer.onnx"
 
-log() { echo "[INFO] $*"; }
+log() { echo "[INFO] $*" >&2; }
 warn() { echo "[WARN] $*" >&2; }
 die() { echo "[ERROR] $*" >&2; exit 1; }
 

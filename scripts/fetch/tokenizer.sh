@@ -21,7 +21,7 @@ mkdir -p "$MODEL_DIR"
 
 DICTIONARY="$MODEL_DIR/tokenizer.json"
 
-log() { echo "[INFO] $*"; }
+log() { echo "[INFO] $*" >&2; }
 warn() { echo "[WARN] $*" >&2; }
 die() { echo "[ERROR] $*" >&2; exit 1; }
 

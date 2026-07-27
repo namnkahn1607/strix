@@ -21,7 +21,7 @@ VCPKG_JSON="$REPO_ROOT/engine/vcpkg.json"
 VENDOR_DIR="$REPO_ROOT/tools/protoc"
 VERSION_FILE="$REPO_ROOT/.protoc-version"
 
-log() { echo "[INFO] $*"; }
+log() { echo "[INFO] $*" >&2; }
 warn() { echo "[WARN] $*" >&2; }
 die() { echo "[ERROR] $*" >&2; exit 1; }
 
