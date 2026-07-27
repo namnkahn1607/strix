@@ -12,7 +12,7 @@ dependencies = [
     "tokenizers",
     "transformers<5.0",
     "torch",
-    "huggingface-hub>=0.36.2",
+    "huggingface-hub>=1.25.1",
 ]
 
 [tool.uv.sources]
