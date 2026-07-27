@@ -14,8 +14,8 @@
 #include "level0_ring.h"
 #include "level1_ivf.h"
 #include "memory_arena.h"
-#include "search_inl.h"
 #include "recalibration.h"
+#include "search_inl.h"
 
 // `CacheOutcome` represents part of the cache states returned by Data plane to
 // the Control plane.
@@ -84,8 +84,9 @@ public:
     bool CommitPayload(uint32_t node_id, const uint8_t* in,
                        uint32_t length) noexcept;
 
-    // `RunCoordinator()` triggers background coordinator worker that schedules
-    // and performs Compaction, Recalibration, Reassignment.
+    // `RunCoordinator()` triggers the background coordinator worker that
+    // bootstraps the IVF from live L0 traffic, then schedules and performs
+    // Compaction, Recalibration, Reassignment until `shutdown_req` is set.
     void RunCoordinator(const std::atomic<bool>& shutdown_req);
 
 private:
@@ -103,11 +104,15 @@ private:
     RoutingTable         routes_[2];
     std::atomic<uint8_t> active_route_{0};
 
+    // Gates any IVF-related operations at cold start until the IVF's 
+    // centroid array is fully seeded.
+    std::atomic<bool> ivf_enabled_{false};
+
     // `RunCompaction()` sequentially migrates nodes from L0 Buffer to L1 IVF.
     void RunCompaction() noexcept;
 
     // IVF's `Recalibrator` - the calibration state-machine controller.
-    Recalibrator recalibrator_;
+    std::unique_ptr<Recalibrator> recalibrator_;
 
     // Round-robin cursor only for `RunReassignment()` to determine which
     // cluster to sweep on the next call.

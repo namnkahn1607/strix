@@ -6,6 +6,7 @@
 #include "vector_index.h"
 
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <exception>
@@ -13,6 +14,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <thread>
 
 #include "constants.h"
 #include "free_list.h"
@@ -38,9 +40,10 @@ VectorIndex::VectorIndex(MemoryArena& arena, const uint32_t l0_cap,
                            config.lazy_mapping),
               RoutingTable(config.num_clusters, config.max_cluster_size,
                            config.lazy_mapping))
-    , recalibrator_(arena, routes_, &active_route_, config) {
+    , recalibrator_(std::make_unique<Recalibrator>(arena, routes_,
+                                                   &active_route_, config)) {
     // Arguments check & sanitizing.
-    if (config.kmeans_sample_size >= kUnclustered) {
+    if (config.num_clusters >= kUnclustered) {
         throw std::invalid_argument(
             "Number of clusters must be lower than kUnclustered identifier, "
             "which is " +
@@ -227,6 +230,99 @@ bool VectorIndex::CommitPayload(const uint32_t node_id, const uint8_t* in,
 // -----------------------------------------------------------------------------
 // Background Coordinators
 // -----------------------------------------------------------------------------
+
+namespace {
+
+// Backoff while the Coordinator's bootstrap is waiting for L0 traffic.
+inline constexpr auto kBootstrapIdleBackoff = std::chrono::milliseconds(10);
+
+// Fixed per-iteration tick for Coordinator's steady-state loop.
+inline constexpr auto kCoordinatorTick = std::chrono::milliseconds(1);
+
+}  // namespace
+
+void VectorIndex::RunCoordinator(const std::atomic<bool>& shutdown_req) {
+    // -------------------------------------------------------------------------
+    // Bootstrap: seed routes_[inactive] directly from live L0 traffic.
+    //
+    // Escape the chicken-and-egg problem at cold start: all IVF-related
+    // operations expected a valid-filled centroid array, which hasn't exist
+    // yet. Bootstrap breaks the cycle by harvesting vectors straight from L0
+    // buffer.
+    // -------------------------------------------------------------------------
+    {
+        const uint8_t inactive =
+            1 - active_route_.load(std::memory_order_acquire);
+        RoutingTable& table = routes_[inactive];
+
+        uint32_t seeded = 0;
+        while (seeded < table.num_clusters) {
+            if (shutdown_req.load(std::memory_order_relaxed)) {
+                return;
+            }
+
+            const uint32_t node_id = l0_buffer_.TryPop();
+            if (node_id == L0Buffer::kEmpty) {
+                std::this_thread::sleep_for(kBootstrapIdleBackoff);
+                continue;
+            }
+
+            MetaNode& node = arena_.GetNode(node_id);
+            const auto [state, ref_bit, version, length, offset] =
+                node.LoadControl();
+            if (state == NodeState::kDead) {
+                // kDead node detected. Seed-in another vec for this centroid.
+                continue;
+            }
+
+            const float* vec = arena_.GetVector(node_id);
+            table.SeedCentroid(seeded, vec);
+
+            if (node.LoadVersion() != version) {
+                // Torn-read detected. Seed-in another vec for this centroid.
+                continue;
+            }
+
+            if (!table.JoinCluster(node_id, seeded)) {
+                // Can't actually happen, as seeded is always this cluster's
+                // fist member, so the cluster can never be full.
+                continue;
+            }
+            node_owner_[node_id].store(seeded, std::memory_order_relaxed);
+
+            ++seeded;
+        }
+
+        active_route_.store(inactive, std::memory_order_release);
+        ivf_enabled_.store(true, std::memory_order_release);
+    }
+
+    // -------------------------------------------------------------------------
+    // Compaction-only phase: run until the first real Recalibration episode has
+    // started. And since no episode has been published, no semantic drift
+    // happens (yet), so Reassignment is meaningless this time.
+    // -------------------------------------------------------------------------
+    while (recalibrator_->CurrentPhase() == Recalibrator::Phase::kIdle) {
+        if (shutdown_req.load(std::memory_order_relaxed)) {
+            return;
+        }
+
+        RunCompaction();
+        recalibrator_->NotifyCompactionSucceeded();
+        std::this_thread::sleep_for(kCoordinatorTick);
+    }
+
+    // -------------------------------------------------------------------------
+    // Steady-state. The Coordinator stays in this loop forever after.
+    // -------------------------------------------------------------------------
+    while (!shutdown_req.load(std::memory_order_relaxed)) {
+        RunCompaction();
+        recalibrator_->NotifyCompactionSucceeded();
+        recalibrator_->Tick();
+        RunReassignment();
+        std::this_thread::sleep_for(kCoordinatorTick);
+    }
+}
 
 void VectorIndex::RunCompaction() noexcept {
     const uint32_t node_id = l0_buffer_.TryPop();
