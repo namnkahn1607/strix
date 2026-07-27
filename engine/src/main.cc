@@ -16,6 +16,7 @@
 #include "inference_model.h"
 #include "level1_ivf.h"
 #include "memory_arena.h"
+#include "vector_index.h"
 
 namespace {
 
@@ -81,6 +82,8 @@ void RunServer(const Embedder& embedder, VectorIndex& index, MemoryArena& arena,
 
     std::thread gc_thread(&MemoryArena::RunGarbageCollector, &arena,
                           std::ref(g_shutdown_req));
+    std::thread coord_thread(&VectorIndex::RunCoordinator, &index,
+                             std::ref(g_shutdown_req));
     std::thread grpc_thread([&]() {
         try {
             server->Wait();
@@ -159,6 +162,10 @@ void RunServer(const Embedder& embedder, VectorIndex& index, MemoryArena& arena,
     if (gc_thread.joinable()) {
         gc_thread.join();
     }
+
+    if (coord_thread.joinable()) {
+        coord_thread.join();
+    }
 }
 
 }  // namespace
@@ -203,6 +210,9 @@ int main() {
 
         VectorIndex indexer(*arena, kL0Capacity, IvfConfig::Production());
         std::cout << "[Vector Engine] Initialized Vector Index.\n";
+
+        arena->SetNodeFreedCallback(
+            [&indexer](uint32_t node_id) { indexer.ReleaseNode(node_id); });
 
         WarmupEngine(embedder);
 
