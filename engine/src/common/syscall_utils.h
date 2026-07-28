@@ -1,6 +1,4 @@
-// Author: namnkahn1607
-//
-// Global cross-module utility subroutines.
+// Syscalls covered as global cross-module subroutines.
 // Module-private ones belong in their own translation units.
 
 #pragma once
@@ -15,17 +13,20 @@
 
 namespace common {
 
-// `AllocMMap()` allocates a page-aligned (trivially 32-byte alignment 4KB page)
-// anonymous private mapping of `size` bytes with RW permission via `mmap`.
-// When `lazy = false`, the kernel is instructed to pre-fault all pages during
-// syscall, eliminating first-touch latency caused by page-faults.
+// AllocMMap allocates an anonymous private RW mapping of `size` bytes via
+// `mmap`, aligned to the system page size (typically 4KB on Linux x86-64).
+//
+// When `lazy = false`, the kernel pre-faults all pages during the syscall,
+// thus eliminating first-touch latency caused by page-faults.
+//
+// This is a construction-time ONLY utility, never called on a hot path.
+// Throws on `mmap` failure, as this is an unrecoverable error caused by
+// programmers.
 //
 // Contract:
-//   1. `size` must be > 0. `nullptr` won't be returned on `size == 0`.
-//   2. `std::runtime_error` is thrown on allocation failure. Callers must be
-//      construction paths, not steady-state/hot paths.
-//   3. Caller owns the object memory lifetime and MUST pair it with a
-//      `DeallocMMap(ptr, size)` using the same `size`.
+//   1. Asserts `size > 0`. `nullptr` is never returned otherwise.
+//   2. Caller owns returned memory lifetime and MUST pair it with
+//      `DeallocMMap(ptr, size)` using the exact same `size`.
 inline void* AllocMMap(const size_t size, bool lazy) {
     assert(size > 0 && "AllocMMap: size must be > 0");
 
@@ -41,22 +42,29 @@ inline void* AllocMMap(const size_t size, bool lazy) {
     return ptr;
 }
 
-// `DeallocMMap()` unmaps a region previously allocated using `AllocMMap()`.
-// The `size` MUST match exactly with the one passed onto `AllocMMap()` call.
-inline void DeallocMMap(void* ptr, size_t size) noexcept {
+// DeallocMMap unmaps a region previously allocated using `AllocMMap()`.
+// `size` MUST match exactly the one passed to the corresponding `AllocMMap()`.
+//
+// Thread-safety: not synchronized. Caller must guarantee no concurrent
+// access to the region for the duration of this call.
+inline void DeallocMMap(void* ptr, size_t size) {
     if (ptr == nullptr || size == 0) {
-        assert(false && "DeallocMMap: invalid ptr/size pair");
-        return;
+        throw std::invalid_argument(
+            "DeallocMMap: invalid ptr/size pair (ptr=" +
+            std::to_string(reinterpret_cast<uintptr_t>(ptr)) +
+            ", size=" + std::to_string(size) + ")");
     }
 
-    [[maybe_unused]] const int result = munmap(ptr, size);
-    assert(result == 0 &&
-           "DeallocMMap: munmap failed - check ptr/size pairing");
+    if (munmap(ptr, size) != 0) {
+        throw std::runtime_error(
+            "DeallocMMap: munmap failed (errno=" + std::to_string(errno) + ")");
+    }
 }
 
-// `MonotonicNow()` returns a monotonic stopwatch value unaffected by NTP
-// corrections & adjustments. Use this to measure elapsed time such as
-// peroids, intervals, TTLs and countdowns.
+// MonotonicNow returns a monotonic stopwatch value unaffected by NTP
+// corrections & adjustments. Use to measure elapsed time such as periods,
+// intervals, TTLs and countdowns.
+//
 // Default unit is seconds if `Duration` is not specified.
 template <typename Duration = std::chrono::seconds>
 inline uint64_t MonotonicNow() {
@@ -65,8 +73,9 @@ inline uint64_t MonotonicNow() {
         std::chrono::duration_cast<Duration>(now).count());
 }
 
-// `WallUnixNow()` returns the current Unix epoch timestamp from the system
-// clock. Use for loggings, cross-process/machine timestamp comparisons.
+// WallUnixNow returns the current Unix epoch timestamp from the system clock.
+// Use for loggings, cross-process/machine timestamp comparisons.
+//
 // Default unit is seconds if `Duration` is not specified.
 template <typename Duration = std::chrono::seconds>
 inline uint64_t WallUnixNow() {
