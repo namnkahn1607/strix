@@ -6,6 +6,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 
 // std::atomic on these unsigned integers MUST be hardware lock-free (no
 // libatomic fallback).
