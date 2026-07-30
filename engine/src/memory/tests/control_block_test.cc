@@ -1,22 +1,21 @@
-// Author: namnkahn1607
-//
-// Unit tests for PackControl() and UnpackControl() - the bit-manip
-// operations that encode/decode the 64-bit control block of MetaNode,
-// NextVersion(), and atomic accessors LoadControl() & LoadVersion().
+// Unit tests for 64-bit control block encoder and decoder,
+// version advancing and atomic control block accessors.
+
+#include "control_block.h"
 
 #include <gtest/gtest.h>
 
 #include <atomic>
 
 #include "meta_node.h"
+#include "state.h"
 
 // =============================================================================
 // Section 1: Raw-bit anchoring.
 //
-// Compare the packed uint64_t word against a hand-computed literal, WITHOUT
-// going through UnpackControl(). Only comparing against a fixed literal,
-// derived from the documented bit layout, can detect a wrong shift value same
-// way in both PackControl() and UnpackControl().
+// Compare the packed 64-bit word against a hand-computed literal.
+// Only comparing against a fixed literal, derived from the documented bit
+// layout, can detect a wrong shift value same way in both encoder and decoder.
 // =============================================================================
 
 TEST(RawBitLayoutTest, ZeroInputProducesZero) {
@@ -58,19 +57,17 @@ TEST(RawBitLayoutTest, OffsetOccupiesBits35To0) {
 // =============================================================================
 // Section 2: Round-trip correctness per field.
 //
-// These confirm Pack -> Unpack recovers the original value without creating
-// mask errors, sign-extension bugs, and enum cast issues..
+// These confirm encode -> decode recovers the original value without creating
+// mask errors, sign-extension bugs, and enum cast issues.
 // =============================================================================
 
 namespace {
 
-// `RoundTrip()` packs arguments and unpacks ti immediately, return
-// a `UnpackedControl` as result.
-Control RoundTrip(const NodeState state, const EvictState ref_bit,
-                  const uint8_t version, const uint32_t length,
-                  const uint64_t v_offset) {
-    return UnpackControl(
-        PackControl(state, ref_bit, version, length, v_offset));
+// RoundTrip packs arguments and unpacks it immediately.
+ControlBlock RoundTrip(const NodeState state, const EvictState ref,
+                       const uint8_t version, const uint32_t length,
+                       const uint64_t v_offset) {
+    return UnpackControl(PackControl(state, ref, version, length, v_offset));
 }
 
 }  // namespace
@@ -90,10 +87,10 @@ TEST(RoundTripTest, AllNodeStates) {
 
 TEST(RoundTripTest, BothEvictStates) {
     const auto cold = RoundTrip(NodeState::kReady, EvictState::kCold, 0, 0, 0);
-    EXPECT_EQ(cold.ref_bit, EvictState::kCold);
+    EXPECT_EQ(cold.ref, EvictState::kCold);
 
     const auto hot = RoundTrip(NodeState::kDead, EvictState::kHot, 0, 0, 0);
-    EXPECT_EQ(hot.ref_bit, EvictState::kHot);
+    EXPECT_EQ(hot.ref, EvictState::kHot);
 }
 
 TEST(RoundTripTest, VersionBoundaries) {
@@ -133,7 +130,7 @@ TEST(RoundTripTest, AllFieldsMaxedSimultaneously) {
                   kMaxPayloadLength, kVirtualOffsetMask);
 
     EXPECT_EQ(result.state, NodeState::kReady);
-    EXPECT_EQ(result.ref_bit, EvictState::kHot);
+    EXPECT_EQ(result.ref, EvictState::kHot);
     EXPECT_EQ(result.version, kVersionMask);
     EXPECT_EQ(result.length, kMaxPayloadLength);
     EXPECT_EQ(result.virtual_offset, kVirtualOffsetMask);
@@ -142,7 +139,7 @@ TEST(RoundTripTest, AllFieldsMaxedSimultaneously) {
 // =============================================================================
 // Section 3: Field isolation.
 //
-// Sweeping one field across its full range must never perturb the other four.
+// Sweeping one field across its full range must never corrupt the others.
 // Proves that no field bleeds into its adjacent neighbor(s).
 // =============================================================================
 
@@ -160,7 +157,7 @@ TEST(IsolationTest, NodeStateDoesNotCorruptOtherFields) {
         const auto result =
             RoundTrip(state, EvictState::kHot, kVersion, kLength, kOffset);
         EXPECT_EQ(result.state, state) << "state field";
-        EXPECT_EQ(result.ref_bit, EvictState::kHot) << "ref_bit field";
+        EXPECT_EQ(result.ref, EvictState::kHot) << "ref field";
         EXPECT_EQ(result.version, kVersion) << "version field";
         EXPECT_EQ(result.length, kLength) << "length field";
         EXPECT_EQ(result.virtual_offset, kOffset) << "offset field";
@@ -176,7 +173,7 @@ TEST(IsolationTest, RefBitDoesNotCorruptOtherFields) {
         const auto result =
             RoundTrip(NodeState::kPending, ev, kVersion, kLength, kOffset);
         EXPECT_EQ(result.state, NodeState::kPending) << "state field";
-        EXPECT_EQ(result.ref_bit, ev) << "ref_bit field";
+        EXPECT_EQ(result.ref, ev) << "ref field";
         EXPECT_EQ(result.version, kVersion) << "version field";
         EXPECT_EQ(result.length, kLength) << "length field";
         EXPECT_EQ(result.virtual_offset, kOffset) << "offset field";
@@ -192,7 +189,7 @@ TEST(IsolationTest, VersionDoesNotCorruptOtherFields) {
         const auto result = RoundTrip(NodeState::kDead, EvictState::kHot, ver,
                                       kLength, kOffset);
         EXPECT_EQ(result.state, NodeState::kDead) << "state field";
-        EXPECT_EQ(result.ref_bit, EvictState::kHot) << "ref_bit field";
+        EXPECT_EQ(result.ref, EvictState::kHot) << "ref field";
         EXPECT_EQ(result.version, ver) << "version field";
         EXPECT_EQ(result.length, kLength) << "length field";
         EXPECT_EQ(result.virtual_offset, kOffset) << "offset field";
@@ -208,7 +205,7 @@ TEST(IsolationTest, LengthDoesNotCorruptOtherFields) {
         const auto result = RoundTrip(NodeState::kReady, EvictState::kCold,
                                       kVersion, len, kOffset);
         EXPECT_EQ(result.state, NodeState::kReady) << "state field";
-        EXPECT_EQ(result.ref_bit, EvictState::kCold) << "ref_bit field";
+        EXPECT_EQ(result.ref, EvictState::kCold) << "ref field";
         EXPECT_EQ(result.version, kVersion) << "version field";
         EXPECT_EQ(result.length, len) << "length field";
         EXPECT_EQ(result.virtual_offset, kOffset) << "offset field";
@@ -224,7 +221,7 @@ TEST(IsolationTest, OffsetDoesNotCorruptOtherFields) {
         const auto result = RoundTrip(NodeState::kReady, EvictState::kHot,
                                       kVersion, kLength, offset);
         EXPECT_EQ(result.state, NodeState::kReady) << "state field";
-        EXPECT_EQ(result.ref_bit, EvictState::kHot) << "ref_bit field";
+        EXPECT_EQ(result.ref, EvictState::kHot) << "ref field";
         EXPECT_EQ(result.version, kVersion) << "version field";
         EXPECT_EQ(result.length, kLength) << "length field";
         EXPECT_EQ(result.virtual_offset, offset) << "offset field";
@@ -237,9 +234,9 @@ TEST(IsolationTest, OffsetDoesNotCorruptOtherFields) {
 // Every field with a mask (version, length, offset) must silently truncate
 // on overflow input rather than bleeding into the adjacent field.
 //
-// NOTE: state and ref_bit are omitted here on purpose. state is a 2-bit field
-// fed from a 3-value enum (max encoding 0b10) while ref_bit from a 1-bit enum
-// (max 0b1), so neither can overflow its own field width.
+// NOTE: state and ref are omitted on purpose: state is a 2-bit field fed from
+// a 3-value enum (max encoding 0b10) while ref from a 1-bit enum (max 0b1), so
+// neither can overflow its own field width.
 // =============================================================================
 
 TEST(OverflowTest, VersionOverflowIsTruncated) {
@@ -255,7 +252,7 @@ TEST(OverflowTest, VersionOverflowIsTruncated) {
     EXPECT_EQ(result.version, kExpectedVersion)
         << "overflow bits must be masked";
     EXPECT_EQ(result.state, NodeState::kPending);
-    EXPECT_EQ(result.ref_bit, EvictState::kCold);
+    EXPECT_EQ(result.ref, EvictState::kCold);
     EXPECT_EQ(result.length, kLength) << "length must not be corrupted";
     EXPECT_EQ(result.virtual_offset, kOffset) << "offset must not be corrupted";
 }
@@ -272,7 +269,7 @@ TEST(OverflowTest, LengthOverflowIsTruncated) {
 
     EXPECT_EQ(result.length, kExpectedLength) << "overflow bits must be masked";
     EXPECT_EQ(result.state, NodeState::kReady);
-    EXPECT_EQ(result.ref_bit, EvictState::kHot);
+    EXPECT_EQ(result.ref, EvictState::kHot);
     EXPECT_EQ(result.version, kVersion) << "version must not be corrupted";
     EXPECT_EQ(result.virtual_offset, kOffset) << "offset must not be corrupted";
 }
@@ -288,7 +285,7 @@ TEST(OverflowTest, OffsetOverflowIsTruncated) {
     EXPECT_EQ(result.virtual_offset, kExpectedOfs)
         << "overflow bits must be masked";
     EXPECT_EQ(result.state, NodeState::kPending);
-    EXPECT_EQ(result.ref_bit, EvictState::kCold);
+    EXPECT_EQ(result.ref, EvictState::kCold);
     EXPECT_EQ(result.version, 0) << "version must not be corrupted";
     EXPECT_EQ(result.length, 0U) << "length must not be corrupted";
 }
@@ -315,10 +312,9 @@ TEST(NextVersionTest, IgnoresBitsAboveMask) {
 }
 
 // =============================================================================
-// Section 6: MetaNode atomic accessors.
+// Section 6: Control block atomic accessors.
 //
-// LoadControl() and LoadVersion() are two independent code paths that both
-// extract fields from the same packed word.
+// 2 independent code paths that both extract fields from the same packed word.
 // =============================================================================
 
 class MetaNodeAccessorsTest : public ::testing::Test {
@@ -335,9 +331,9 @@ TEST_F(MetaNodeAccessorsTest, LoadControlReflectsStoredWord) {
                                     kVersion, kLength, kOffset);
     node.control_block.store(packed, std::memory_order_relaxed);
 
-    const auto [state, ref_bit, version, length, v_offset] = node.LoadControl();
+    const auto [state, ref, version, length, v_offset] = node.LoadControl();
     EXPECT_EQ(state, NodeState::kReady);
-    EXPECT_EQ(ref_bit, EvictState::kHot);
+    EXPECT_EQ(ref, EvictState::kHot);
     EXPECT_EQ(version, kVersion);
     EXPECT_EQ(length, kLength);
     EXPECT_EQ(v_offset, kOffset);
