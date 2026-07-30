@@ -16,7 +16,7 @@ namespace common {
 // AllocMMap allocates an anonymous private RW mapping of `size` bytes via
 // `mmap`, aligned to the system page size (typically 4KB on Linux x86-64).
 //
-// When `lazy = false`, the kernel pre-faults all pages during the syscall,
+// When `prefault = true`, the kernel pre-faults all pages during the syscall,
 // thus eliminating first-touch latency caused by page-faults.
 //
 // This is a construction-time ONLY utility, never called on a hot path.
@@ -27,10 +27,11 @@ namespace common {
 //   1. Asserts `size > 0`. `nullptr` is never returned otherwise.
 //   2. Caller owns returned memory lifetime and MUST pair it with
 //      `DeallocMMap(ptr, size)` using the exact same `size`.
-inline void* AllocMMap(const size_t size, bool lazy) {
+inline void* AllocMMap(const size_t size, bool prefault) {
     assert(size > 0 && "AllocMMap: size must be > 0");
 
-    const int flags = MAP_ANONYMOUS | MAP_PRIVATE | (lazy ? 0 : MAP_POPULATE);
+    const int flags =
+        MAP_ANONYMOUS | MAP_PRIVATE | (prefault ? MAP_POPULATE : 0);
 
     void* ptr = mmap(nullptr, size, PROT_READ | PROT_WRITE, flags, -1, 0);
     if (ptr == MAP_FAILED) {
