@@ -114,7 +114,7 @@ target_link_libraries(engine_index PRIVATE
     engine_inference
 )
 
-# Module 5: RPC Service
+# Module 5: Network
 add_library(engine_rpc STATIC src/rpc/cache_service.cc)
 target_include_directories(engine_rpc PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/rpc)
 target_link_libraries(engine_rpc PRIVATE 
