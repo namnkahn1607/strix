@@ -1,75 +1,79 @@
-// Author: namnkahn1607
-//
-// ArenaConfig, MemoryArena and PayloadHeader declarations.
-// MemoryArena owns the MetaNode metadata array, float vector arena, and
-// the payload ring buffer - all mmap-allocated at construction time.
+// Memory Arena and its runtime configurator declarations.
 
 #pragma once
 
 #include <atomic>
+#include <cassert>
 #include <functional>
 #include <optional>
 
 #include "constants.h"
 #include "meta_node.h"
 
-// `ArenaConfig` describes the memory layout of `MemoryArena` at construction
-// time. All validation is performed inside the constructor.
+// ArenaConfig defines the specification of `MemoryArena` at construction time.
 //
-// Fields:
-//   1. `max_slots`        : Total number of node + vector slots to allocate.
-//                           Must be non-zero and multiple of `kBatchSize` (4).
-//   2. `payload_buf_size` : Ring buffer size in bytes. Must be a power of 2.
-//                           Pass 0 to omit the payload buffer; payload methods
-//                           will assert-fail).
-//   3. `lazy_mapping`     : When `false`, `mmap` uses `MAP_POPULATE` to
-//                           pre-fault all pages at construction, eliminating
-//                           page-fault latency during operation.
-//                           When `true`, pages are faulted on first access
-//                           (lower startup cost, higher first-touch latency).
-//   4. `start_point`      : Initial value of the ring buffer write head;
-//                           defaults to 0. Non-zero values are used in testing
-//                           to exercise wrap-around behaviour.
+// All validation are performed inside the constructor.
 struct ArenaConfig {
+    // Total number of node/vector slots.
+    // Must be non-zero and a multiple of `kBatchSize`.
     const uint32_t max_slots;
-    const size_t   payload_buf_size;
-    const bool     lazy_mapping;
+    // Payload ring buffer size in bytes.
+    // Pass `0` to omit; payload operations will assert-fail.
+    const size_t payload_buf_size;
+    // `MAP_POPULATE` enable? (default: `true`).
+    const bool prefault = true;
+    // Initial value of the ring buffer's write head (defaults: `0`).
+    // Non-zero values are used in testing to exercise wrap-around behavior.
     const uint64_t start_point = 0;
 
-    // `Production()` config: `kTotalMaxSlots` slots, 4 GB payload buffer and
-    // pre-fault pages enabled.
+    // Production config: `kTotalMaxSlots` slots, 4 GB payload buffer with
+    // `MAP_POPULATED` enabled.
     static ArenaConfig Production() {
-        // Default ring buffer capacity for `Production()` config.
         constexpr size_t kPayloadBufferSize = 0x100000000ULL;  // 4 GB
-        return {kTotalSlots, kPayloadBufferSize, false};
+        return {kTotalSlots, kPayloadBufferSize};
     }
 
-    // `Compact()` config: `slots` node/vector capacity, no payload buffer and
-    // pre-fault pages enabled. For throughput benchmarks that need a smaller
-    // arena but still pre-faulted. `MemoryArena` has no notion of L0/L1.
+    // Compact config: dynamic slot capacity, no payload buffer with
+    // `MAP_POPULATED` enabled.
+    // For throughput benchmarks that need a smaller capacity but page still
+    // prefaulted. No notion of "tiers" is provided.
     static ArenaConfig Compact(uint32_t slots) {
-        return {slots, 0, false};
+        return {slots, 0};
     }
 
-    // `CompactLazy()` config: same as `Compact()`, but lazily mapped. For unit
-    // tests where pre-faulting only adds startup latency.
+    // CompactLazy config: same as `Compact()` but `MAP_POPULATED` disabled.
+    // For unit tests where page prefaulting only adds startup latency.
     static ArenaConfig CompactLazy(uint32_t slots) {
-        return {slots, 0, true};
+        return {slots, 0, false};
     }
 };
 
-// `MemoryArena` owns all memory: the metadata array, the vector array, and the
-// payload ring buffer.
+// MemoryArenaPrivateAccess grants user code the ability to access and interact
+// with internal states/fields of `MemoryArena`.
+class MemoryArenaPrivateAccess;
+
+// MemoryArena owns and manages the primary memory regions: metadata array,
+// vector array and an optional payload ring buffer.
 //
-// Memory is allocated via `mmap` at construction and released at destruction.
-// The ring buffer uses virtual-offset arithmetic (power-of-2 masking) for
-// lock-free head/tail management. The payload buffer is optional; if omitted,
-// all payload methods assert-fail.
+// Allocation is achieved via `mmap` at construction and released via `munmap`
+// upon destruction. The ring buffer indexing relies on virtual-offset
+// arithmetic with power-of-2 masking.
+//
+// Concurrency model:
+//   - Concurrent pipeline primitive: Multi-threaded design with distinct worker
+//     role: writer/reader and garbage collector.
+//   - Each individual method defines its own synchronization guarantees.
+//   - Thread-safety is NOT uniform across all APIs. Callers must consult the
+//     safety contract of each API during invocation.
 //
 // Ownership model: construct once, pass by reference to consumers.
-// Not copyable, not movable (owns raw `mmap` pointers and atomic members).
-class MemoryArena {
+class MemoryArena final {
 public:
+    // NodeFreedCallback defines the signature for cross-layer eviction
+    // notification.
+    // Pass `node_id` that was just reclaimed by garbage collector.
+    using NodeFreedCallback = std::function<void(uint32_t)>;
+
     explicit MemoryArena(const ArenaConfig& config);
     ~MemoryArena();
 
@@ -78,112 +82,107 @@ public:
     MemoryArena(MemoryArena&&)                 = delete;
     MemoryArena& operator=(MemoryArena&&)      = delete;
 
-    const uint32_t max_slots;
-    const size_t   payload_buf_size;
+    // ReadPayload copies `length` bytes starting at `v_offset` from the ring
+    // buffer into `out_payload`.
+    // Asserts non-null `payload_buf`. Caller MUST pre-resize the destination
+    // buffer before invocation.
+    void ReadPayload(
+        uint64_t v_offset, uint32_t length, std::string* out_payload
+    ) const noexcept;
 
-    // `ReadPayload()`: copies `length` bytes starting at `v_offset` from the
-    // ring buffer into `out_payload`. Caller must resize the destination buffer
-    // itself. Asserts that `payload_buf` is non-null.
-    void ReadPayload(uint64_t v_offset, uint32_t length,
-                     std::string* out_payload) const noexcept;
+    // WritePayload writes a `PayloadHeader` followed by payload of `length`
+    // bytes from source `in_payload` into the ring buffer and returns the
+    // virtual offset of the written header on success.
+    // Asserts non-null `payload_buf`.
+    std::optional<uint64_t> WritePayload(
+        uint32_t node_id, const uint8_t* in_payload, uint32_t length
+    ) noexcept;
 
-    // `WritePayload()`: writes a `PayloadHeader` followed by `in_payload` of
-    // given `length` bytes into the ring buffer. Returns the virtual offset of
-    // the written header. Asserts that `payload_buf` is non-null.
-    std::optional<uint64_t> WritePayload(uint32_t       node_id,
-                                         const uint8_t* in_payload,
-                                         uint32_t       length) noexcept;
-
-    // `RunGarbageCollector()` triggers Snowplow GC: a single background thread
-    // that sweeps the slot array, evicting COLD READY nodes and expiring stale
-    // PENDING nodes. Runs until `g_shutdown_req` is set to true.
-    // Must be launched on exactly one dedicated thread; not re-entrant.
+    // RunGarbageCollector triggers the GC that sweeps the slot array to find
+    // and evict `COLD READY` nodes while expiring stale `PENDING` nodes.
+    // Operates until `g_shutdown_req` is set to true. Must be launched on ONE
+    // dedicated thread; not re-entrant.
     void RunGarbageCollector(const std::atomic<bool>& g_shutdown_req);
 
-    // `NodeFreedCallback`, a notifier to the Index Layer when a node_id is
-    // released back to the FreeList.
-    using NodeFreedCallback = std::function<void(uint32_t)>;
-
-    // `SetNodeFreedCallback()` is used by GC to indirectly append `node_id`
-    // back to `FreeList`. The `main()` wires this up to
-    // `VectorIndex::ReleaseNode`.
+    // SetNodeFreedCallback registers the dependency-inversion hook used by GC
+    // to notify `FreeList`.
+    // Must be wired exactly ONCE during system initialization, before spawning
+    // the GC thread.
     void SetNodeFreedCallback(NodeFreedCallback cb) {
         on_node_freed_ = std::move(cb);
     }
 
-    // `GetNode()` returns a reference to the `MetaNode` at `node_id`.
+    // GetNode returns a reference to the `MetaNode` at `node_id`.
     // Caller must ensure `node_id` < `max_slots`.
     inline MetaNode& GetNode(const uint32_t node_id) const noexcept {
         return metadata_[static_cast<size_t>(node_id)];
     }
 
-    // `GetVector()` returns a pointer to the first float of the vector at
-    // position `node_id`. The vector occupies `kVectorDim` contiguous floats.
+    // GetVector returns a pointer to the vector's first float at `node_id`.
     // Caller must ensure `node_id` < `max_slots`.
     inline float* GetVector(const uint32_t node_id) const noexcept {
         return vectors_ + static_cast<size_t>(node_id) * kVectorDim;
     }
 
-    // `GetWriteHead()` returns the current write head offset.
     inline uint64_t GetWriteHead() const noexcept {
         return write_head_.load(std::memory_order_acquire);
     }
 
-    // `GetReadTail()` returns the current read tail offset.
     inline uint64_t GetReadTail() const noexcept {
         return read_tail_.load(std::memory_order_acquire);
     }
 
-    // `PrefaultBuffer()` sequentially writes one byte per page across the
-    // payload ring buffer, forcing the kernel to fault all pages immediately.
-    //
-    // WARNING: only call this when the arena was constructed with lazy mapping
-    // enabled and the payload buffer is non-null. Calling it concurrently with
-    // writers or on an already-populated arena wastes time and may introduce
-    // cache pressure.
-    void PrefaultBuffer() const noexcept;
+    const uint32_t max_slots;
+    const size_t   payload_buf_size;
 
 private:
-    // Metadata array: one MetaNode per slot, allocated using `mmap`.
+    friend class MemoryArenaPrivateAccess;
+
+    // ActualIndex maps a virtual offset to its physical index in the ring
+    // buffer. Relies on `payload_buf_size_` being a power of 2.
+    size_t ActualIndex(const uint64_t offset) const noexcept {
+        return offset & (payload_buf_size - 1);
+    }
+
+    // AllocatePayload reserves `length` bytes by advancing `write_head_`.
+    // Returns the virtual offset at which the caller may begin writing.
+    std::optional<uint64_t> AllocatePayload(uint32_t length) noexcept;
+
+    // SweepStalePending scans the `MetaNode` array and transitions all
+    // stale `PENDING` nodes to `DEAD`.
+    void SweepStalePending(uint64_t curr_time) noexcept;
+
+    // Metadata array: one `MetaNode` per slot.
     MetaNode* metadata_;
-
-    // Vector arena: `kVectorDim` floats per slot, allocated using `mmap`.
+    // Vector array: `kVectorDim` floats per slot.
     float* vectors_;
-
-    // Payload ring buffer (`nullptr` when `payload_buf_size_ == 0`).
+    // Payload ring buffer (`nullptr` when omitted).
     uint8_t* payload_buf_;
 
     std::atomic<uint64_t> write_head_;
     std::atomic<uint64_t> read_tail_;
 
-    // Dependency-inversion callback to Index Layer.
+    // Callback hook invoked by the GC when a node is evicted.
     NodeFreedCallback on_node_freed_;
-
-    // `ActualIndex()` maps a virtual offset to its physical index in the ring
-    // buffer. Relies on `payload_buf_size_` being a power of 2.
-    uint64_t ActualIndex(const uint64_t offset) const noexcept {
-        return offset & (payload_buf_size - 1);
-    }
-
-    // `AllocatePayload()` reserves `length` bytes by advancing `write_head_`.
-    // Returns the virtual offset at which the caller may begin writing.
-    std::optional<uint64_t> AllocatePayload(uint32_t length) noexcept;
-
-    // `SweepStalePending()` scans the metadata array and transitions all
-    // stale `kPending` nodes to `kDead`.
-    void SweepStalePending(uint64_t curr_time) noexcept;
 };
 
-// `PayloadHeader`, a 12-byte header prepended to every payload written into the
-// ring buffer. Enables constant reverse-lookup from a ring buffer position to
-// its `MetaNode` without re-scanning the entire array.
-//
-// Fields:
-//   1. `identifier` : Caller-supplied tag; used to verify header integrity.
-//   2. `node_id`    : Index of the MetaNode that owns this payload.
-//   3. `length`     : Payload byte length, excluding this header.
-struct alignas(4) PayloadHeader {
-    const uint32_t identifier;
-    const uint32_t node_id;
-    const uint32_t length;
+class MemoryArenaPrivateAccess final {
+public:
+    // PrefaultBuffer writes 2 bytes into the payload ring buffer: at index `0`
+    // and at `write_head`, forcing the kernel to fault all pages immediately.
+    //
+    // Only call this when `MemoryArena` was constructed with `MAP_POPULATE`
+    // disabled and non-null payload buffer.
+    // Calling it inside concurrently writers or on an already-populated memory
+    // wastes time and may introduce cache pressure.
+    static void PrefaultBuffer(MemoryArena& arena) noexcept {
+        assert(
+            arena.payload_buf_ != nullptr &&
+            "PrefaultBuffer requires a payload buffer"
+        );
+
+        const auto write_index          = arena.ActualIndex(arena.write_head_);
+        arena.payload_buf_[write_index] = 0;
+        arena.payload_buf_[0]           = 0;
+    }
 };
