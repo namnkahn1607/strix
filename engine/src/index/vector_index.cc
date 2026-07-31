@@ -7,7 +7,6 @@
 
 #include <atomic>
 #include <chrono>
-#include <cmath>
 #include <cstring>
 #include <exception>
 #include <memory>
@@ -28,36 +27,46 @@
 // The `L0Buffer` ring size is `l0_cap`; the capacity of `FreeList` is derived
 // directly from `arena.MaxSlots()` so it can never drift out of sync with the
 // arena it allocates `node_id` values into.
-VectorIndex::VectorIndex(MemoryArena& arena, const uint32_t l0_cap,
-                         const IvfConfig& config)
+VectorIndex::VectorIndex(
+    MemoryArena& arena, const uint32_t l0_cap, const IvfConfig& config
+)
     : arena_(arena)
     , free_list_(arena.max_slots)
     , l0_buffer_(l0_cap)
     , node_owner_(std::make_unique_for_overwrite<std::atomic<uint32_t>[]>(
-          arena.max_slots))
+          arena.max_slots
+      ))
     , ivf_config_(config)
-    , routes_(RoutingTable(config.num_clusters, config.max_cluster_size,
-                           config.lazy_mapping),
-              RoutingTable(config.num_clusters, config.max_cluster_size,
-                           config.lazy_mapping))
-    , recalibrator_(std::make_unique<Recalibrator>(arena, routes_,
-                                                   &active_route_, config)) {
+    , routes_(
+          RoutingTable(
+              config.num_clusters, config.max_cluster_size, config.lazy_mapping
+          ),
+          RoutingTable(
+              config.num_clusters, config.max_cluster_size, config.lazy_mapping
+          )
+      )
+    , recalibrator_(
+          std::make_unique<Recalibrator>(arena, routes_, &active_route_, config)
+      ) {
     // Arguments check & sanitizing.
     if (config.num_clusters >= kUnclustered) {
         throw std::invalid_argument(
             "Number of clusters must be lower than kUnclustered identifier, "
             "which is " +
-            std::to_string(kUnclustered));
+            std::to_string(kUnclustered)
+        );
     }
 
     if (config.kmeans_sample_size == 0) {
         throw std::invalid_argument(
-            "K-means sample buffer size must be non-zero");
+            "K-means sample buffer size must be non-zero"
+        );
     }
 
     if (config.kmeans_sample_size % kBatchSize != 0) {
         throw std::invalid_argument(
-            "K-means sample size must be a multiple of kernel batch size");
+            "K-means sample size must be a multiple of kernel batch size"
+        );
     }
 
     // Initialize all nodes (slots) as unclustered.
@@ -73,8 +82,9 @@ VectorIndex::~VectorIndex() = default;
 // -----------------------------------------------------------------------------
 
 //
-std::optional<uint32_t> VectorIndex::AcquireNode(const float*   query,
-                                                 const uint64_t now) noexcept {
+std::optional<uint32_t> VectorIndex::AcquireNode(
+    const float* query, const uint64_t now
+) noexcept {
     const uint32_t node_id = free_list_.Pop();
     if (node_id == FreeList::kEmpty) {
         return std::nullopt;
@@ -121,8 +131,8 @@ void VectorIndex::ReleaseNode(const uint32_t node_id) noexcept {
 // -----------------------------------------------------------------------------
 
 //
-std::optional<SearchResult> VectorIndex::SearchL0(
-    const float* query) const noexcept {
+std::optional<SearchResult> VectorIndex::SearchL0(const float* query
+) const noexcept {
     const uint32_t right = l0_buffer_.SnapPushHead();
     const uint32_t left  = l0_buffer_.SnapPopTail();
 
@@ -130,11 +140,12 @@ std::optional<SearchResult> VectorIndex::SearchL0(
     return ScoreCandidates</*kBoundsSafe=*/true>(
         arena_, query,
         [&](uint32_t idx) noexcept { return l0_buffer_.LoadSlot(left + idx); },
-        [count]() noexcept { return count; });
+        [count]() noexcept { return count; }
+    );
 }
 
-std::optional<SearchResult> VectorIndex::SearchL1(
-    const float* query) const noexcept {
+std::optional<SearchResult> VectorIndex::SearchL1(const float* query
+) const noexcept {
     const uint8_t       active = active_route_.load(std::memory_order_acquire);
     const RoutingTable& table  = routes_[active];
 
@@ -148,7 +159,8 @@ std::optional<SearchResult> VectorIndex::SearchL1(
         },
         [&table, cluster_id]() noexcept {
             return table.ClusterSize(cluster_id);
-        });
+        }
+    );
 }
 
 // -----------------------------------------------------------------------------
@@ -156,15 +168,14 @@ std::optional<SearchResult> VectorIndex::SearchL1(
 // -----------------------------------------------------------------------------
 
 //
-CacheOutcome VectorIndex::FetchPayload(const uint32_t node_id,
-                                       const uint8_t  expected_version,
-                                       const uint64_t curr_time,
-                                       std::string*   out) const {
+CacheOutcome VectorIndex::FetchPayload(
+    const uint32_t node_id, const uint8_t expected_version,
+    const uint64_t curr_time, std::string* out
+) const {
     MetaNode& node = arena_.GetNode(node_id);
 
     {
-        const auto [state, ref_bit, version, length, v_offset] =
-            node.LoadControl();
+        const auto [state, ref, version, length, v_offset] = node.LoadControl();
 
         if (version != expected_version || state == NodeState::kDead) {
             return CacheOutcome::kMiss;
@@ -196,35 +207,36 @@ CacheOutcome VectorIndex::FetchPayload(const uint32_t node_id,
     return CacheOutcome::kHit;
 }
 
-bool VectorIndex::CommitPayload(const uint32_t node_id, const uint8_t* in,
-                                const uint32_t length) noexcept {
+bool VectorIndex::CommitPayload(
+    const uint32_t node_id, const uint8_t* in, const uint32_t length
+) noexcept {
     if (node_id >= arena_.max_slots) {
         return false;
     }
 
     MetaNode& node = arena_.GetNode(node_id);
-    const auto [state, ref_bit, version, old_len, old_off] = node.LoadControl();
+    const auto [state, ref, version, old_len, old_off] = node.LoadControl();
 
     if (state != NodeState::kPending) {
         return false;
     }
 
-    const auto offset_opt = arena_.WritePayload(node_id, in, length);
-    if (!offset_opt.has_value()) {
+    const auto opt_offset = arena_.WritePayload(node_id, in, length);
+    if (!opt_offset.has_value()) {
         return false;
     }
 
-    auto expected = PackControl(state, ref_bit, version, old_len, old_off);
+    auto       expected = PackControl(state, ref, version, old_len, old_off);
     const auto desired =
-        PackControl(NodeState::kReady, ref_bit, version, length, *offset_opt);
+        PackControl(NodeState::kReady, ref, version, length, *opt_offset);
 
     // If this CAS fails, that means the node was evicted/reused between
     // LoadControl() and this point.
     // The payload bytes written becomes orphanated in the ring buffer, waiting
     // for GC to come and reclaim.
     return node.control_block.compare_exchange_strong(
-        expected, desired, std::memory_order_release,
-        std::memory_order_relaxed);
+        expected, desired, std::memory_order_release, std::memory_order_relaxed
+    );
 }
 
 // -----------------------------------------------------------------------------
@@ -268,7 +280,7 @@ void VectorIndex::RunCoordinator(const std::atomic<bool>& shutdown_req) {
             }
 
             MetaNode& node = arena_.GetNode(node_id);
-            const auto [state, ref_bit, version, length, offset] =
+            const auto [state, ref, version, length, v_offset] =
                 node.LoadControl();
             if (state == NodeState::kDead) {
                 // kDead node detected. Seed-in another vec for this centroid.
@@ -331,7 +343,7 @@ void VectorIndex::RunCompaction() noexcept {
     }
 
     MetaNode& node = arena_.GetNode(node_id);
-    const auto [state, ref_bit, version, length, offset] = node.LoadControl();
+    const auto [state, ref, version, length, v_offset] = node.LoadControl();
 
     if (state == NodeState::kDead) {
         return;
@@ -371,8 +383,7 @@ void VectorIndex::RunReassignment() noexcept {
         const uint32_t node_id = members[i].load(std::memory_order_acquire);
 
         MetaNode& node = arena_.GetNode(node_id);
-        const auto [state, ref_bit, version, length, offset] =
-            node.LoadControl();
+        const auto [state, ref, version, length, v_offset] = node.LoadControl();
         const uint32_t owner =
             node_owner_[node_id].load(std::memory_order_relaxed);
 
