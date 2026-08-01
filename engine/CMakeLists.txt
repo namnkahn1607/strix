@@ -13,13 +13,13 @@ find_package(gRPC CONFIG REQUIRED)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/vendored-protoc.cmake)
 
 # ==============================================================================
-# 0. SHARED PUBLIC HEADER ROOT
+# 0. SHARED PUBLIC HEADER
 # Single root for all module's public API: include/<module>/*.h
 # ==============================================================================
 set(PUBLIC_HEADER_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/include")
 
 # ==============================================================================
-# 1. ORT LIBRARY PATH
+# 1. ORT LIBRARY
 # ORT is vendored as a pre-built shared library under ort/, bypassing vcpkg.
 # The library is compiled DYNAMICALLY using clang++-17.
 # ==============================================================================
@@ -32,7 +32,7 @@ set_target_properties(ONNXRuntime PROPERTIES
 )
 
 # ==============================================================================
-# 2. GLOBAL COMPILER OPTIONS
+# 2. COMPILER OPTIONS
 # Any module linking with this target will inherits its compile flags.
 # ==============================================================================
 add_library(engine_options INTERFACE)
@@ -87,6 +87,8 @@ target_include_directories(engine_contract PUBLIC "${PROTO_GEN_DIR}")
 
 # ==============================================================================
 # 4. DATA PLANE MODULES
+#   include/<module>/*.h : Public API
+#   src/<module>/*.h     : Private API 
 # ==============================================================================
 set(ENGINE_SOURCE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
@@ -146,7 +148,7 @@ target_link_libraries(engine_service PRIVATE
 )
 
 # ==============================================================================
-# 5. TOTAL EXECUTABLE
+# 5. FINAL EXECUTABLE
 # ==============================================================================
 add_executable(strix_engine src/main.cc)
 target_link_libraries(strix_engine PRIVATE 
@@ -169,133 +171,113 @@ set_target_properties(strix_engine PROPERTIES
 # 6. TESTING EXECUTABLE(S)
 # ==============================================================================
 find_package(GTest CONFIG REQUIRED)
-
-# Test AVX2 Dot Product
-add_executable(avx2_kernel_test src/index/tests/avx2_kernel_test.cc)
-target_link_libraries(avx2_kernel_test PRIVATE
-    engine_common    
-    engine_index
-    GTest::gtest_main
-    GTest::gtest
-)
-
-# Test Inference model all-MiniLM-L6-v2
-add_executable(inference_test src/inference/tests/inference_test.cc)
-target_link_libraries(inference_test PRIVATE
-    engine_common
-    engine_inference
-    GTest::gtest_main
-    GTest::gtest
-)
-
-# Test Control Block operations
-add_executable(control_block_test src/memory/tests/control_block_test.cc)
-target_link_libraries(control_block_test PRIVATE
-    engine_memory
-    GTest::gtest_main
-    GTest::gtest
-)
-
-# Test Payload Read/Write of Memory Arena
-add_executable(memory_arena_test src/memory/tests/memory_arena_test.cc)
-target_link_libraries(memory_arena_test PRIVATE
-    engine_common
-    engine_memory
-    GTest::gtest_main
-    GTest::gtest
-)
-
-# Test Free List
-add_executable(free_list_test src/index/tests/free_list_test.cc)
-target_link_libraries(free_list_test PRIVATE
-    engine_common
-    engine_index
-    GTest::gtest_main
-    GTest::gtest
-)
-
-# Test MPSC L0 ring buffer
-add_executable(level0_ring_test src/index/tests/level0_ring_test.cc)
-target_link_libraries(level0_ring_test PRIVATE
-    engine_common
-    engine_index
-    GTest::gtest_main
-    GTest::gtest
-)
-
 include(GoogleTest)
-gtest_discover_tests(avx2_kernel_test)
-gtest_discover_tests(inference_test)
-gtest_discover_tests(control_block_test)
-gtest_discover_tests(memory_arena_test)
-gtest_discover_tests(free_list_test)
-gtest_discover_tests(level0_ring_test)
+
+function(add_unit_test target_name module_name)
+    cmake_parse_arguments(ARG "" "" "SOURCES;LIBS" ${ARGN})
+    add_executable(${target_name} ${ARG_SOURCES})
+    target_include_directories(${target_name} PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/${module_name}
+    )
+    target_link_libraries(${target_name} PRIVATE
+        ${ARG_LIBS}
+        GTest::gtest_main
+        GTest::gtest
+    )
+    gtest_discover_tests(${target_name})
+endfunction()
+
+# AVX2 dot product
+add_unit_test(avx2_kernel_test index
+    SOURCES src/index/tests/avx2_kernel_test.cc
+    LIBS engine_common engine_index
+)
+
+# Inference model
+add_unit_test(inference_test inference
+    SOURCES src/inference/tests/inference_test.cc
+    LIBS engine_common engine_inference
+)
+
+# Control block ops
+add_unit_test(control_block_test memory
+    SOURCES src/memory/tests/control_block_test.cc
+    LIBS engine_memory
+)
+
+# Read/Write payload
+add_unit_test(memory_arena_test memory
+    SOURCES src/memory/tests/memory_arena_test.cc
+    LIBS engine_common engine_memory
+)
+
+# Free-list
+add_unit_test(free_list_test index
+    SOURCES src/index/tests/free_list_test.cc
+    LIBS engine_common engine_index
+)
+
+# Level-0 node buffer
+add_unit_test(level0_ring_test index
+    SOURCES src/index/tests/level0_ring_test.cc
+    LIBS engine_common engine_index
+)
 
 # ==============================================================================
 # 7. BENCHMARK EXECUTABLE(S)
 # ==============================================================================
 find_package(benchmark CONFIG REQUIRED)
 
-# Benchmark AVX2 Dot Product
-add_executable(avx2_kernel_bench src/index/bench/avx2_kernel_bench.cc)
-target_link_libraries(avx2_kernel_bench PRIVATE
-    engine_options
-    engine_common
-    engine_index
-    benchmark::benchmark
+function(add_micro_bench target_name module_name)
+    cmake_parse_arguments(ARG "" "" "SOURCES;LIBS" ${ARGN})
+    add_executable(${target_name} ${ARG_SOURCES})
+    target_include_directories(${target_name} PRIVATE
+        ${ENGINE_SOURCE_ROOT}/${module_name}
+    )
+    target_link_libraries(${target_name} PRIVATE
+        ${ARG_LIBS}
+        benchmark::benchmark
+    )
+endfunction()
+
+# AVX2 dot product
+add_micro_bench(avx2_kernel_bench index
+    SOURCES src/index/bench/avx2_kernel_bench.cc
+    LIBS engine_options engine_common engine_index
 )
 
-# Benchmark Inference model (Zero-shot)
-add_executable(inference_bench src/inference/bench/inference_bench.cc)
-target_link_libraries(inference_bench PRIVATE
-    engine_options
-    engine_common
-    engine_inference
-    benchmark::benchmark
+# Inference model: Zero-shot
+add_micro_bench(inference_bench inference
+    SOURCES src/inference/bench/inference_bench.cc
+    LIBS engine_options engine_common engine_inference
 )
 
-# Benchmark Inference model (Custom Ops)
-add_executable(custom_ops_bench src/inference/bench/custom_ops_bench.cc)
-target_link_libraries(custom_ops_bench PRIVATE
-    engine_options
-    engine_common
-    engine_inference
-    benchmark::benchmark
+# Inference model: Custom ops
+add_micro_bench(custom_ops_bench inference
+    SOURCES src/inference/bench/custom_ops_bench.cc
+    LIBS engine_options engine_common engine_inference
 )
 
-# Benchmark Payload Read/Write of Memory Arena
-add_executable(memory_arena_bench src/memory/bench/memory_arena_bench.cc)
-target_link_libraries(memory_arena_bench PRIVATE
-    engine_options
-    engine_common
-    engine_memory
-    benchmark::benchmark
+# Read/Write payload
+add_micro_bench(memory_arena_bench memory
+    SOURCES src/memory/bench/memory_arena_bench.cc
+    LIBS engine_options engine_common engine_memory
 )
 
-# Benchmark Free List operations
-add_executable(free_list_bench src/index/bench/free_list_bench.cc)
-target_link_libraries(free_list_bench PRIVATE
-    engine_options
-    engine_common
-    engine_index
-    benchmark::benchmark    
+# Free-list
+add_micro_bench(free_list_bench index
+    SOURCES src/index/bench/free_list_bench.cc
+    LIBS engine_options engine_common engine_index
 )
 
-# Benchmark MPSC L0 ring buffer
-add_executable(level0_ring_bench src/index/bench/level0_ring_bench.cc)
-target_link_libraries(level0_ring_bench PRIVATE
-    engine_options
-    engine_common
-    engine_index
-    benchmark::benchmark
+# Level-0 node buffer
+add_micro_bench(level0_ring_bench index
+    SOURCES src/index/bench/level0_ring_bench.cc
+    LIBS engine_options engine_common engine_index
 )
 
-# Benchmark Vector searching subroutines
-add_executable(vector_search_bench src/index/bench/vector_search_bench.cc)
-target_link_libraries(vector_search_bench PRIVATE
-    engine_options
-    engine_common
-    engine_memory
-    engine_index
-    benchmark::benchmark
+# Vector search
+add_micro_bench(vector_search_bench index
+    SOURCES src/index/bench/vector_search_bench.cc
+    LIBS engine_options engine_common engine_memory engine_index
 )
