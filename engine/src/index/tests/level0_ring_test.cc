@@ -118,8 +118,9 @@ namespace {
 // each recording its own successes. Asserts the total number of successful
 // pushes  is exactly `capacity` - not more (overcommit, two producers winning
 // the same slot) and not fewer (a missed slot due to a lost CAS retry).
-void RunConcurrentProducersFillExactlyToCapacity(uint32_t capacity,
-                                                 size_t   num_producers) {
+void RunConcurrentProducersFillExactlyToCapacity(
+    uint32_t capacity, size_t num_producers
+) {
     L0Buffer ring(capacity);
 
     std::vector<std::atomic<uint64_t>> per_thread_successes(num_producers);
@@ -141,7 +142,8 @@ void RunConcurrentProducersFillExactlyToCapacity(uint32_t capacity,
             for (uint32_t i = 0; i < capacity * 4; ++i) {
                 if (ring.TryPush(static_cast<uint32_t>(t) * 1'000'000 + i)) {
                     per_thread_successes[t].fetch_add(
-                        1, std::memory_order_relaxed);
+                        1, std::memory_order_relaxed
+                    );
                 }
             }
         });

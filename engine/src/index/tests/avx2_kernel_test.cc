@@ -6,12 +6,12 @@
 // Correctness strategy: a 'scalar' implementation is used as the oracle.
 // Tolerance: 1e-4f accounts for FMA instruction reordering vs scalar addition.
 
+#include "index/avx2_kernel.h"
+
 #include <gtest/gtest.h>
 
 #include <cmath>
 #include <random>
-
-#include "avx2_kernel.h"
 
 namespace {
 
@@ -61,7 +61,8 @@ protected:
     void SetUp() override {
         query = static_cast<float*>(_mm_malloc(kDim * sizeof(float), kAlign));
         node_batch = static_cast<float*>(
-            _mm_malloc(kBatch * kDim * sizeof(float), kAlign));
+            _mm_malloc(kBatch * kDim * sizeof(float), kAlign)
+        );
     }
 
     void TearDown() override {

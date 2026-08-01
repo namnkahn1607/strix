@@ -18,7 +18,7 @@
 #include <memory>
 #include <mutex>
 
-#include "inference_model.h"
+#include "inference/inference_model.h"
 
 namespace {
 
@@ -51,7 +51,8 @@ void LoadEnv() {
         const char* bert_path{std::getenv("TRANSFORMER_PATH")};
         if (tok_path == nullptr || bert_path == nullptr) {
             throw std::runtime_error(
-                "Env-var TOKENIZER_PATH or TRANSFORMER_PATH is not set");
+                "Env-var TOKENIZER_PATH or TRANSFORMER_PATH is not set"
+            );
         }
 
         shared_emb = std::make_unique<Embedder>(tok_path, bert_path);

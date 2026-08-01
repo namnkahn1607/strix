@@ -57,7 +57,8 @@ static void Bench_L0ConcurrentPush(benchmark::State& state) {
     }
 
     state.counters["pushes"] = benchmark::Counter(
-        static_cast<double>(local_successes), benchmark::Counter::kIsRate);
+        static_cast<double>(local_successes), benchmark::Counter::kIsRate
+    );
 
     if (state.thread_index() == 0) {
         stop_flag->store(true, std::memory_order_relaxed);

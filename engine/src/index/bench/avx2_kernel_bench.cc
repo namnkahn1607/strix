@@ -12,7 +12,7 @@
 
 #include <random>
 
-#include "avx2_kernel.h"
+#include "index/avx2_kernel.h"
 
 namespace {
 

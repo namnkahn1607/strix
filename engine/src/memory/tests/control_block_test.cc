@@ -1,14 +1,14 @@
 // Unit tests for 64-bit control block encoder and decoder,
 // version advancing and atomic control block accessors.
 
-#include "control_block.h"
+#include "memory/control_block.h"
 
 #include <gtest/gtest.h>
 
 #include <atomic>
 
-#include "meta_node.h"
-#include "state.h"
+#include "memory/meta_node.h"
+#include "memory/state.h"
 
 // =============================================================================
 // Section 1: Raw-bit anchoring.
@@ -43,14 +43,16 @@ TEST(RawBitLayoutTest, VersionOccupiesBits60To57) {
 }
 
 TEST(RawBitLayoutTest, LengthOccupiesBits56To36) {
-    const auto packed = PackControl(NodeState::kDead, EvictState::kCold, 0,
-                                    kMaxPayloadLength, 0);
+    const auto packed = PackControl(
+        NodeState::kDead, EvictState::kCold, 0, kMaxPayloadLength, 0
+    );
     EXPECT_EQ(packed, uint64_t{kMaxPayloadLength} << 36);
 }
 
 TEST(RawBitLayoutTest, OffsetOccupiesBits35To0) {
-    const auto packed = PackControl(NodeState::kDead, EvictState::kCold, 0, 0,
-                                    kVirtualOffsetMask);
+    const auto packed = PackControl(
+        NodeState::kDead, EvictState::kCold, 0, 0, kVirtualOffsetMask
+    );
     EXPECT_EQ(packed, uint64_t{kVirtualOffsetMask});
 }
 
@@ -64,9 +66,10 @@ TEST(RawBitLayoutTest, OffsetOccupiesBits35To0) {
 namespace {
 
 // RoundTrip packs arguments and unpacks it immediately.
-ControlBlock RoundTrip(const NodeState state, const EvictState ref,
-                       const uint8_t version, const uint32_t length,
-                       const uint64_t v_offset) {
+ControlBlock RoundTrip(
+    const NodeState state, const EvictState ref, const uint8_t version,
+    const uint32_t length, const uint64_t v_offset
+) {
     return UnpackControl(PackControl(state, ref, version, length, v_offset));
 }
 
@@ -125,9 +128,10 @@ TEST(RoundTripTest, OffsetBoundaries) {
 }
 
 TEST(RoundTripTest, AllFieldsMaxedSimultaneously) {
-    const auto result =
-        RoundTrip(NodeState::kReady, EvictState::kHot, kVersionMask,
-                  kMaxPayloadLength, kVirtualOffsetMask);
+    const auto result = RoundTrip(
+        NodeState::kReady, EvictState::kHot, kVersionMask, kMaxPayloadLength,
+        kVirtualOffsetMask
+    );
 
     EXPECT_EQ(result.state, NodeState::kReady);
     EXPECT_EQ(result.ref, EvictState::kHot);
@@ -186,8 +190,9 @@ TEST(IsolationTest, VersionDoesNotCorruptOtherFields) {
 
     const uint8_t versions[] = {0, 1, 0x6, 0x7, 0x8, 0xF};
     for (const auto ver : versions) {
-        const auto result = RoundTrip(NodeState::kDead, EvictState::kHot, ver,
-                                      kLength, kOffset);
+        const auto result = RoundTrip(
+            NodeState::kDead, EvictState::kHot, ver, kLength, kOffset
+        );
         EXPECT_EQ(result.state, NodeState::kDead) << "state field";
         EXPECT_EQ(result.ref, EvictState::kHot) << "ref field";
         EXPECT_EQ(result.version, ver) << "version field";
@@ -202,8 +207,9 @@ TEST(IsolationTest, LengthDoesNotCorruptOtherFields) {
 
     const uint32_t lengths[] = {0, 1, 0x80000U, kMaxPayloadLength};
     for (const uint32_t len : lengths) {
-        const auto result = RoundTrip(NodeState::kReady, EvictState::kCold,
-                                      kVersion, len, kOffset);
+        const auto result = RoundTrip(
+            NodeState::kReady, EvictState::kCold, kVersion, len, kOffset
+        );
         EXPECT_EQ(result.state, NodeState::kReady) << "state field";
         EXPECT_EQ(result.ref, EvictState::kCold) << "ref field";
         EXPECT_EQ(result.version, kVersion) << "version field";
@@ -218,8 +224,9 @@ TEST(IsolationTest, OffsetDoesNotCorruptOtherFields) {
 
     const uint64_t offsets[] = {0, 1, 0x800000000ULL, kVirtualOffsetMask};
     for (const uint64_t offset : offsets) {
-        const auto result = RoundTrip(NodeState::kReady, EvictState::kHot,
-                                      kVersion, kLength, offset);
+        const auto result = RoundTrip(
+            NodeState::kReady, EvictState::kHot, kVersion, kLength, offset
+        );
         EXPECT_EQ(result.state, NodeState::kReady) << "state field";
         EXPECT_EQ(result.ref, EvictState::kHot) << "ref field";
         EXPECT_EQ(result.version, kVersion) << "version field";
@@ -246,8 +253,10 @@ TEST(OverflowTest, VersionOverflowIsTruncated) {
     constexpr uint32_t kLength          = 0x555U;
     constexpr uint64_t kOffset          = 0x200ULL;
 
-    const auto result = RoundTrip(NodeState::kPending, EvictState::kCold,
-                                  kOverflowVersion, kLength, kOffset);
+    const auto result = RoundTrip(
+        NodeState::kPending, EvictState::kCold, kOverflowVersion, kLength,
+        kOffset
+    );
 
     EXPECT_EQ(result.version, kExpectedVersion)
         << "overflow bits must be masked";
@@ -264,8 +273,9 @@ TEST(OverflowTest, LengthOverflowIsTruncated) {
     constexpr uint8_t  kVersion        = 0x3;
     constexpr uint64_t kOffset         = 0x100ULL;
 
-    const auto result = RoundTrip(NodeState::kReady, EvictState::kHot, kVersion,
-                                  kOverflowLength, kOffset);
+    const auto result = RoundTrip(
+        NodeState::kReady, EvictState::kHot, kVersion, kOverflowLength, kOffset
+    );
 
     EXPECT_EQ(result.length, kExpectedLength) << "overflow bits must be masked";
     EXPECT_EQ(result.state, NodeState::kReady);
@@ -303,9 +313,7 @@ TEST(NextVersionTest, IncrementNormally) {
     EXPECT_EQ(NextVersion(0xE), 0xF);
 }
 
-TEST(NextVersionTest, WrapsAroundAtMax) {
-    EXPECT_EQ(NextVersion(0xF), 0x0);
-}
+TEST(NextVersionTest, WrapsAroundAtMax) { EXPECT_EQ(NextVersion(0xF), 0x0); }
 
 TEST(NextVersionTest, IgnoresBitsAboveMask) {
     EXPECT_EQ(NextVersion(0xFF) & ~kVersionMask, 0);
@@ -327,8 +335,9 @@ TEST_F(MetaNodeAccessorsTest, LoadControlReflectsStoredWord) {
     constexpr uint32_t kLength  = 0x1234U;
     constexpr uint64_t kOffset  = 0xABCDEULL;
 
-    const auto packed = PackControl(NodeState::kReady, EvictState::kHot,
-                                    kVersion, kLength, kOffset);
+    const auto packed = PackControl(
+        NodeState::kReady, EvictState::kHot, kVersion, kLength, kOffset
+    );
     node.control_block.store(packed, std::memory_order_relaxed);
 
     const auto [state, ref, version, length, v_offset] = node.LoadControl();

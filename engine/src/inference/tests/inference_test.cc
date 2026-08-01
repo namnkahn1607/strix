@@ -23,7 +23,7 @@
 #include <thread>
 #include <vector>
 
-#include "inference_model.h"
+#include "inference/inference_model.h"
 
 namespace {
 
@@ -80,9 +80,7 @@ protected:
         truth.assign(ptr, ptr + kDim);
     }
 
-    static void TearDownTestSuite() {
-        emb.reset();
-    }
+    static void TearDownTestSuite() { emb.reset(); }
 };
 
 std::unique_ptr<Embedder> EmbedderConcurrencyTest::emb = nullptr;

@@ -17,7 +17,7 @@
 //
 // All configs have MAP_POPULATED disabled.
 
-#include "memory_arena.h"
+#include "memory/memory_arena.h"
 
 #include <gtest/gtest.h>
 
@@ -36,8 +36,10 @@ inline constexpr size_t kNode       = 0;
 // PayloadTestConfig specifies 4 slots, 256 bytes payload buffer with
 // `MAP_POPULATE` disabled.
 ArenaConfig PayloadTestConfig(const uint64_t start_point = 0) {
-    return ArenaConfig{/*max_slots=*/kSlots, /*payload_buf_size=*/kBuf,
-                       /*prefault=*/false, start_point};
+    return ArenaConfig{
+        /*max_slots=*/kSlots, /*payload_buf_size=*/kBuf,
+        /*prefault=*/false, start_point
+    };
 }
 
 // GenPayload generates a deterministic payload of specified byte-size.
@@ -71,7 +73,8 @@ TEST(MemoryArenaTest, SequentialWriteRead) {
     const std::string in         = GenPayload(100);
     const uint32_t    length     = static_cast<uint32_t>(in.size());
     const auto        opt_offset = arena.WritePayload(
-        kNode, reinterpret_cast<const uint8_t*>(in.data()), length);
+        kNode, reinterpret_cast<const uint8_t*>(in.data()), length
+    );
     EXPECT_EQ(arena.GetWriteHead(), kHeaderSize + 100);
 
     std::string out;
@@ -105,12 +108,14 @@ TEST(MemoryArenaTest, DataWrapAround) {
     const std::string in         = GenPayload(100);
     const uint32_t    length     = static_cast<uint32_t>(in.size());
     const auto        opt_offset = arena.WritePayload(
-        kNode, reinterpret_cast<const uint8_t*>(in.data()), length);
+        kNode, reinterpret_cast<const uint8_t*>(in.data()), length
+    );
 
     std::string out;
     arena.ReadPayload(*opt_offset, length, &out);
-    EXPECT_EQ(out, in)
-        << "data split across ring buffer boundary must reassemble correctly";
+    EXPECT_EQ(
+        out, in
+    ) << "data split across ring buffer boundary must reassemble correctly";
 }
 
 // -----------------------------------------------------------------------------
@@ -137,7 +142,8 @@ TEST(MemoryArenaTest, HeaderWrapPaddingInserted) {
     const std::string in         = GenPayload(100);
     const uint32_t    length     = static_cast<uint32_t>(in.size());
     const auto        opt_offset = arena.WritePayload(
-        kNode, reinterpret_cast<const uint8_t*>(in.data()), length);
+        kNode, reinterpret_cast<const uint8_t*>(in.data()), length
+    );
     EXPECT_EQ(*opt_offset & (kBuf - 1), 0ULL)
         << "header must start at physical index 0 after padding";
 

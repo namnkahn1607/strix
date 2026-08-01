@@ -52,7 +52,8 @@ static void BenchFreeListConcurrentPopPush(benchmark::State& state) {
     }
 
     state.counters["pop_push_pairs"] = benchmark::Counter(
-        static_cast<double>(local_ops), benchmark::Counter::kIsRate);
+        static_cast<double>(local_ops), benchmark::Counter::kIsRate
+    );
 
     if (state.thread_index() == 0) {
         delete shared_list;

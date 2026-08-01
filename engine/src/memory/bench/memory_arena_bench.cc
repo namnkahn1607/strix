@@ -20,7 +20,7 @@
 
 #include <benchmark/benchmark.h>
 
-#include "memory_arena.h"
+#include "memory/memory_arena.h"
 #include "payload_header.h"
 
 namespace {
@@ -30,8 +30,8 @@ inline constexpr size_t   kPayloadLen = 1024;
 inline constexpr uint32_t kNode       = 0;
 inline constexpr size_t   kHeaderSize = sizeof(PayloadHeader);
 
-inline constexpr size_t   kBuf8MB     = 8ULL * 1024 * 1024;
-inline constexpr size_t   kBuf128MB   = 128ULL * 1024 * 1024;
+inline constexpr size_t kBuf8MB   = 8ULL * 1024 * 1024;
+inline constexpr size_t kBuf128MB = 128ULL * 1024 * 1024;
 
 // Global payload buffer.
 alignas(32) uint8_t g_payload[kPayloadLen];
@@ -81,8 +81,9 @@ static void BenchSequential_8MB(benchmark::State& state) {
         state.ResumeTiming();
     }
 
-    state.SetBytesProcessed(state.iterations() *
-                            static_cast<int64_t>(kPayloadLen));
+    state.SetBytesProcessed(
+        state.iterations() * static_cast<int64_t>(kPayloadLen)
+    );
     state.SetItemsProcessed(state.iterations());
 }
 
@@ -121,8 +122,9 @@ static void BenchSequential_128MB(benchmark::State& state) {
         state.ResumeTiming();
     }
 
-    state.SetBytesProcessed(state.iterations() *
-                            static_cast<int64_t>(kPayloadLen));
+    state.SetBytesProcessed(
+        state.iterations() * static_cast<int64_t>(kPayloadLen)
+    );
     state.SetItemsProcessed(state.iterations());
 }
 
@@ -136,9 +138,11 @@ BENCHMARK(BenchSequential_128MB)
 // Measures branch misprediction penalty and double-memcpy overhead with working
 // set inside L3 cache.
 static void BenchWrap_8MB(benchmark::State& state) {
-    ArenaConfig config{/*max_slots=*/kSlots, /*payload_buf_size=*/kBuf8MB,
-                       /*prefault=*/false,
-                       /*start_point=*/WrapStartPoint(kBuf8MB)};
+    ArenaConfig config{
+        /*max_slots=*/kSlots, /*payload_buf_size=*/kBuf8MB,
+        /*prefault=*/false,
+        /*start_point=*/WrapStartPoint(kBuf8MB)
+    };
     std::string out;
     InitPayload();
 
@@ -164,8 +168,9 @@ static void BenchWrap_8MB(benchmark::State& state) {
         state.ResumeTiming();
     }
 
-    state.SetBytesProcessed(state.iterations() *
-                            static_cast<int64_t>(kPayloadLen));
+    state.SetBytesProcessed(
+        state.iterations() * static_cast<int64_t>(kPayloadLen)
+    );
     state.SetItemsProcessed(state.iterations());
 }
 
@@ -179,9 +184,11 @@ BENCHMARK(BenchWrap_8MB)
 // Wrapping into a cold page adds TLB miss cost on top of branch
 // misprediction, which turns out measuring combined worst case.
 static void BenchWrap_128MB(benchmark::State& state) {
-    ArenaConfig config{/*max_slots=*/kSlots, /*payload_buf_size=*/kBuf128MB,
-                       /*prefault=*/false,
-                       /*start_point=*/WrapStartPoint(kBuf128MB)};
+    ArenaConfig config{
+        /*max_slots=*/kSlots, /*payload_buf_size=*/kBuf128MB,
+        /*prefault=*/false,
+        /*start_point=*/WrapStartPoint(kBuf128MB)
+    };
     std::string out;
     InitPayload();
 
@@ -207,8 +214,9 @@ static void BenchWrap_128MB(benchmark::State& state) {
         state.ResumeTiming();
     }
 
-    state.SetBytesProcessed(state.iterations() *
-                            static_cast<int64_t>(kPayloadLen));
+    state.SetBytesProcessed(
+        state.iterations() * static_cast<int64_t>(kPayloadLen)
+    );
     state.SetItemsProcessed(state.iterations());
 }
 

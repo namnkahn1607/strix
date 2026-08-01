@@ -10,10 +10,10 @@
 #include <atomic>
 #include <thread>
 
-#include "memory_arena.h"
-#include "constants.h"
-#include "level1_ivf.h"
-#include "vector_index.h"
+#include "common/constants.h"
+#include "index/vector_index.h"
+#include "level0_ring.h"
+#include "memory/memory_arena.h"
 
 namespace {
 
@@ -41,8 +41,8 @@ static void BenchSearchL0_FixedOccupancy(benchmark::State& state) {
     FillVector(node_vec, 0.1f);
     for (size_t i = 0; i < kL0Capacity; ++i) {
         if (!index.AcquireNode(node_vec, /*now=*/0)) {
-            state.SkipWithError(
-                "Failed to pack L0 to its fullest during setup");
+            state.SkipWithError("Failed to pack L0 to its fullest during setup"
+            );
             return;
         }
     }

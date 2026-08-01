@@ -13,7 +13,7 @@
 #include <stdexcept>
 #include <string>
 
-#include "inference_model.h"
+#include "inference/inference_model.h"
 
 namespace {
 
@@ -40,7 +40,8 @@ Embedder& GetEmbedder() {
         const char* bert_path = std::getenv("TRANSFORMER_PATH");
         if (tok_path == nullptr || bert_path == nullptr) {
             throw std::runtime_error(
-                "TOKENIZER_PATH or TRANSFORMER_PATH is not set");
+                "TOKENIZER_PATH or TRANSFORMER_PATH is not set"
+            );
         }
 
         glob_emb = std::make_unique<Embedder>(tok_path, bert_path);
@@ -50,7 +51,8 @@ Embedder& GetEmbedder() {
 }
 
 inline void CurseYouClangYouIgnoreVariablesInAssertions(
-    [[maybe_unused]] const void* ptr) {
+    [[maybe_unused]] const void* ptr
+) {
     return;
 }
 
@@ -79,8 +81,10 @@ void SanityCheck() {
     CurseYouClangYouIgnoreVariablesInAssertions(v3);
 
     for (size_t i = 0; i < kDim; ++i) {
-        assert(v1[i] == v2[i] && v2[i] == v3[i] &&
-               "SanityCheck: non-deterministic output");
+        assert(
+            v1[i] == v2[i] && v2[i] == v3[i] &&
+            "SanityCheck: non-deterministic output"
+        );
     }
 
     auto r_sim  = emb.Encode("What is the capital of France?");
