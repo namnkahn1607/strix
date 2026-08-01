@@ -9,14 +9,15 @@
 #include <csignal>
 #include <thread>
 
-#include "aligned_vec.h"
-#include "avx2_kernel.h"
-#include "cache_service.h"
-#include "constants.h"
-#include "inference_model.h"
-#include "level1_ivf.h"
-#include "memory_arena.h"
-#include "vector_index.h"
+#include "common/constants.h"
+#include "index/avx2_kernel.h"
+#include "index/ivf_config.h"
+#include "index/vector_index.h"
+#include "inference/aligned_vec.h"
+#include "inference/inference_model.h"
+#include "memory/arena_config.h"
+#include "memory/memory_arena.h"
+#include "rpc/cache_service.h"
 
 namespace {
 
@@ -62,8 +63,10 @@ void WarmupEngine(const Embedder& embedder) {
 // SIGINT/SIGTERM).
 // `fd_sig` must be a `signalfd` created by `main()` after the signal mask is
 // set.
-void RunServer(const Embedder& embedder, VectorIndex& index, MemoryArena& arena,
-               std::atomic<bool>& g_shutdown_req, int fd_sig) {
+void RunServer(
+    const Embedder& embedder, VectorIndex& index, MemoryArena& arena,
+    std::atomic<bool>& g_shutdown_req, int fd_sig
+) {
     const std::string server_address{"unix:///tmp/strix.sock"};
     unlink("/tmp/strix.sock");
 
@@ -80,10 +83,12 @@ void RunServer(const Embedder& embedder, VectorIndex& index, MemoryArena& arena,
 
     std::cout << "[Vector Engine] Listening on " << server_address << "\n";
 
-    std::thread gc_thread(&MemoryArena::RunGarbageCollector, &arena,
-                          std::ref(g_shutdown_req));
-    std::thread coord_thread(&VectorIndex::RunCoordinator, &index,
-                             std::ref(g_shutdown_req));
+    std::thread gc_thread(
+        &MemoryArena::RunGarbageCollector, &arena, std::ref(g_shutdown_req)
+    );
+    std::thread coord_thread(
+        &VectorIndex::RunCoordinator, &index, std::ref(g_shutdown_req)
+    );
     std::thread grpc_thread([&]() {
         try {
             server->Wait();
@@ -211,8 +216,9 @@ int main() {
         VectorIndex indexer(*arena, kL0Capacity, IvfConfig::Production());
         std::cout << "[Vector Engine] Initialized Vector Index.\n";
 
-        arena->SetNodeFreedCallback(
-            [&indexer](uint32_t node_id) { indexer.ReleaseNode(node_id); });
+        arena->SetNodeFreedCallback([&indexer](uint32_t node_id) {
+            indexer.ReleaseNode(node_id);
+        });
 
         WarmupEngine(embedder);
 

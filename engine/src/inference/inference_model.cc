@@ -4,7 +4,7 @@
 // Encode() runs two sequential ORT sessions (tokenizer -> transformer)
 // and returns a mean-pooled, L2-normalised embedding vector.
 
-#include "inference_model.h"
+#include "inference/inference_model.h"
 
 #include <onnxruntime_cxx_api.h>
 
@@ -14,8 +14,8 @@
 #include <stdexcept>
 #include <string>
 
-#include "aligned_vec.h"
-#include "constants.h"
+#include "common/constants.h"
+#include "inference/aligned_vec.h"
 
 namespace {
 
@@ -45,8 +45,8 @@ Embedder::Embedder(const char* tok_path, const char* bert_path)
     bert_session_ = std::make_unique<Ort::Session>(env_, bert_path, options_);
 }
 
-Result<AlignedVec, EncodeError> Embedder::Encode(
-    const std::string& prompt) const {
+Result<AlignedVec, EncodeError> Embedder::Encode(const std::string& prompt
+) const {
     const Ort::AllocatorWithDefaultOptions allocator;
 
     // -------------------------------------------------------------------------
@@ -59,16 +59,19 @@ Result<AlignedVec, EncodeError> Embedder::Encode(
 
     Ort::Value text_tensor = Ort::Value::CreateTensor(
         allocator, input_shape.data(), input_shape.size(),
-        ONNX_TENSOR_ELEMENT_DATA_TYPE_STRING);
+        ONNX_TENSOR_ELEMENT_DATA_TYPE_STRING
+    );
     text_tensor.FillStringTensor(&input_string, 1);
 
     const char* tok_input_names[]{"text"};
-    const char* tok_output_names[]{"input_ids", "attention_mask",
-                                   "token_type_ids"};
+    const char* tok_output_names[]{
+        "input_ids", "attention_mask", "token_type_ids"
+    };
 
-    auto tok_outputs =
-        tok_session_->Run(Ort::RunOptions{nullptr}, tok_input_names,
-                          &text_tensor, 1, tok_output_names, 3);
+    auto tok_outputs = tok_session_->Run(
+        Ort::RunOptions{nullptr}, tok_input_names, &text_tensor, 1,
+        tok_output_names, 3
+    );
 
     // -------------------------------------------------------------------------
     // PHASE 2: Token count validation
@@ -82,7 +85,8 @@ Result<AlignedVec, EncodeError> Embedder::Encode(
     const auto seq_length = static_cast<size_t>(shape[0]);
     if (seq_length > kMaxTokens) {
         return Result<AlignedVec, EncodeError>::Err(
-            EncodeError::kTokenLimitExceeded);
+            EncodeError::kTokenLimitExceeded
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -91,12 +95,14 @@ Result<AlignedVec, EncodeError> Embedder::Encode(
     // int64[1, seq_length] (batch_size=1) before passing to BERT.
     // -------------------------------------------------------------------------
 
-    const char* bert_input_names[]{"input_ids", "attention_mask",
-                                   "token_type_ids"};
+    const char* bert_input_names[]{
+        "input_ids", "attention_mask", "token_type_ids"
+    };
     const char* bert_output_names[]{"last_hidden_state"};
 
     const std::array<int64_t, 2> bert_input_shape{
-        1, static_cast<int64_t>(seq_length)};
+        1, static_cast<int64_t>(seq_length)
+    };
 
     // Borrow the allocator info from the existing tensor so the new views
     // point into the same memory without copying.
@@ -108,12 +114,14 @@ Result<AlignedVec, EncodeError> Embedder::Encode(
         auto* raw_data = tok_outputs[i].GetTensorMutableData<int64_t>();
         bert_inputs.push_back(Ort::Value::CreateTensor<int64_t>(
             mem_info, raw_data, seq_length, bert_input_shape.data(),
-            bert_input_shape.size()));
+            bert_input_shape.size()
+        ));
     }
 
-    const auto bert_outputs =
-        bert_session_->Run(Ort::RunOptions{nullptr}, bert_input_names,
-                           bert_inputs.data(), 3, bert_output_names, 1);
+    const auto bert_outputs = bert_session_->Run(
+        Ort::RunOptions{nullptr}, bert_input_names, bert_inputs.data(), 3,
+        bert_output_names, 1
+    );
 
     // -------------------------------------------------------------------------
     // PHASE 4: Output shape validation
@@ -138,7 +146,8 @@ Result<AlignedVec, EncodeError> Embedder::Encode(
     if (vec_dim != kVectorDim) {
         throw std::runtime_error(
             "Transformer output dimension mismatch: expected " +
-            std::to_string(kVectorDim) + ", got " + std::to_string(vec_dim));
+            std::to_string(kVectorDim) + ", got " + std::to_string(vec_dim)
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -173,7 +182,8 @@ Result<AlignedVec, EncodeError> Embedder::Encode(
 
     if (sum_sq < 1e-9f) {
         return Result<AlignedVec, EncodeError>::Err(
-            EncodeError::kDegeneratedVector);
+            EncodeError::kDegeneratedVector
+        );
     }
 
     const float inv_norm = 1.0f / std::sqrt(sum_sq);

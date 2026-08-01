@@ -10,17 +10,16 @@
 #include <memory>
 #include <optional>
 
-#include "free_list.h"
-#include "level0_ring.h"
-#include "level1_ivf.h"
-#include "memory_arena.h"
-#include "recalibration.h"
-#include "search_inl.h"
+#include "index/search_result.h"
+#include "ivf_config.h"
+#include "memory/memory_arena.h"
 
 // `CacheOutcome` represents part of the cache states returned by Data plane to
 // the Control plane.
 // Used as classification result of `VectorIndex::FetchPayload()`.
 enum class CacheOutcome : uint8_t { kMiss, kPendingHit, kHit };
+
+class L0Buffer;
 
 // `VectorIndexBenchAccess` grants benchmark code direct access to the private
 // member `L0Buffer` field of `VectorIndex`.
@@ -36,8 +35,9 @@ class VectorIndex {
 public:
     // `VectorIndex` holds a reference to `MemoryArena`, and each instance of
     // type `FreeList` and `L0Buffer`.
-    explicit VectorIndex(MemoryArena& arena, uint32_t l0_cap,
-                         const IvfConfig& config);
+    explicit VectorIndex(
+        MemoryArena& arena, uint32_t l0_cap, const IvfConfig& config
+    );
     ~VectorIndex();
 
     VectorIndex(const VectorIndex&)            = delete;
@@ -48,8 +48,9 @@ public:
     // `AcquireNode()` is called by search path on a cache miss. Returns nothing
     // if `FreeList` is exhausted, or `L0Buffer` is saturated - in the latter
     // case the node is rolled back to DEAD and returned to `FreeList`.
-    std::optional<uint32_t> AcquireNode(const float* query,
-                                        uint64_t     now) noexcept;
+    std::optional<uint32_t> AcquireNode(
+        const float* query, uint64_t now
+    ) noexcept;
 
     // `ReleaseNode()` is wired up as `NodeFreedCallback` of `MemoryArena` so
     // GC can return an evicted `node_id` to `FreeList`.
@@ -74,15 +75,18 @@ public:
     //                     the Node is already `kDead`, a stale PENDING node, or
     //                     failed to allocate buffer for `*out`.
     //   - `kPendingHit` : hit a fresh `kPending` Node, `*out` is left empty.
-    CacheOutcome FetchPayload(uint32_t node_id, uint8_t expected_version,
-                              uint64_t curr_time, std::string* out) const;
+    CacheOutcome FetchPayload(
+        uint32_t node_id, uint8_t expected_version, uint64_t curr_time,
+        std::string* out
+    ) const;
 
     // `CommitPayload()` is called to write payload of a `kPending` Node that is
     // previously allocated by `AcquireNode()`.
     // Best effort, no retry: return false if the target Node is no longer
     // in state `kPending`, or the payload buffer of `MemoryArena` is saturated.
-    bool CommitPayload(uint32_t node_id, const uint8_t* in,
-                       uint32_t length) noexcept;
+    bool CommitPayload(
+        uint32_t node_id, const uint8_t* in, uint32_t length
+    ) noexcept;
 
     // `RunCoordinator()` triggers the background coordinator worker that
     // bootstraps the IVF from live L0 traffic, then schedules and performs
@@ -92,37 +96,13 @@ public:
 private:
     friend class VectorIndexBenchAccess;
 
-    MemoryArena& arena_;
-    FreeList     free_list_;
-    L0Buffer     l0_buffer_;
+    class Impl;
+    std::unique_ptr<Impl> pimpl_;
 
-    // `node_owner_`, a single-source-of-truth cluster ID tracker for every
-    // clustered node. Unclustered nodes are considered `kUnclustered`.
-    std::unique_ptr<std::atomic<uint32_t>[]> node_owner_;
+    Impl*       impl() noexcept { return pimpl_.get(); }
+    const Impl* impl() const noexcept { return pimpl_.get(); }
 
-    IvfConfig            ivf_config_;
-    RoutingTable         routes_[2];
-    std::atomic<uint8_t> active_route_{0};
-
-    // Gates any IVF-related operations at cold start until the IVF's 
-    // centroid array is fully seeded.
-    std::atomic<bool> ivf_enabled_{false};
-
-    // `RunCompaction()` sequentially migrates nodes from L0 Buffer to L1 IVF.
-    void RunCompaction() noexcept;
-
-    // IVF's `Recalibrator` - the calibration state-machine controller.
-    std::unique_ptr<Recalibrator> recalibrator_;
-
-    // Round-robin cursor only for `RunReassignment()` to determine which
-    // cluster to sweep on the next call.
-    uint32_t reassignment_cursor_ = 0;
-
-    // `RunReassignment()` sweeps each cluster per called. Remove `kDead` node
-    // ID of that cluster and move datapoint to closer cluster.
-    // A generation change (node be evicted and re-acquired) mid-process are
-    // skipped to determine on another pass.
-    void RunReassignment() noexcept;
+    L0Buffer& GetL0Buffer() noexcept;
 };
 
 // `VectorIndexBenchAccess` defined out-of-line so ordinary callers never see
@@ -132,6 +112,6 @@ private:
 class VectorIndexBenchAccess {
 public:
     static L0Buffer& GetL0Buffer(VectorIndex& index) noexcept {
-        return index.l0_buffer_;
+        return index.GetL0Buffer();
     }
 };

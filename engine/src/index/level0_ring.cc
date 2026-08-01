@@ -32,9 +32,10 @@ bool L0Buffer::TryPush(const uint32_t node_id) noexcept {
         }
 
         const uint32_t next_push = curr_push + 1;
-        if (push_head_.compare_exchange_weak(curr_push, next_push,
-                                             std::memory_order_relaxed,
-                                             std::memory_order_relaxed)) {
+        if (push_head_.compare_exchange_weak(
+                curr_push, next_push, std::memory_order_relaxed,
+                std::memory_order_relaxed
+            )) {
             break;
         }
         // CAS failure means another Producer won the race;

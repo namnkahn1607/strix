@@ -25,32 +25,22 @@ template <typename T, typename E>
 struct Result {
     std::variant<T, E> data;
 
-    bool ok() const noexcept {
-        return std::holds_alternative<T>(data);
-    }
+    bool ok() const noexcept { return std::holds_alternative<T>(data); }
 
-    T& value() {
-        return std::get<T>(data);
-    }
-    const T& value() const {
-        return std::get<T>(data);
-    }
+    T&       value() { return std::get<T>(data); }
+    const T& value() const { return std::get<T>(data); }
 
-    E& error() {
-        return std::get<E>(data);
-    }
-    const E& error() const {
-        return std::get<E>(data);
-    }
+    E&       error() { return std::get<E>(data); }
+    const E& error() const { return std::get<E>(data); }
 
     static Result Ok(T val) {
-        return Result{
-            std::variant<T, E>{std::in_place_index<0>, std::move(val)}};
+        return Result{std::variant<T, E>{std::in_place_index<0>, std::move(val)}
+        };
     }
 
     static Result Err(E err) {
-        return Result{
-            std::variant<T, E>{std::in_place_index<1>, std::move(err)}};
+        return Result{std::variant<T, E>{std::in_place_index<1>, std::move(err)}
+        };
     }
 };
 

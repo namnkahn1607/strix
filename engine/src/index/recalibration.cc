@@ -11,31 +11,36 @@
 #include <memory>
 #include <random>
 
-#include "avx2_kernel.h"
-#include "constants.h"
+#include "common/constants.h"
+#include "common/syscall_utils.h"
+#include "index/avx2_kernel.h"
 #include "level1_ivf.h"
-#include "memory_arena.h"
-#include "syscall_utils.h"
+#include "memory/memory_arena.h"
 
-Recalibrator::Recalibrator(MemoryArena& arena, RoutingTable* routes,
-                           std::atomic<uint8_t>* active_route,
-                           const IvfConfig&      config)
+Recalibrator::Recalibrator(
+    MemoryArena& arena, RoutingTable* routes,
+    std::atomic<uint8_t>* active_route, const IvfConfig& config
+)
     : arena_(arena)
     , routes_(routes)
     , active_route_(active_route)
     , config_(config)
     , rng_(std::random_device{}())
     , kmeanspp_min_dist_sq_(
-          std::make_unique_for_overwrite<float[]>(config.kmeans_sample_size))
+          std::make_unique_for_overwrite<float[]>(config.kmeans_sample_size)
+      )
     , kmeans_cluster_counts_(
-          std::make_unique_for_overwrite<uint32_t[]>(config.num_clusters)) {
+          std::make_unique_for_overwrite<uint32_t[]>(config.num_clusters)
+      ) {
     kmeans_sample_ = static_cast<float*>(common::AllocMMap(
-        config.kmeans_sample_size * kVectorMemsize, config.lazy_mapping));
+        config.kmeans_sample_size * kVectorMemsize, config.lazy_mapping
+    ));
 }
 
 Recalibrator::~Recalibrator() {
-    common::DeallocMMap(kmeans_sample_,
-                        config_.kmeans_sample_size * kVectorMemsize);
+    common::DeallocMMap(
+        kmeans_sample_, config_.kmeans_sample_size * kVectorMemsize
+    );
 }
 
 void Recalibrator::Tick() noexcept {
@@ -80,7 +85,8 @@ void Recalibrator::StepGathering() noexcept {
     RoutingTable& table  = routes_[active];
 
     std::uniform_int_distribution<uint32_t> cluster_dist(
-        0, table.num_clusters - 1);
+        0, table.num_clusters - 1
+    );
 
     for (uint32_t attempt = 0; attempt < config_.mini_batch_size; ++attempt) {
         if (gathered_count_ >= config_.kmeans_sample_size) {
@@ -98,7 +104,8 @@ void Recalibrator::StepGathering() noexcept {
 
         const uint32_t node_id =
             table.ClusterMemberIds(cluster_id)[member_idx].load(
-                std::memory_order_acquire);
+                std::memory_order_acquire
+            );
 
         MetaNode& node = arena_.GetNode(node_id);
         const auto [state, ref_bit, version, length, offset] =
@@ -134,8 +141,9 @@ void Recalibrator::StepGathering() noexcept {
     } else {
         const uint8_t inactive = 1 - active;
         for (uint32_t c = 0; c < config_.num_clusters; ++c) {
-            routes_[inactive].SeedCentroid(c,
-                                           routes_[active].CentroidVector(c));
+            routes_[inactive].SeedCentroid(
+                c, routes_[active].CentroidVector(c)
+            );
         }
 
         StartMiniBatchPhase();
@@ -152,7 +160,8 @@ void Recalibrator::StepKmeansPPSeeding() noexcept {
         // First centroid: nothing chosen yet to weight against. Pick uniformly
         // at random.
         std::uniform_int_distribution<uint32_t> dist(
-            0, config_.kmeans_sample_size - 1);
+            0, config_.kmeans_sample_size - 1
+        );
         chosen_idx = dist(rng_);
     } else {
         double total = 0.0;
@@ -165,7 +174,8 @@ void Recalibrator::StepKmeansPPSeeding() noexcept {
             // is already chosen, or the pool is degenerated.
             // Weighted sampling has nothing left to weight by.
             std::uniform_int_distribution<uint32_t> dist(
-                0, config_.kmeans_sample_size - 1);
+                0, config_.kmeans_sample_size - 1
+            );
             chosen_idx = dist(rng_);
         } else {
             std::uniform_real_distribution<double> dist(0.0, total);
@@ -220,7 +230,8 @@ void Recalibrator::StepMiniBatch() noexcept {
     RoutingTable& table    = routes_[inactive];
 
     std::uniform_int_distribution<uint32_t> dist(
-        0, config_.kmeans_sample_size - 1);
+        0, config_.kmeans_sample_size - 1
+    );
     float total_movement = 0.0f;
 
     for (uint32_t b = 0; b < config_.mini_batch_size; ++b) {

@@ -7,10 +7,10 @@
 
 #include <grpcpp/grpcpp.h>
 
-#include "inference_model.h"
+#include "index/vector_index.h"
+#include "inference/inference_model.h"
 #include "strix.grpc.pb.h"
 #include "strix.pb.h"
-#include "vector_index.h"
 
 // `CacheServiceImpl`, gRPC service implementation for the Strix semantic cache.
 //
@@ -31,15 +31,18 @@ public:
     // `CheckCache()` encodes the request prompt, perform searching for a
     // similar vector, and returns the cached payload if a match above
     // the `kSimilarityThreshold` is found.
-    grpc::Status CheckCache(grpc::ServerContext*                context,
-                            const proto::v1::CheckCacheRequest* request,
-                            proto::v1::CheckCacheResponse* response) override;
+    grpc::Status CheckCache(
+        grpc::ServerContext*                context,
+        const proto::v1::CheckCacheRequest* request,
+        proto::v1::CheckCacheResponse*      response
+    ) override;
 
     // `SetCache()` encodes the request prompt, writes the vector into a free
     // slot, and commits the payload to the ring buffer.
-    grpc::Status SetCache(grpc::ServerContext*              context,
-                          const proto::v1::SetCacheRequest* request,
-                          proto::v1::SetCacheResponse*      response) override;
+    grpc::Status SetCache(
+        grpc::ServerContext* context, const proto::v1::SetCacheRequest* request,
+        proto::v1::SetCacheResponse* response
+    ) override;
 
 private:
     const Embedder& embedder_;
@@ -50,6 +53,8 @@ private:
     // Returns true and fully presets `response` if `candidate` resolves to
     // either `kHit` or `kPendingHit`; otherwise false and leaves `response` be
     // untouched, delegating further decisions to the caller.
-    bool ProcessCandidate(const SearchOutcome& candidate, uint64_t timestamp,
-                          proto::v1::CheckCacheResponse* response) const;
+    bool ProcessCandidate(
+        const SearchOutcome& candidate, uint64_t timestamp,
+        proto::v1::CheckCacheResponse* response
+    ) const;
 };

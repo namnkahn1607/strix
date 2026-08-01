@@ -20,14 +20,21 @@ inline constexpr uint32_t kVersionShift   = 57U;
 inline constexpr uint32_t kLengthShift    = 36U;
 
 // Ensure that the control block bit layout are configured correctly.
-static_assert(kEvictShift + 1 == kNodeStateShift,
-              "'evict' bit must sit below the 'state' field");
-static_assert(kVersionShift + 4 == kEvictShift,
-              "'version' field must occupy the 4 bits below the 'evict' bit");
-static_assert(kLengthShift + 21 == kVersionShift,
-              "'length' field must sit below the 'version' field");
-static_assert(kLengthShift == 36,
-              "'virtual offset' occupies bits [0, 36) unconditionally");
+static_assert(
+    kEvictShift + 1 == kNodeStateShift,
+    "'evict' bit must sit below the 'state' field"
+);
+static_assert(
+    kVersionShift + 4 == kEvictShift,
+    "'version' field must occupy the 4 bits below the 'evict' bit"
+);
+static_assert(
+    kLengthShift + 21 == kVersionShift,
+    "'length' field must sit below the 'version' field"
+);
+static_assert(
+    kLengthShift == 36, "'virtual offset' occupies bits [0, 36) unconditionally"
+);
 
 // Masks
 inline constexpr uint64_t kNodeStateMask     = 0x3ULL;
@@ -63,9 +70,10 @@ struct ControlBlock {
 //
 // By default, overflow argument values are truncated to fit their field's
 // bit-width (e.g. X bits) by keeping only X LSB(s).
-inline uint64_t PackControl(const NodeState state, const EvictState ref,
-                            const uint8_t version, const uint32_t length,
-                            const uint64_t offset) noexcept {
+inline uint64_t PackControl(
+    const NodeState state, const EvictState ref, const uint8_t version,
+    const uint32_t length, const uint64_t offset
+) noexcept {
     return (static_cast<uint64_t>(state) << kNodeStateShift) |
            (static_cast<uint64_t>(ref) << kEvictShift) |
            ((static_cast<uint64_t>(version) & kVersionMask) << kVersionShift) |
@@ -80,5 +88,6 @@ inline ControlBlock UnpackControl(const uint64_t control) noexcept {
         static_cast<EvictState>((control >> kEvictShift) & kEvictStateMask),
         static_cast<uint8_t>((control >> kVersionShift) & kVersionMask),
         static_cast<uint32_t>((control >> kLengthShift) & kMaxPayloadLength),
-        control & kVirtualOffsetMask};
+        control & kVirtualOffsetMask
+    };
 }

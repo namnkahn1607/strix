@@ -2,24 +2,24 @@
 //
 // CacheServiceImpl method definitions: CheckCache and SetCache RPC handlers.
 
-#include "cache_service.h"
+#include "rpc/cache_service.h"
 
 #include <grpcpp/support/status.h>
 
 #include <exception>
 #include <optional>
 
+#include "common/syscall_utils.h"
 #include "strix.pb.h"
-#include "syscall_utils.h"
 
 CacheServiceImpl::CacheServiceImpl(const Embedder& embedder, VectorIndex& index)
-    : embedder_(embedder), index_(index) {
-}
+    : embedder_(embedder), index_(index) {}
 
 grpc::Status CacheServiceImpl::CheckCache(
     [[maybe_unused]] grpc::ServerContext* context,
     const proto::v1::CheckCacheRequest*   request,
-    proto::v1::CheckCacheResponse*        response) {
+    proto::v1::CheckCacheResponse*        response
+) {
     try {
         if (request->prompt().empty()) {
             return {grpc::StatusCode::INVALID_ARGUMENT, "Prompt is empty"};
@@ -38,8 +38,10 @@ grpc::Status CacheServiceImpl::CheckCache(
 
                 case EncodeError::kDegeneratedVector:
                     response->set_check_state(proto::v1::CACHE_STATE_REJECTED);
-                    return {grpc::StatusCode::INTERNAL,
-                            "Degenerate vector from model"};
+                    return {
+                        grpc::StatusCode::INTERNAL,
+                        "Degenerate vector from model"
+                    };
             }
         }
 
@@ -90,8 +92,10 @@ grpc::Status CacheServiceImpl::CheckCache(
         return grpc::Status::OK;
 
     } catch (const std::exception& e) {
-        return {grpc::StatusCode::INTERNAL,
-                std::string("Internal error: ") + e.what()};
+        return {
+            grpc::StatusCode::INTERNAL,
+            std::string("Internal error: ") + e.what()
+        };
     } catch (...) {
         return {grpc::StatusCode::INTERNAL, "Unknown fatal error"};
     }
@@ -100,7 +104,8 @@ grpc::Status CacheServiceImpl::CheckCache(
 grpc::Status CacheServiceImpl::SetCache(
     [[maybe_unused]] grpc::ServerContext* context,
     const proto::v1::SetCacheRequest*     request,
-    proto::v1::SetCacheResponse*          response) {
+    proto::v1::SetCacheResponse*          response
+) {
     try {
         const uint32_t     node_id = request->node_id();
         const std::string& payload = request->uncached_payload();
@@ -116,13 +121,16 @@ grpc::Status CacheServiceImpl::SetCache(
 
         response->set_success(index_.CommitPayload(
             node_id, reinterpret_cast<const uint8_t*>(payload.data()),
-            payload_len));
+            payload_len
+        ));
 
         return grpc::Status::OK;
 
     } catch (const std::exception& e) {
-        return {grpc::StatusCode::INTERNAL,
-                std::string("Internal error: ") + e.what()};
+        return {
+            grpc::StatusCode::INTERNAL,
+            std::string("Internal error: ") + e.what()
+        };
     } catch (...) {
         return {grpc::StatusCode::INTERNAL, "Unknown fatal error"};
     }
@@ -130,10 +138,12 @@ grpc::Status CacheServiceImpl::SetCache(
 
 bool CacheServiceImpl::ProcessCandidate(
     const SearchOutcome& candidate, const uint64_t timestamp,
-    proto::v1::CheckCacheResponse* response) const {
-    const auto outcome =
-        index_.FetchPayload(candidate.node_id, candidate.version, timestamp,
-                            response->mutable_cached_payload());
+    proto::v1::CheckCacheResponse* response
+) const {
+    const auto outcome = index_.FetchPayload(
+        candidate.node_id, candidate.version, timestamp,
+        response->mutable_cached_payload()
+    );
 
     switch (outcome) {
         case CacheOutcome::kHit:

@@ -12,42 +12,48 @@
 #include <memory>
 #include <stdexcept>
 
-#include "avx2_kernel.h"
-#include "constants.h"
-#include "syscall_utils.h"
+#include "common/constants.h"
+#include "common/syscall_utils.h"
+#include "index/avx2_kernel.h"
 
-RoutingTable::RoutingTable(const uint32_t num_clusters,
-                           const uint32_t max_cluster_size,
-                           const bool     lazy_mapping)
+RoutingTable::RoutingTable(
+    const uint32_t num_clusters, const uint32_t max_cluster_size,
+    const bool lazy_mapping
+)
     : num_clusters(num_clusters), max_cluster_size(max_cluster_size) {
     if (num_clusters == 0 || max_cluster_size == 0) {
         throw std::invalid_argument(
-            "Both number of clusters & cluster capacity must be non-zero");
+            "Both number of clusters & cluster capacity must be non-zero"
+        );
     }
 
     if (num_clusters % kBatchSize != 0) {
         throw std::invalid_argument(
-            "Number of clusters must be a multiple of kernel batch size");
+            "Number of clusters must be a multiple of kernel batch size"
+        );
     }
 
     centroids_ = static_cast<float*>(
-        common::AllocMMap(num_clusters * kVectorMemsize, lazy_mapping));
+        common::AllocMMap(num_clusters * kVectorMemsize, lazy_mapping)
+    );
     cluster_sizes_   = std::make_unique<std::atomic<uint32_t>[]>(num_clusters);
     cluster_members_ = std::make_unique_for_overwrite<std::atomic<uint32_t>[]>(
-        num_clusters * max_cluster_size);
+        num_clusters * max_cluster_size
+    );
 }
 
 RoutingTable::~RoutingTable() {
     common::DeallocMMap(centroids_, num_clusters * kVectorMemsize);
 }
 
-void RoutingTable::SeedCentroid(const uint32_t cluster_id,
-                                const float*   vector) noexcept {
+void RoutingTable::SeedCentroid(
+    const uint32_t cluster_id, const float* vector
+) noexcept {
     std::memcpy(centroids_ + cluster_id * kVectorDim, vector, kVectorMemsize);
 }
 
-const float* RoutingTable::CentroidVector(
-    const uint32_t cluster_id) const noexcept {
+const float* RoutingTable::CentroidVector(const uint32_t cluster_id
+) const noexcept {
     return centroids_ + cluster_id * kVectorDim;
 }
 
@@ -70,8 +76,9 @@ uint32_t RoutingTable::MatchCluster(const float* query) const noexcept {
     return best_centroid;
 }
 
-bool RoutingTable::JoinCluster(const uint32_t node_id,
-                               const uint32_t cluster_id) noexcept {
+bool RoutingTable::JoinCluster(
+    const uint32_t node_id, const uint32_t cluster_id
+) noexcept {
     // Relaxed load due to concurrency model of `cluster_member_`.
     const uint32_t size =
         cluster_sizes_[cluster_id].load(std::memory_order_relaxed);
@@ -81,14 +88,16 @@ bool RoutingTable::JoinCluster(const uint32_t node_id,
 
     // Write ahead, Publish later.
     cluster_members_[cluster_id * max_cluster_size + size].store(
-        node_id, std::memory_order_relaxed);
+        node_id, std::memory_order_relaxed
+    );
     cluster_sizes_[cluster_id].store(size + 1, std::memory_order_release);
     return true;
 }
 
-bool RoutingTable::LeaveCluster(const uint32_t cluster_id,
-                                const uint32_t member_index,
-                                const uint32_t expected_node_id) noexcept {
+bool RoutingTable::LeaveCluster(
+    const uint32_t cluster_id, const uint32_t member_index,
+    const uint32_t expected_node_id
+) noexcept {
     const uint32_t base = cluster_id * max_cluster_size;
 
     // Relaxed load due to concurrency model of `cluster_member_`.
@@ -110,8 +119,9 @@ bool RoutingTable::LeaveCluster(const uint32_t cluster_id,
     if (member_index != last_index) {
         const uint32_t tail_value =
             cluster_members_[base + last_index].load(std::memory_order_relaxed);
-        cluster_members_[base + member_index].store(tail_value,
-                                                    std::memory_order_relaxed);
+        cluster_members_[base + member_index].store(
+            tail_value, std::memory_order_relaxed
+        );
     }
 
     cluster_sizes_[cluster_id].store(last_index, std::memory_order_release);

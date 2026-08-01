@@ -14,9 +14,7 @@
 // AlignedFree: custom deleter for memory allocated by `std::aligned_alloc()`.
 // Correct deallocation uses `std::free()`.
 struct AlignedFree {
-    void operator()(void* ptr) const noexcept {
-        std::free(ptr);
-    }
+    void operator()(void* ptr) const noexcept { std::free(ptr); }
 };
 
 // AlignedVec: sole owner of a 32-byte aligned float array.
@@ -33,8 +31,9 @@ using AlignedVec = std::unique_ptr<float[], AlignedFree>;
 //   multiple of 8 leaves a partial register unfilled and causes
 //   out-of-bounds reads in `DotProductBatch()`.
 inline AlignedVec CreateAlignedVector(const size_t dim) {
-    assert(dim % 8 == 0 &&
-           "dimension must be a multiple of 8 for AVX2 alignment");
+    assert(
+        dim % 8 == 0 && "dimension must be a multiple of 8 for AVX2 alignment"
+    );
 
     void* ptr = std::aligned_alloc(32, dim * sizeof(float));
     if (ptr == nullptr) {

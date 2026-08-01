@@ -35,8 +35,8 @@ public:
 
     // `LoadSlot()` loads slot's `node_id` content.
     uint32_t LoadSlot(const uint32_t ring_pos) const noexcept {
-        return slots_[ring_pos & (capacity - 1)].load(
-            std::memory_order_acquire);
+        return slots_[ring_pos & (capacity - 1)].load(std::memory_order_acquire
+        );
     }
 
     // `SnapPushHead()`: snapshot accessors on `push_head_`.

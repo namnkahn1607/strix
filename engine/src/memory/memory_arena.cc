@@ -1,7 +1,7 @@
 // Memory Arena implementation: ctor, dtor, payload read/write,
 // lock-free allocation, and garbage collection.
 
-#include "memory_arena.h"
+#include "memory/memory_arena.h"
 
 #include <sys/mman.h>
 
@@ -14,12 +14,12 @@
 #include <stdexcept>
 #include <thread>
 
-#include "constants.h"
-#include "control_block.h"
-#include "meta_node.h"
+#include "common/constants.h"
+#include "common/syscall_utils.h"
+#include "memory/control_block.h"
+#include "memory/meta_node.h"
+#include "memory/state.h"
 #include "payload_header.h"
-#include "state.h"
-#include "syscall_utils.h"
 
 namespace {
 

@@ -9,8 +9,9 @@
 #include <memory>
 #include <random>
 
+#include "index/ivf_config.h"
 #include "level1_ivf.h"
-#include "memory_arena.h"
+#include "memory/memory_arena.h"
 
 // `Recalibrator` operates the Recalibration phase and provides API to IVF's
 // background coordination.
@@ -18,9 +19,10 @@
 // Ownership model: intialized once, reference owned by `VectorIndex`.
 class Recalibrator {
 public:
-    explicit Recalibrator(MemoryArena& arena, RoutingTable* routes,
-                          std::atomic<uint8_t>* active_route,
-                          const IvfConfig&      config);
+    explicit Recalibrator(
+        MemoryArena& arena, RoutingTable* routes,
+        std::atomic<uint8_t>* active_route, const IvfConfig& config
+    );
     ~Recalibrator();
 
     Recalibrator(const Recalibrator&)            = delete;
@@ -36,9 +38,7 @@ public:
         kMiniBatch,
     };
 
-    inline Phase CurrentPhase() const noexcept {
-        return phase_;
-    }
+    inline Phase CurrentPhase() const noexcept { return phase_; }
 
     // `NotifyCompactionSucceeded()` is called once per successful
     // compaction to notify `Recalibrator`.

@@ -37,7 +37,8 @@ inline void* AllocMMap(const size_t size, bool prefault) {
     if (ptr == MAP_FAILED) {
         throw std::runtime_error(
             "AllocMMap: mmap failed (errno=" + std::to_string(errno) +
-            ", size=" + std::to_string(size) + ")");
+            ", size=" + std::to_string(size) + ")"
+        );
     }
 
     return ptr;
@@ -53,12 +54,14 @@ inline void DeallocMMap(void* ptr, size_t size) {
         throw std::invalid_argument(
             "DeallocMMap: invalid ptr/size pair (ptr=" +
             std::to_string(reinterpret_cast<uintptr_t>(ptr)) +
-            ", size=" + std::to_string(size) + ")");
+            ", size=" + std::to_string(size) + ")"
+        );
     }
 
     if (munmap(ptr, size) != 0) {
         throw std::runtime_error(
-            "DeallocMMap: munmap failed (errno=" + std::to_string(errno) + ")");
+            "DeallocMMap: munmap failed (errno=" + std::to_string(errno) + ")"
+        );
     }
 }
 
@@ -71,7 +74,8 @@ template <typename Duration = std::chrono::seconds>
 inline uint64_t MonotonicNow() {
     const auto now = std::chrono::steady_clock::now().time_since_epoch();
     return static_cast<uint64_t>(
-        std::chrono::duration_cast<Duration>(now).count());
+        std::chrono::duration_cast<Duration>(now).count()
+    );
 }
 
 // WallUnixNow returns the current Unix epoch timestamp from the system clock.
@@ -82,7 +86,8 @@ template <typename Duration = std::chrono::seconds>
 inline uint64_t WallUnixNow() {
     const auto wall = std::chrono::system_clock::now().time_since_epoch();
     return static_cast<uint64_t>(
-        std::chrono::duration_cast<Duration>(wall).count());
+        std::chrono::duration_cast<Duration>(wall).count()
+    );
 }
 
 }  // namespace common

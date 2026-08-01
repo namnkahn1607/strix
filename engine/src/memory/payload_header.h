@@ -11,12 +11,15 @@ struct alignas(4) PayloadHeader {
 
     // Caller-supplied tag; used to verify header integrity.
     const uint32_t identifier;
+
     // Index of the `MetaNode` that owns this payload.
     const uint32_t node_id;
+    
     // Payload byte length, excluding this header.
     const uint32_t length;
 };
 
 // Compile-time assertion to ensure expected memory footprint.
-static_assert(sizeof(PayloadHeader) == 12,
-              "PayloadHeader should be 12-byte in memory");
+static_assert(
+    sizeof(PayloadHeader) == 12, "PayloadHeader should be 12-byte in memory"
+);

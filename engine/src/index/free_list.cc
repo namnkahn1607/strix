@@ -33,9 +33,9 @@ void FreeList::Push(const uint32_t node_id) noexcept {
     do {
         free_next_[node_id] = old_head.head_id;
         new_head            = {node_id, old_head.tag + 1};
-    } while (!free_head_.compare_exchange_weak(old_head, new_head,
-                                               std::memory_order_release,
-                                               std::memory_order_relaxed));
+    } while (!free_head_.compare_exchange_weak(
+        old_head, new_head, std::memory_order_release, std::memory_order_relaxed
+    ));
 }
 
 uint32_t FreeList::Pop() noexcept {
@@ -51,9 +51,10 @@ uint32_t FreeList::Pop() noexcept {
         const uint32_t    next_id  = free_next_[old_head.head_id];
         const TaggedIndex new_head = {next_id, old_head.tag + 1};
 
-        if (free_head_.compare_exchange_weak(old_head, new_head,
-                                             std::memory_order_acquire,
-                                             std::memory_order_acquire)) {
+        if (free_head_.compare_exchange_weak(
+                old_head, new_head, std::memory_order_acquire,
+                std::memory_order_acquire
+            )) {
             return old_head.head_id;
         }
         // old_head has been refreshed by compare_exchange_weak on

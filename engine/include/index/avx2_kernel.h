@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "constants.h"
+#include "common/constants.h"
 
 // Number of vectors processed per dot product kernel call. Hardwired to 4
 // as each of the 4 accumulators maps to to one YMM lane pair, and the final
@@ -29,7 +29,8 @@ inline constexpr uint32_t kBatchSize = 4;
 // The loop is fully unrolled accross 4 nodes to maximize ILP.
 __attribute__((target("avx2,fma"))) inline void DotProductBatch(
     const float* __restrict query, const float* __restrict node_batch,
-    float* __restrict scores) noexcept {
+    float* __restrict scores
+) noexcept {
     const float* __restrict__ n0 = node_batch;
     const float* __restrict__ n1 = node_batch + kVectorDim;
     const float* __restrict__ n2 = node_batch + kVectorDim * 2;
@@ -67,14 +68,18 @@ __attribute__((target("avx2,fma"))) inline void DotProductBatch(
     const __m256 sumD = _mm256_add_ps(sD0, sD1);
 
     // Reduce each __m256 to a scalar by adding its two __m128 halves.
-    const __m128 rA = _mm_add_ps(_mm256_castps256_ps128(sumA),
-                                 _mm256_extractf128_ps(sumA, 1));
-    const __m128 rB = _mm_add_ps(_mm256_castps256_ps128(sumB),
-                                 _mm256_extractf128_ps(sumB, 1));
-    const __m128 rC = _mm_add_ps(_mm256_castps256_ps128(sumC),
-                                 _mm256_extractf128_ps(sumC, 1));
-    const __m128 rD = _mm_add_ps(_mm256_castps256_ps128(sumD),
-                                 _mm256_extractf128_ps(sumD, 1));
+    const __m128 rA = _mm_add_ps(
+        _mm256_castps256_ps128(sumA), _mm256_extractf128_ps(sumA, 1)
+    );
+    const __m128 rB = _mm_add_ps(
+        _mm256_castps256_ps128(sumB), _mm256_extractf128_ps(sumB, 1)
+    );
+    const __m128 rC = _mm_add_ps(
+        _mm256_castps256_ps128(sumC), _mm256_extractf128_ps(sumC, 1)
+    );
+    const __m128 rD = _mm_add_ps(
+        _mm256_castps256_ps128(sumD), _mm256_extractf128_ps(sumD, 1)
+    );
 
     // Interleave pairs so that the final _mm_add_ps produces [A, B, C, D].
     const __m128 ab_lo = _mm_unpacklo_ps(rA, rB);
@@ -98,7 +103,8 @@ __attribute__((target("avx2,fma"))) inline void DotProductBatch(
 __attribute__((target("avx2,fma"))) inline void DotProductIndirectBatch(
     const float* __restrict query, const float* __restrict v0,
     const float* __restrict v1, const float* __restrict v2,
-    const float* __restrict v3, float* __restrict scores) noexcept {
+    const float* __restrict v3, float* __restrict scores
+) noexcept {
     __m256 acc0 = _mm256_setzero_ps();
     __m256 acc1 = _mm256_setzero_ps();
     __m256 acc2 = _mm256_setzero_ps();
@@ -116,14 +122,18 @@ __attribute__((target("avx2,fma"))) inline void DotProductIndirectBatch(
     }
 
     // Reduce each __m256 to a scalar by adding its two __m128 halves.
-    const __m128 rA = _mm_add_ps(_mm256_castps256_ps128(acc0),
-                                 _mm256_extractf128_ps(acc0, 1));
-    const __m128 rB = _mm_add_ps(_mm256_castps256_ps128(acc1),
-                                 _mm256_extractf128_ps(acc1, 1));
-    const __m128 rC = _mm_add_ps(_mm256_castps256_ps128(acc2),
-                                 _mm256_extractf128_ps(acc2, 1));
-    const __m128 rD = _mm_add_ps(_mm256_castps256_ps128(acc3),
-                                 _mm256_extractf128_ps(acc3, 1));
+    const __m128 rA = _mm_add_ps(
+        _mm256_castps256_ps128(acc0), _mm256_extractf128_ps(acc0, 1)
+    );
+    const __m128 rB = _mm_add_ps(
+        _mm256_castps256_ps128(acc1), _mm256_extractf128_ps(acc1, 1)
+    );
+    const __m128 rC = _mm_add_ps(
+        _mm256_castps256_ps128(acc2), _mm256_extractf128_ps(acc2, 1)
+    );
+    const __m128 rD = _mm_add_ps(
+        _mm256_castps256_ps128(acc3), _mm256_extractf128_ps(acc3, 1)
+    );
 
     // Interleave pairs so that the final _mm_add_ps produces [A, B, C, D].
     const __m128 ab_lo = _mm_unpacklo_ps(rA, rB);
@@ -144,9 +154,10 @@ __attribute__((target("avx2,fma"))) inline void DotProductIndirectBatch(
 
 // Scalar fallback for `DotProductBatch()`. Row-major traversal over
 // `kBatchSize` nodes; no SIMD, no alignment requirements.
-inline void DotProductBatch(const float* __restrict__ query,
-                            const float* __restrict__ node_batch,
-                            float* __restrict__ scores) noexcept {
+inline void DotProductBatch(
+    const float* __restrict__ query, const float* __restrict__ node_batch,
+    float* __restrict__ scores
+) noexcept {
     for (size_t k = 0; k < kBatchSize; ++k) {
         float dot = 0.0f;
 
@@ -161,12 +172,11 @@ inline void DotProductBatch(const float* __restrict__ query,
 // Scalar fallback for `DotProductIndirectBatch()`. Put all vectors in a batch
 // of `kBatchSize` then perform row-major order traversal.
 // No SIMD, no alignment requirements.
-inline void DotProductIndirectBatch(const float* __restrict__ query,
-                                    const float* __restrict__ v0,
-                                    const float* __restrict__ v1,
-                                    const float* __restrict__ v2,
-                                    const float* __restrict__ v3,
-                                    float* __restrict__ scores) noexcept {
+inline void DotProductIndirectBatch(
+    const float* __restrict__ query, const float* __restrict__ v0,
+    const float* __restrict__ v1, const float* __restrict__ v2,
+    const float* __restrict__ v3, float* __restrict__ scores
+) noexcept {
     const float* __restrict__ batch_vec[kBatchSize]{v0, v1, v2, v3};
     for (size_t k = 0; k < kBatchSize; ++k) {
         float dot = 0.0f;

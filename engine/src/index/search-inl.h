@@ -7,32 +7,18 @@
 
 #include <optional>
 
-#include "avx2_kernel.h"
-#include "constants.h"
+#include "common/constants.h"
+#include "index/avx2_kernel.h"
+#include "index/search_result.h"
 #include "level0_ring.h"
-#include "memory_arena.h"
-
-// `SearchOutcome` describes result of a vector search against either tier.
-// Only record information of a node whose similarity score exceeds the
-// pre-defined `kSimiarityThreshold`.
-struct SearchOutcome {
-    uint32_t node_id;
-    uint8_t  version;
-};
-
-// `SearchResult` tracks not just the champion but also the runner-up.
-// The runner-up entry is optional.
-struct SearchResult {
-    SearchOutcome                primary;
-    std::optional<SearchOutcome> secondary;
-};
+#include "memory/memory_arena.h"
 
 // Lookahead distance for the software prefetcher: 8 vectors, which is
 // 2 batch-4 iterations ahead of the position currently being scored.
 inline constexpr uint32_t kPrefetchDistance = 2 * kBatchSize;
 
 // `TopTwoAccumulator` finalizes the vector search top 2 result by simutaneously
-// evaluating the dot product score. 
+// evaluating the dot product score.
 // CAUTION: Not intended to use externally.
 struct TopTwoAccumulator {
     float    fst_score = -1.0f, sec_score = -1.0f;
@@ -80,10 +66,10 @@ struct TopTwoAccumulator {
 //   2. `kBoundsSafe == false` : For flat array with fixed size. Ensure safety
 //                               by evaluating bounds check.
 template <bool kBoundsSafe, typename NodeAt, typename CountAt>
-std::optional<SearchResult> ScoreCandidates(const MemoryArena& arena,
-                                            const float*       query,
-                                            NodeAt&&           node_at,
-                                            CountAt&& count_at) noexcept {
+std::optional<SearchResult> ScoreCandidates(
+    const MemoryArena& arena, const float* query, NodeAt&& node_at,
+    CountAt&& count_at
+) noexcept {
     uint8_t  batch_vers[kBatchSize];
     uint32_t batch_ids[kBatchSize];
     uint32_t batch_count = 0;
@@ -102,10 +88,10 @@ std::optional<SearchResult> ScoreCandidates(const MemoryArena& arena,
         }
 
         float scores[kBatchSize];
-        DotProductIndirectBatch(query, arena.GetVector(batch_ids[0]),
-                                arena.GetVector(batch_ids[1]),
-                                arena.GetVector(batch_ids[2]),
-                                arena.GetVector(batch_ids[3]), scores);
+        DotProductIndirectBatch(
+            query, arena.GetVector(batch_ids[0]), arena.GetVector(batch_ids[1]),
+            arena.GetVector(batch_ids[2]), arena.GetVector(batch_ids[3]), scores
+        );
 
         // Cautious: Only consider non-padding items.
         for (uint32_t k = 0; k < batch_count; ++k) {
@@ -135,8 +121,10 @@ std::optional<SearchResult> ScoreCandidates(const MemoryArena& arena,
             if (pf_id != L0Buffer::kEmpty) {
                 const float* pf_vec = arena.GetVector(pf_id);
                 __builtin_prefetch(pf_vec, /*rw=*/0, /*locality=*/3);
-                __builtin_prefetch(reinterpret_cast<const char*>(pf_vec) + 256,
-                                   /*rw=*/0, /*locality=*/3);
+                __builtin_prefetch(
+                    reinterpret_cast<const char*>(pf_vec) + 256,
+                    /*rw=*/0, /*locality=*/3
+                );
             }
 
             record = node_at(i);
@@ -149,8 +137,10 @@ std::optional<SearchResult> ScoreCandidates(const MemoryArena& arena,
             const uint32_t pf_id  = node_at(i + kPrefetchDistance);
             const float*   pf_vec = arena.GetVector(pf_id);
             __builtin_prefetch(pf_vec, /*rw=*/0, /*locality=*/3);
-            __builtin_prefetch(reinterpret_cast<const char*>(pf_vec) + 256,
-                               /*rw=*/0, /*locality=*/3);
+            __builtin_prefetch(
+                reinterpret_cast<const char*>(pf_vec) + 256,
+                /*rw=*/0, /*locality=*/3
+            );
 
             record = node_at(i);
         }

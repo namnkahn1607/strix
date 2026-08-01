@@ -27,8 +27,9 @@ struct alignas(64) MetaNode {  // Avoid false sharing under concurrent access.
     // LoadControl atomically loads and decodes the control block.
     //
     // By default, a `std::memory_order_acquire` load is performed.
-    ControlBlock LoadControl(const std::memory_order order =
-                                 std::memory_order_acquire) const noexcept {
+    ControlBlock LoadControl(
+        const std::memory_order order = std::memory_order_acquire
+    ) const noexcept {
         return UnpackControl(control_block.load(order));
     }
 
@@ -36,9 +37,11 @@ struct alignas(64) MetaNode {  // Avoid false sharing under concurrent access.
     // rest of the control block word.
     //
     // Used on both sides of a seqlock-style version check.
-    uint8_t LoadVersion(const std::memory_order order =
-                            std::memory_order_acquire) const noexcept {
+    uint8_t LoadVersion(
+        const std::memory_order order = std::memory_order_acquire
+    ) const noexcept {
         return static_cast<uint8_t>(
-            (control_block.load(order) >> kVersionShift) & kVersionMask);
+            (control_block.load(order) >> kVersionShift) & kVersionMask
+        );
     }
 };

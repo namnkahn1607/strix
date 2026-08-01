@@ -3,7 +3,9 @@
 // VectorIndex implementation. See its header for the seqlock and Write-Ahead
 // protocol invariants this relies on.
 
-#include "vector_index.h"
+#include "index/vector_index.h"
+
+#include <sys/types.h>
 
 #include <atomic>
 #include <chrono>
@@ -15,13 +17,99 @@
 #include <string>
 #include <thread>
 
-#include "constants.h"
+#include "common/constants.h"
 #include "free_list.h"
+#include "index/ivf_config.h"
+#include "index/search_result.h"
 #include "level0_ring.h"
 #include "level1_ivf.h"
-#include "meta_node.h"
+#include "memory/memory_arena.h"
+#include "memory/meta_node.h"
 #include "recalibration.h"
-#include "search_inl.h"
+#include "search-inl.h"
+
+class VectorIndex::Impl {
+public:
+    Impl(MemoryArena& arena, uint32_t l0_cap, const IvfConfig& config)
+        : arena_(arena)
+        , free_list_(arena.max_slots)
+        , l0_buffer_(l0_cap)
+        , node_owner_(std::make_unique_for_overwrite<std::atomic<uint32_t>[]>(
+              arena.max_slots
+          ))
+        , ivf_config_(config)
+        , routes_(
+              RoutingTable(
+                  config.num_clusters, config.max_cluster_size,
+                  config.lazy_mapping
+              ),
+              RoutingTable(
+                  config.num_clusters, config.max_cluster_size,
+                  config.lazy_mapping
+              )
+          )
+        , recalibrator_(std::make_unique<Recalibrator>(
+              arena, routes_, &active_route_, config
+          )) {
+        if (config.num_clusters >= kUnclustered) {
+            throw std::invalid_argument(
+                "Number of clusters must be lower than kUnclustered "
+                "identifier, "
+                "which is " +
+                std::to_string(kUnclustered)
+            );
+        }
+
+        if (config.kmeans_sample_size == 0) {
+            throw std::invalid_argument(
+                "K-means sample buffer size must be non-zero"
+            );
+        }
+
+        if (config.kmeans_sample_size % kBatchSize != 0) {
+            throw std::invalid_argument(
+                "K-means sample size must be a multiple of kernel batch size"
+            );
+        }
+
+        // Initialize all nodes (slots) as unclustered.
+        for (size_t i = 0; i < arena.max_slots; ++i) {
+            node_owner_[i].store(kUnclustered, std::memory_order_relaxed);
+        }
+    }
+
+    MemoryArena& arena_;
+    FreeList     free_list_;
+    L0Buffer     l0_buffer_;
+
+    // `node_owner_`, a single-source-of-truth cluster ID tracker for every
+    // clustered node. Unclustered nodes are considered `kUnclustered`.
+    std::unique_ptr<std::atomic<uint32_t>[]> node_owner_;
+
+    IvfConfig            ivf_config_;
+    RoutingTable         routes_[2];
+    std::atomic<uint8_t> active_route_{0};
+
+    // Gates any IVF-related operations at cold start until the IVF's
+    // centroid array is fully seeded.
+    std::atomic<bool> ivf_enabled_{false};
+
+    // `RunCompaction()` sequentially migrates nodes from L0 Buffer to L1 IVF.
+    void RunCompaction() noexcept;
+
+    // IVF's `Recalibrator` - the calibration state-machine controller.
+    std::unique_ptr<Recalibrator> recalibrator_;
+
+    // Round-robin cursor only for `RunReassignment()` to determine which
+    // cluster to sweep on the next call.
+    uint32_t reassignment_cursor_ = 0;
+
+    // `RunReassignment()` sweeps each cluster per called. Remove `kDead` node
+    // ID of that cluster and move datapoint to closer cluster.
+    // A generation change (node be evicted and re-acquired) mid-process are
+    // skipped to determine on another pass.
+    void RunReassignment() noexcept;
+};
 
 // All nodes are intialized to `kUnclustered` (being a L0 node) at the start.
 // The `L0Buffer` ring size is `l0_cap`; the capacity of `FreeList` is derived
@@ -30,62 +118,14 @@
 VectorIndex::VectorIndex(
     MemoryArena& arena, const uint32_t l0_cap, const IvfConfig& config
 )
-    : arena_(arena)
-    , free_list_(arena.max_slots)
-    , l0_buffer_(l0_cap)
-    , node_owner_(std::make_unique_for_overwrite<std::atomic<uint32_t>[]>(
-          arena.max_slots
-      ))
-    , ivf_config_(config)
-    , routes_(
-          RoutingTable(
-              config.num_clusters, config.max_cluster_size, config.lazy_mapping
-          ),
-          RoutingTable(
-              config.num_clusters, config.max_cluster_size, config.lazy_mapping
-          )
-      )
-    , recalibrator_(
-          std::make_unique<Recalibrator>(arena, routes_, &active_route_, config)
-      ) {
-    // Arguments check & sanitizing.
-    if (config.num_clusters >= kUnclustered) {
-        throw std::invalid_argument(
-            "Number of clusters must be lower than kUnclustered identifier, "
-            "which is " +
-            std::to_string(kUnclustered)
-        );
-    }
-
-    if (config.kmeans_sample_size == 0) {
-        throw std::invalid_argument(
-            "K-means sample buffer size must be non-zero"
-        );
-    }
-
-    if (config.kmeans_sample_size % kBatchSize != 0) {
-        throw std::invalid_argument(
-            "K-means sample size must be a multiple of kernel batch size"
-        );
-    }
-
-    // Initialize all nodes (slots) as unclustered.
-    for (size_t i = 0; i < arena.max_slots; ++i) {
-        node_owner_[i].store(kUnclustered, std::memory_order_relaxed);
-    }
-}
+    : pimpl_(std::make_unique<Impl>(arena, l0_cap, config)) {}
 
 VectorIndex::~VectorIndex() = default;
 
-// -----------------------------------------------------------------------------
-// Acquire/Release Node
-// -----------------------------------------------------------------------------
-
-//
 std::optional<uint32_t> VectorIndex::AcquireNode(
     const float* query, const uint64_t now
 ) noexcept {
-    const uint32_t node_id = free_list_.Pop();
+    const uint32_t node_id = impl()->free_list_.Pop();
     if (node_id == FreeList::kEmpty) {
         return std::nullopt;
     }
@@ -95,11 +135,11 @@ std::optional<uint32_t> VectorIndex::AcquireNode(
     // evicted it. Pinning a lock here signals Reassignment that "a node is
     // no longer belongs to this cluster, please purge it rightaway if you
     // encounter any".
-    node_owner_[node_id].store(kUnclustered, std::memory_order_relaxed);
+    impl()->node_owner_[node_id].store(kUnclustered, std::memory_order_relaxed);
 
-    std::memcpy(arena_.GetVector(node_id), query, kVectorMemsize);
+    std::memcpy(impl()->arena_.GetVector(node_id), query, kVectorMemsize);
 
-    MetaNode& node = arena_.GetNode(node_id);
+    MetaNode& node = impl()->arena_.GetNode(node_id);
     node.created_at.store(now, std::memory_order_relaxed);
 
     const uint8_t old_version = node.LoadVersion(std::memory_order_relaxed);
@@ -109,13 +149,13 @@ std::optional<uint32_t> VectorIndex::AcquireNode(
         PackControl(NodeState::kPending, EvictState::kHot, new_version, 0, 0);
     node.control_block.store(published, std::memory_order_release);
 
-    if (!l0_buffer_.TryPush(node_id)) {
+    if (!impl()->l0_buffer_.TryPush(node_id)) {
         // Failed to register node to L0 buffer: the system is under high load.
         // Rollback to `kDead` and return to `FreeList`.
         const uint64_t rollback =
             PackControl(NodeState::kDead, EvictState::kCold, new_version, 0, 0);
         node.control_block.store(rollback, std::memory_order_release);
-        free_list_.Push(node_id);
+        impl()->free_list_.Push(node_id);
         return std::nullopt;
     }
 
@@ -123,37 +163,35 @@ std::optional<uint32_t> VectorIndex::AcquireNode(
 }
 
 void VectorIndex::ReleaseNode(const uint32_t node_id) noexcept {
-    free_list_.Push(node_id);
+    impl()->free_list_.Push(node_id);
 }
 
-// -----------------------------------------------------------------------------
-// Vector Searching
-// -----------------------------------------------------------------------------
-
-//
 std::optional<SearchResult> VectorIndex::SearchL0(const float* query
 ) const noexcept {
-    const uint32_t right = l0_buffer_.SnapPushHead();
-    const uint32_t left  = l0_buffer_.SnapPopTail();
+    const uint32_t right = impl()->l0_buffer_.SnapPushHead();
+    const uint32_t left  = impl()->l0_buffer_.SnapPopTail();
 
     uint32_t count = right - left;
     return ScoreCandidates</*kBoundsSafe=*/true>(
-        arena_, query,
-        [&](uint32_t idx) noexcept { return l0_buffer_.LoadSlot(left + idx); },
+        impl()->arena_, query,
+        [&](uint32_t idx) noexcept {
+            return impl()->l0_buffer_.LoadSlot(left + idx);
+        },
         [count]() noexcept { return count; }
     );
 }
 
 std::optional<SearchResult> VectorIndex::SearchL1(const float* query
 ) const noexcept {
-    const uint8_t       active = active_route_.load(std::memory_order_acquire);
-    const RoutingTable& table  = routes_[active];
+    const uint8_t active =
+        impl()->active_route_.load(std::memory_order_acquire);
+    const RoutingTable& table = impl()->routes_[active];
 
     const uint32_t cluster_id = table.MatchCluster(query);
     auto           members    = table.ClusterMemberIds(cluster_id);
 
     return ScoreCandidates</*kBoundsSafe=*/false>(
-        arena_, query,
+        impl()->arena_, query,
         [&](uint32_t idx) noexcept {
             return members[idx].load(std::memory_order_acquire);
         },
@@ -163,16 +201,11 @@ std::optional<SearchResult> VectorIndex::SearchL1(const float* query
     );
 }
 
-// -----------------------------------------------------------------------------
-// Fetch/Commit Payload
-// -----------------------------------------------------------------------------
-
-//
 CacheOutcome VectorIndex::FetchPayload(
     const uint32_t node_id, const uint8_t expected_version,
     const uint64_t curr_time, std::string* out
 ) const {
-    MetaNode& node = arena_.GetNode(node_id);
+    MetaNode& node = impl()->arena_.GetNode(node_id);
 
     {
         const auto [state, ref, version, length, v_offset] = node.LoadControl();
@@ -196,7 +229,7 @@ CacheOutcome VectorIndex::FetchPayload(
             return CacheOutcome::kMiss;
         }
 
-        arena_.ReadPayload(v_offset, length, out);
+        impl()->arena_.ReadPayload(v_offset, length, out);
     }
 
     if (node.LoadVersion(std::memory_order_acquire) != expected_version) {
@@ -210,18 +243,18 @@ CacheOutcome VectorIndex::FetchPayload(
 bool VectorIndex::CommitPayload(
     const uint32_t node_id, const uint8_t* in, const uint32_t length
 ) noexcept {
-    if (node_id >= arena_.max_slots) {
+    if (node_id >= impl()->arena_.max_slots) {
         return false;
     }
 
-    MetaNode& node = arena_.GetNode(node_id);
+    MetaNode& node = impl()->arena_.GetNode(node_id);
     const auto [state, ref, version, old_len, old_off] = node.LoadControl();
 
     if (state != NodeState::kPending) {
         return false;
     }
 
-    const auto opt_offset = arena_.WritePayload(node_id, in, length);
+    const auto opt_offset = impl()->arena_.WritePayload(node_id, in, length);
     if (!opt_offset.has_value()) {
         return false;
     }
@@ -239,9 +272,7 @@ bool VectorIndex::CommitPayload(
     );
 }
 
-// -----------------------------------------------------------------------------
-// Background Coordinators
-// -----------------------------------------------------------------------------
+L0Buffer& VectorIndex::GetL0Buffer() noexcept { return impl()->l0_buffer_; }
 
 namespace {
 
@@ -264,8 +295,8 @@ void VectorIndex::RunCoordinator(const std::atomic<bool>& shutdown_req) {
     // -------------------------------------------------------------------------
     {
         const uint8_t inactive =
-            1 - active_route_.load(std::memory_order_acquire);
-        RoutingTable& table = routes_[inactive];
+            1 - impl()->active_route_.load(std::memory_order_acquire);
+        RoutingTable& table = impl()->routes_[inactive];
 
         uint32_t seeded = 0;
         while (seeded < table.num_clusters) {
@@ -273,13 +304,13 @@ void VectorIndex::RunCoordinator(const std::atomic<bool>& shutdown_req) {
                 return;
             }
 
-            const uint32_t node_id = l0_buffer_.TryPop();
+            const uint32_t node_id = impl()->l0_buffer_.TryPop();
             if (node_id == L0Buffer::kEmpty) {
                 std::this_thread::sleep_for(kBootstrapIdleBackoff);
                 continue;
             }
 
-            MetaNode& node = arena_.GetNode(node_id);
+            MetaNode& node = impl()->arena_.GetNode(node_id);
             const auto [state, ref, version, length, v_offset] =
                 node.LoadControl();
             if (state == NodeState::kDead) {
@@ -287,7 +318,7 @@ void VectorIndex::RunCoordinator(const std::atomic<bool>& shutdown_req) {
                 continue;
             }
 
-            const float* vec = arena_.GetVector(node_id);
+            const float* vec = impl()->arena_.GetVector(node_id);
             table.SeedCentroid(seeded, vec);
 
             if (node.LoadVersion() != version) {
@@ -300,13 +331,15 @@ void VectorIndex::RunCoordinator(const std::atomic<bool>& shutdown_req) {
                 // fist member, so the cluster can never be full.
                 continue;
             }
-            node_owner_[node_id].store(seeded, std::memory_order_relaxed);
+            impl()->node_owner_[node_id].store(
+                seeded, std::memory_order_relaxed
+            );
 
             ++seeded;
         }
 
-        active_route_.store(inactive, std::memory_order_release);
-        ivf_enabled_.store(true, std::memory_order_release);
+        impl()->active_route_.store(inactive, std::memory_order_release);
+        impl()->ivf_enabled_.store(true, std::memory_order_release);
     }
 
     // -------------------------------------------------------------------------
@@ -314,13 +347,14 @@ void VectorIndex::RunCoordinator(const std::atomic<bool>& shutdown_req) {
     // started. And since no episode has been published, no semantic drift
     // happens (yet), so Reassignment is meaningless this time.
     // -------------------------------------------------------------------------
-    while (recalibrator_->CurrentPhase() == Recalibrator::Phase::kIdle) {
+    while (impl()->recalibrator_->CurrentPhase() == Recalibrator::Phase::kIdle
+    ) {
         if (shutdown_req.load(std::memory_order_relaxed)) {
             return;
         }
 
-        RunCompaction();
-        recalibrator_->NotifyCompactionSucceeded();
+        impl()->RunCompaction();
+        impl()->recalibrator_->NotifyCompactionSucceeded();
         std::this_thread::sleep_for(kCoordinatorTick);
     }
 
@@ -328,15 +362,15 @@ void VectorIndex::RunCoordinator(const std::atomic<bool>& shutdown_req) {
     // Steady-state. The Coordinator stays in this loop forever after.
     // -------------------------------------------------------------------------
     while (!shutdown_req.load(std::memory_order_relaxed)) {
-        RunCompaction();
-        recalibrator_->NotifyCompactionSucceeded();
-        recalibrator_->Tick();
-        RunReassignment();
+        impl()->RunCompaction();
+        impl()->recalibrator_->NotifyCompactionSucceeded();
+        impl()->recalibrator_->Tick();
+        impl()->RunReassignment();
         std::this_thread::sleep_for(kCoordinatorTick);
     }
 }
 
-void VectorIndex::RunCompaction() noexcept {
+void VectorIndex::Impl::RunCompaction() noexcept {
     const uint32_t node_id = l0_buffer_.TryPop();
     if (node_id == L0Buffer::kEmpty) {
         return;
@@ -369,7 +403,7 @@ void VectorIndex::RunCompaction() noexcept {
     node_owner_[node_id].store(cluster_id, std::memory_order_relaxed);
 }
 
-void VectorIndex::RunReassignment() noexcept {
+void VectorIndex::Impl::RunReassignment() noexcept {
     const uint8_t active = active_route_.load(std::memory_order_acquire);
     RoutingTable& table  = routes_[active];
 

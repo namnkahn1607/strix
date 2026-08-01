@@ -19,8 +19,10 @@ struct alignas(8) TaggedIndex {
     uint32_t tag = 0;
 };
 
-static_assert(std::atomic<TaggedIndex>::is_always_lock_free,
-              "TaggedIndex CAS must be hardware lock-free.");
+static_assert(
+    std::atomic<TaggedIndex>::is_always_lock_free,
+    "TaggedIndex CAS must be hardware lock-free."
+);
 
 // `FreeList`, Single-producer & Multi-consumer for managing freed `node_id`.
 class FreeList {
