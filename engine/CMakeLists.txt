@@ -13,10 +13,16 @@ find_package(gRPC CONFIG REQUIRED)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/vendored-protoc.cmake)
 
 # ==============================================================================
+# 0. SHARED PUBLIC HEADER ROOT
+# Single root for all module's public API: include/<module>/*.h
+# ==============================================================================
+set(PUBLIC_HEADER_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/include")
+
+# ==============================================================================
 # 1. ORT LIBRARY PATH
 # ORT is vendored as a pre-built shared library under ort/, bypassing vcpkg.
 # The library is compiled DYNAMICALLY using clang++-17.
-# =============================================================================
+# ==============================================================================
 set(ORT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/ort")
 add_library(ONNXRuntime SHARED IMPORTED)
 set_target_properties(ONNXRuntime PROPERTIES
@@ -25,10 +31,10 @@ set_target_properties(ONNXRuntime PROPERTIES
     INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${ORT_ROOT}/include"
 )
 
-# ===========================================================================
+# ==============================================================================
 # 2. GLOBAL COMPILER OPTIONS
 # Any module linking with this target will inherits its compile flags.
-# ===========================================================================
+# ==============================================================================
 add_library(engine_options INTERFACE)
 target_compile_options(engine_options INTERFACE
     -march=x86-64-v3
@@ -36,9 +42,9 @@ target_compile_options(engine_options INTERFACE
     -include "${CMAKE_CURRENT_SOURCE_DIR}/src/config/lockfree_invariants.h"
 )
 
-# ===========================================================================
+# ==============================================================================
 # 3. AUTO-GENERATE CONTRACTS
-# ===========================================================================
+# ==============================================================================
 set(PROTO_DIR "${STRIX_REPO_ROOT}/api/proto/v1")
 set(PROTO_FILE "${PROTO_DIR}/strix.proto")
 set(PROTO_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
@@ -79,22 +85,30 @@ add_library(engine_contract STATIC
 target_link_libraries(engine_contract PUBLIC gRPC::grpc++ protobuf::libprotobuf)
 target_include_directories(engine_contract PUBLIC "${PROTO_GEN_DIR}")
 
-# ===========================================================================
+# ==============================================================================
 # 4. DATA PLANE MODULES
-# ===========================================================================
+# ==============================================================================
+set(ENGINE_SOURCE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/src")
+
 # Module 1: Common
 add_library(engine_common INTERFACE)
-target_include_directories(engine_common INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/src/common)
+target_include_directories(engine_common INTERFACE ${PUBLIC_HEADER_ROOT})
 target_link_libraries(engine_common INTERFACE engine_options)
 
 # Module 2: Memory
 add_library(engine_memory STATIC src/memory/memory_arena.cc)
-target_include_directories(engine_memory PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/memory)
+target_include_directories(engine_memory
+    PUBLIC ${PUBLIC_HEADER_ROOT}
+    PRIVATE ${ENGINE_SOURCE_ROOT}/memory
+)
 target_link_libraries(engine_memory PRIVATE engine_options engine_common)
 
 # Module 3: Inference
 add_library(engine_inference STATIC src/inference/inference_model.cc)
-target_include_directories(engine_inference PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/inference)
+target_include_directories(engine_inference
+    PUBLIC ${PUBLIC_HEADER_ROOT}
+    PRIVATE ${ENGINE_SOURCE_ROOT}/inference
+)
 target_link_libraries(engine_inference PRIVATE engine_options engine_common)
 target_link_libraries(engine_inference PUBLIC ONNXRuntime)
 
@@ -106,29 +120,34 @@ add_library(engine_index STATIC
     src/index/recalibration.cc
     src/index/vector_index.cc
 )
-target_include_directories(engine_index PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/index)
+target_include_directories(engine_index
+    PUBLIC ${PUBLIC_HEADER_ROOT}
+    PRIVATE ${ENGINE_SOURCE_ROOT}/index
+)
 target_link_libraries(engine_index PRIVATE 
-    engine_options 
-    engine_common 
-    engine_memory 
-    engine_inference
+    engine_options
+    engine_common
+    engine_memory
 )
 
 # Module 5: Network
-add_library(engine_rpc STATIC src/rpc/cache_service.cc)
-target_include_directories(engine_rpc PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/rpc)
-target_link_libraries(engine_rpc PRIVATE 
-    engine_options 
-    engine_common 
-    engine_memory 
-    engine_inference 
-    engine_index 
+add_library(engine_service STATIC src/rpc/cache_service.cc)
+target_include_directories(engine_service
+    PUBLIC ${PUBLIC_HEADER_ROOT}
+    PRIVATE ${ENGINE_SOURCE_ROOT}/rpc
+)
+target_link_libraries(engine_service PRIVATE 
+    engine_options
+    engine_common
+    engine_memory
+    engine_inference
+    engine_index
     engine_contract
 )
 
-# ===========================================================================
+# ==============================================================================
 # 5. TOTAL EXECUTABLE
-# ===========================================================================
+# ==============================================================================
 add_executable(strix_engine src/main.cc)
 target_link_libraries(strix_engine PRIVATE 
     engine_options 
@@ -136,7 +155,7 @@ target_link_libraries(strix_engine PRIVATE
     engine_memory 
     engine_inference 
     engine_index
-    engine_rpc
+    engine_service
     engine_contract
 )
 
@@ -146,9 +165,9 @@ set_target_properties(strix_engine PROPERTIES
     INSTALL_RPATH "$ORIGIN"
 )
 
-# ===========================================================================
+# ==============================================================================
 # 6. TESTING EXECUTABLE(S)
-# ===========================================================================
+# ==============================================================================
 find_package(GTest CONFIG REQUIRED)
 
 # Test AVX2 Dot Product
@@ -212,9 +231,9 @@ gtest_discover_tests(memory_arena_test)
 gtest_discover_tests(free_list_test)
 gtest_discover_tests(level0_ring_test)
 
-# ===========================================================================
+# ==============================================================================
 # 7. BENCHMARK EXECUTABLE(S)
-# ===========================================================================
+# ==============================================================================
 find_package(benchmark CONFIG REQUIRED)
 
 # Benchmark AVX2 Dot Product
