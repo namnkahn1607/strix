@@ -168,7 +168,7 @@ set_target_properties(strix_engine PROPERTIES
 )
 
 # ==============================================================================
-# 6. TESTING EXECUTABLE(S)
+# 6. UNIT TESTING
 # ==============================================================================
 find_package(GTest CONFIG REQUIRED)
 include(GoogleTest)
@@ -224,7 +224,7 @@ add_unit_test(level0_ring_test index
 )
 
 # ==============================================================================
-# 7. BENCHMARK EXECUTABLE(S)
+# 7. MICRO-BENCHMARK
 # ==============================================================================
 find_package(benchmark CONFIG REQUIRED)
 
@@ -281,3 +281,29 @@ add_micro_bench(vector_search_bench index
     SOURCES src/index/bench/vector_search_bench.cc
     LIBS engine_options engine_common engine_memory engine_index
 )
+
+# ==============================================================================
+# 8. INTEGRATION TESTING
+# ==============================================================================
+function(add_integration_test target_name)
+    cmake_parse_arguments(ARG "" "" "SOURCES;LIBS" ${ARGN})
+    add_executable(${target_name} ${ARG_SOURCES})
+    target_link_libraries(${target_name} PRIVATE
+        ${ARG_LIBS}
+        GTest::gtest_main
+        GTest::gtest
+    )
+    gtest_discover_tests(${target_name})
+endfunction()
+
+# ==============================================================================
+# 9. MACRO-BENCHMARK
+# ==============================================================================
+function(add_macro_bench target_name)
+    cmake_parse_arguments(ARG "" "" "SOURCES;LIBS" ${ARGN})
+    add_executable(${target_name} ${ARG_SOURCES})
+    target_link_libraries(${target_name} PRIVATE
+        ${ARG_LIBS}
+        benchmark::benchmark
+    )
+endfunction()
