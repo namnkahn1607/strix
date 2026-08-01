@@ -1,4 +1,4 @@
-// Memory Arena and its runtime configurator declarations.
+// Memory Arena declaration.
 
 #pragma once
 
@@ -117,8 +117,10 @@ private:
 
     // Metadata array: one `MetaNode` per slot.
     MetaNode* metadata_;
+    
     // Vector array: `kVectorDim` floats per slot.
     float* vectors_;
+
     // Payload ring buffer (`nullptr` when omitted).
     uint8_t* payload_buf_;
 
