@@ -9,6 +9,10 @@
 
 // Embedding vector dimension produced by `all-MiniLM-L6-v2`.
 inline constexpr size_t kVectorDim = 384;
+static_assert(
+    kVectorDim % 8 == 0, "Vector dimension must be AVX2-register aligned."
+);
+
 // Byte footprint of one vector, used for buffer allocation sizing.
 inline constexpr size_t kVectorMemsize = kVectorDim * sizeof(float);
 
