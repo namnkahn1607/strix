@@ -7,6 +7,9 @@
 #include <cstdint>
 #include <cstdlib>
 
+// Maximum word piece sequence length accepted by `all-MiniLM-L6-v2`.
+inline constexpr size_t kMaxTokens = 256;
+
 // Embedding vector dimension produced by `all-MiniLM-L6-v2`.
 inline constexpr size_t kVectorDim = 384;
 static_assert(
