@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 ################################################################################
-# This script downloads the quantitized UINT8 ONNX binary of all-MiniLM-L6-v2, 
+# This script downloads the quantitized UINT8 ONNX binary of all-MiniLM-L6-v2,
 # optimized using AVX2 intrinsics.
 #
 # Source: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2

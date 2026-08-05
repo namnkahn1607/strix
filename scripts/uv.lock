@@ -1000,7 +1000,7 @@ requires-dist = [
     { name = "onnxruntime-extensions", specifier = "==0.15.2" },
     { name = "tokenizers" },
     { name = "torch", index = "https://download.pytorch.org/whl/cpu" },
-    { name = "transformers", specifier = "<5.0" },
+    { name = "transformers", specifier = "==4.57.6" },
 ]
 
 [[package]]

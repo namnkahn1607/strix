@@ -39,7 +39,7 @@ usage() {
     cat <<'EOF'
 Usage: bash cpp_toolchain.sh <target> [<target> ...]
        bash cpp_toolchain.sh all
-    
+
 Targets: ninja  cmake  utils  llvm  just  vcpkg  ort  all
 EOF
 }
@@ -66,7 +66,7 @@ install_cmake() {
     log "Check & install build system."
     local cmake_bin="cmake"
     local need_vendor=true
-    
+
     if command -v cmake >/dev/null 2>&1; then
         local curr_ver curr_major curr_minor
         curr_ver="$(cmake --version | head -1 | grep -oP '\d+\.\d+\.\d+')"
@@ -116,7 +116,7 @@ install_utils() {
     for tool in "${required[@]}"; do
         command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
     done
- 
+
     if [[ ${#missing[@]} -gt 0 ]]; then
         log "Missing ${missing[*]} - install via apt (sudo needed)."
         sudo apt-get update -qq
@@ -146,7 +146,7 @@ install_llvm() {
         chmod +x /tmp/llvm.sh
         sudo /tmp/llvm.sh "$LLVM_VERSION"
         rm -f /tmp/llvm.sh
- 
+
         # clang-tidy and lldb are not pulled in by llvm.sh without "all".
         sudo apt-get install -y "clang-tidy-$LLVM_VERSION"
         sudo apt-get install -y "lldb-$LLVM_VERSION"
@@ -186,12 +186,12 @@ bootstrap_vcpkg() {
     # Ensure the current baseline commit hash is reachable in object database.
     local baseline_commit
     baseline_commit=$(grep -oP '"builtin-baseline"\s*:\s*"\K[a-f0-9]{40}' "$PROJECT_ROOT/vcpkg.json")
- 
+
     if ! git -C "$PROJECT_ROOT/vendor/vcpkg" cat-file -e "${baseline_commit}" 2>/dev/null; then
         log "Baseline commit not present in vendored vcpkg. Fetching..."
         git -C "$PROJECT_ROOT/vendor/vcpkg" fetch origin "${baseline_commit}"
     fi
- 
+
     # Ensure it's actually checked out in the vendor submodule.
     local current_head
     current_head=$(git -C "$PROJECT_ROOT/vendor/vcpkg" rev-parse HEAD)
@@ -214,7 +214,7 @@ _resolve_ort_cmake() {
     if [[ ! -x "$vendor_dir/bin/cmake" ]]; then
         log "Installing dedicated CMake $ORT_CMAKE_VERSION for ORT build."
         mkdir -p "$vendor_dir"
-        
+
         local tarfile="cmake-${ORT_CMAKE_VERSION}-linux-x86_64.tar.gz"
         curl -fsSL -o "/tmp/$tarfile" \
             "https://github.com/Kitware/CMake/releases/download/v${ORT_CMAKE_VERSION}/${tarfile}"
@@ -320,7 +320,7 @@ main() {
 
     local targets=("$@")
     [[ "${targets[0]}" == "all" ]] && targets=(ninja cmake utils llvm just vcpkg ort)
- 
+
     for target in "${targets[@]}"; do
         case "$target" in
             ninja)  install_ninja ;;

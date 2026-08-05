@@ -21,7 +21,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from _common import assert_in_venv, default_tokenizer_path, MAX_PROMPT_TOKENS
+from _common import assert_in_venv, default_tokenizer_path, MAX_BOUND_TOKENS
 
 # This script uses third-party library.
 # MUST ensure it is run inside a virtual environment.
@@ -33,7 +33,7 @@ import numpy as np
 from tokenizers import Tokenizer
 
 # 256 minus [CLS] and [SEP] at each endpoint.
-EFFECTIVE_TOKENS = MAX_PROMPT_TOKENS - 2
+EFFECTIVE_TOKENS = MAX_BOUND_TOKENS - 2
 PROMPT_FIELD = "prompt"
 TRANSFORMER_NAME="all-MiniLM-L6-v2"
 
@@ -94,16 +94,16 @@ def lvl1_vocab_bounds(tokenizer: Tokenizer) -> dict:
     print(f"\nTop 10 shortest tokens (bytes):")
     for tok, bl in shortest:
         print(f"  {tok!r:30s}  {bl} byte(s)")
-    
+
     print(f"\nTop 10 longest tokens (bytes):")
     for tok, bl in reversed(longest):
         print(f"  {tok!r:30s}  {bl} byte(s)")
-    
-    print(f"\nAbsolute lower bound: {EFFECTIVE_TOKENS} × {min_bytes} = "
+
+    print(f"\nAbsolute lower bound: {EFFECTIVE_TOKENS} x {min_bytes} = "
           f"{EFFECTIVE_TOKENS * min_bytes} bytes")
-    print(f"Absolute upper bound: {EFFECTIVE_TOKENS} × {max_bytes} = "
+    print(f"Absolute upper bound: {EFFECTIVE_TOKENS} x {max_bytes} = "
           f"{EFFECTIVE_TOKENS * max_bytes} bytes")
- 
+
     return {"min_bytes": min_bytes, "max_bytes": max_bytes,
             "lower_bound": EFFECTIVE_TOKENS * min_bytes,
             "upper_bound": EFFECTIVE_TOKENS * max_bytes}
@@ -137,7 +137,7 @@ def load_prompts(paths: list[Path]) -> list[str]:
                     continue
 
                 prompts.append(obj[PROMPT_FIELD])
-    
+
     return prompts
 
 def lvl2_empirical(tokenizer: Tokenizer, prompts: list[str]) -> dict:
@@ -148,7 +148,7 @@ def lvl2_empirical(tokenizer: Tokenizer, prompts: list[str]) -> dict:
     print("LEVEL 2 - Empirical Distribution")
     print(f"{'=' * 60}")
     print(f"Tokenizing {len(prompts):,} prompts …", end="", flush=True)
-    
+
     for prompt in prompts:
         enc = tokenizer.encode(prompt)
         # Tokenizer encoding adds [CLS] and [SEP]. Subtract them.
@@ -157,7 +157,7 @@ def lvl2_empirical(tokenizer: Tokenizer, prompts: list[str]) -> dict:
 
         byte_len = len(prompt.encode("utf-8"))
         byte_lengths.append(byte_len)
-        
+
     print(" done.")
 
     byte_lengths = np.array(byte_lengths)
@@ -172,7 +172,7 @@ def lvl2_empirical(tokenizer: Tokenizer, prompts: list[str]) -> dict:
           f"({100 * overlimit_mask.mean():.2f}%)")
     print(f"At-limit  (=={EFFECTIVE_TOKENS} tok)  : {at_limit_mask.sum():,} "
           f"({100 * at_limit_mask.mean():.2f}%)")
-    
+
     if valid_mask.sum() > 0:
         valid_bytes = byte_lengths[valid_mask]
         print(f"\nByte distribution for VALID prompts (token_count <= {EFFECTIVE_TOKENS}):")
@@ -182,8 +182,8 @@ def lvl2_empirical(tokenizer: Tokenizer, prompts: list[str]) -> dict:
         print(f"  p95    : {np.percentile(valid_bytes, 95):.0f}")
         print(f"  p99    : {np.percentile(valid_bytes, 99):.0f}")
         print(f"  p99.9  : {np.percentile(valid_bytes, 99.9):.0f}")
-        print(f"  max    : {valid_bytes.max()}  <- đây chính là threshold FP=0 (xem Level 3)")
- 
+        print(f"  max    : {valid_bytes.max()}  <- this is the threshold FP=0 (see Level 3)")
+
     return {
         "byte_lengths": byte_lengths,
         "token_counts": token_counts,
@@ -219,15 +219,14 @@ def lvl3_threshold(data: dict) -> int:
     fp_mask = (token_counts <= EFFECTIVE_TOKENS) & (byte_lengths > threshold)
     fn_mask = (token_counts > EFFECTIVE_TOKENS) & (byte_lengths <= threshold)
     assert fp_mask.sum() == 0, "BUG: threshold = max(valid_bytes) MUST always give FP = 0."
-    
+
     print(f"\nThreshold = max(byte_length | token_count <= {EFFECTIVE_TOKENS}) "
           f"= {threshold:,} bytes")
     print(f"  False Positive: {fp_mask.sum():,}")
     print(f"  False Negative: {fn_mask.sum():,}  "
           f"({100 * fn_mask.sum() / len(byte_lengths):.2f}%, acceptable)")
- 
-    print(f"\nThống kê FP/FN tại một vài mốc khác (chỉ để tham khảo/so sánh, "
-          f"KHÔNG dùng để chọn threshold):")
+
+    print(f"\nQuantifies FP/FN at several other points:")
     print(f"{'Threshold':>10}  {'FP count':>10}  {'FN count':>10}")
     print("-" * 36)
     for thresh in ILLUSTRATIVE_THRESHOLDS:
@@ -235,7 +234,7 @@ def lvl3_threshold(data: dict) -> int:
         fn = ((token_counts > EFFECTIVE_TOKENS) & (byte_lengths <= thresh)).sum()
         marker = "  <- recommended" if thresh == threshold else ""
         print(f"{thresh:>10,}  {fp:>10,}  {fn:>10,}{marker}")
- 
+
     return threshold
 
 # ==============================================================================
@@ -245,10 +244,10 @@ def plot_results(data: dict, recommended: int, out_path: Path) -> None:
     byte_lengths    = data["byte_lengths"]
     token_counts    = data["token_counts"]
     valid_mask      = data["valid_mask"]
- 
+
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
     fig.suptitle("Token Profiler (all-MiniLM-L6-v2)", fontsize=13, fontweight="bold")
- 
+
     # Plot 1: Byte length distribution for valid prompts.
     ax = axes[0]
     if valid_mask.sum() > 0:
@@ -263,7 +262,7 @@ def plot_results(data: dict, recommended: int, out_path: Path) -> None:
         ax.text(0.5, 0.5, f"No valid prompts in dataset",
                 ha="center", va="center", transform=ax.transAxes)
         ax.set_title(f"Byte length | token_count <= {EFFECTIVE_TOKENS}")
- 
+
     # Plot 2: Scatter (byte_length vs token_count), sampled.
     ax = axes[1]
     sample_size = min(5000, len(byte_lengths))
@@ -279,7 +278,7 @@ def plot_results(data: dict, recommended: int, out_path: Path) -> None:
     ax.set_xlabel("Byte length")
     ax.set_ylabel("Token count")
     ax.legend(fontsize=8)
- 
+
     # Plot 3: FP / FN rate curve across thresholds.
     ax = axes[2]
     fp_rates, fn_rates = [], []
@@ -294,7 +293,7 @@ def plot_results(data: dict, recommended: int, out_path: Path) -> None:
         fn = ((token_counts > EFFECTIVE_LIMIT) & (byte_lengths <= t)).sum() / total
         fp_rates.append(fp * 100)
         fn_rates.append(fn * 100)
- 
+
     ax.plot(thresholds, fp_rates, label="False Positive %", color="#DD4444")
     ax.plot(thresholds, fn_rates, label="False Negative %", color="#F5A623")
     ax.axvline(recommended, color="red", linestyle="--",
@@ -304,7 +303,7 @@ def plot_results(data: dict, recommended: int, out_path: Path) -> None:
     ax.set_ylabel("Rate (%)")
     ax.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.3f%%"))
     ax.legend(fontsize=8)
- 
+
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
     print(f"\nPlot saved -> {out_path}")
@@ -338,7 +337,7 @@ def main() -> int:
         if not path.exists():
             print(f"File not found: {path}")
             return 1
-        
+
         # Validate the dataset format.
         result = subprocess.run(
             [sys.executable, str(here / "validate.py"), str(path)],
@@ -349,9 +348,9 @@ def main() -> int:
                 "Are you sure it is generated using datasets/build.py?"
             )
             return 1
-        
+
         dataset_paths.append(path)
-        
+
     # All datasets are valid. Proceed to profiling.
     tokenizer = load_default_tokenizer()
     lvl1_vocab_bounds(tokenizer)
@@ -366,7 +365,7 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
-    
+
     data = lvl2_empirical(tokenizer, prompts)
     recommended = lvl3_threshold(data)
 
@@ -375,7 +374,7 @@ def main() -> int:
         if len(dataset_paths) == 1:
             dataset_name = dataset_paths[0].stem
             plot_name = f"{dataset_name}.png"
-        
+
         plot_out = here.parent / "out" / plot_name
         plot_out.parent.mkdir(parents=True, exist_ok=True)
         plot_results(data, recommended, plot_out)

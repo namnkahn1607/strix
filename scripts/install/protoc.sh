@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 ################################################################################
-# This script installs a single vendored `protoc` binary shared by both Control 
+# This script installs a single vendored `protoc` binary shared by both Control
 # plane in gateway/ and Data plane in engine/.
 #
 # Fetch port version base on builtin-baseline hash commit in
@@ -39,12 +39,12 @@ BASELINE_HASH=$(grep -oP '"builtin-baseline"\s*:\s*"\K[a-f0-9]{40}' "$VCPKG_JSON
 log "builtin-baseline: $BASELINE_HASH"
 
 # ==============================================================================
-# Step 2. Resolve protobuf port version at that baseline 
+# Step 2. Resolve protobuf port version at that baseline
 # ==============================================================================
 fetch_baseline_protobuf_version() {
     local hash="$1"
     local url="https://raw.githubusercontent.com/microsoft/vcpkg/${hash}/versions/baseline.json"
-    
+
     local raw_version
     raw_version="$(curl -fsSL "$url" | python3 -c '
 import json, sys
@@ -54,7 +54,7 @@ print(data["default"]["protobuf"]["baseline"])
 
     # Strip vcpkg-internal revision suffix (e.g. "33.4.0#1" -> "33.4.0").
     clean_version="${raw_version%%#*}"
-    
+
     # Strip major version of C++ runtime (e.g. "6.33.4" -> "33.4").
     echo "${clean_version#*.}"
 }
@@ -69,7 +69,7 @@ resolve_protoc_release_tag() {
     local version="$1"
     local candidates=("v${version}")
     [[ "$version" == *.0 ]] && candidates+=("v${version%.0}")
- 
+
     local tag http_code
     for tag in "${candidates[@]}"; do
         http_code="$(curl -fsSL -o /dev/null -w '%{http_code}' \
@@ -90,7 +90,7 @@ log "Protoc release tag: $RELEASE_TAG"
 # Step 4. Skip fetching if already installed & matching
 # ==============================================================================
 PROTOC_BIN="$VENDOR_DIR/bin/protoc"
-CURRENT_VERSION=""  
+CURRENT_VERSION=""
 if [[ -x "$PROTOC_BIN" ]]; then
     CURRENT_VERSION="$("$PROTOC_BIN" --version | awk '{print $2}')"
 fi
@@ -127,5 +127,5 @@ if [[ "$EXISTING_PIN" != "$TARGET_VERSION" ]]; then
 else
     log "$VERSION_FILE already up to date ($TARGET_VERSION)."
 fi
- 
+
 log "Finished!"

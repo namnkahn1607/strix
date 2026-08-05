@@ -11,8 +11,8 @@ Usage:
     uv run python3 datasets/build.py <dataset_dir> [options]
 
 Options:
-    -k, --keepraw        Never remove the raw dataset after a successful build.
-    -p, --profile        Enable post-build profiling. Plot is written to scripts/out/.
+    -k, --keepraw  Never remove the raw dataset after a successful build.
+    -p, --profile  Enable post-build profiling. Plot is written to scripts/out/.
 """
 
 import argparse
@@ -22,7 +22,7 @@ from pathlib import Path
 
 from _common import assert_in_venv, load_manifest, raw_dataset_path, processed_dataset_path
 
-# This script uses third-party library. 
+# This script uses third-party library.
 # MUST ensure it is run inside a virtual environment.
 assert_in_venv()
 
@@ -49,9 +49,9 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    
+
     here = Path(__file__).resolve().parent
-    
+
     dataset_dir = Path(args.dataset_dir).resolve()
     if not dataset_dir.is_dir():
         print(
@@ -94,7 +94,7 @@ def main() -> int:
             f"Make sure preprocess.py in {dataset_dir} is doing right."
         )
         return result.returncode
-    
+
     if not args.keepraw:
         raw_path.unlink(missing_ok=True)
 

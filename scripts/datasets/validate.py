@@ -33,9 +33,9 @@ import logging
 import sys
 from pathlib import Path
 
-from _common import MAX_PROMPT_TOKENS, assert_in_venv, default_tokenizer_path
+from _common import MAX_BOUND_TOKENS, assert_in_venv, default_tokenizer_path
 
-# This script uses third-party library. 
+# This script uses third-party library.
 # MUST ensure it is run inside a virtual environment.
 assert_in_venv()
 
@@ -121,13 +121,13 @@ def verify_file(path: Path, tokenizer: Tokenizer) -> bool:
                     )
                     record_ok = False
                     break
-            
+
             if not record_ok:
                 violations += 1
                 continue
 
             tok_count = len(tokenizer.encode(record[PROMPT_FIELD]).ids)
-            if tok_count > MAX_PROMPT_TOKENS:
+            if tok_count > MAX_BOUND_TOKENS:
                 overlimit += 1
 
             prompt_toks.append(tok_count)
@@ -150,7 +150,7 @@ def verify_file(path: Path, tokenizer: Tokenizer) -> bool:
             min(prompt_toks),
             max(prompt_toks),
             sum(prompt_toks) / len(prompt_toks),
-            MAX_PROMPT_TOKENS,
+            MAX_BOUND_TOKENS,
         )
 
         log.info(
@@ -159,7 +159,7 @@ def verify_file(path: Path, tokenizer: Tokenizer) -> bool:
             max(prompt_bytes),
             sum(prompt_bytes) / len(prompt_bytes),
         )
- 
+
         log.info(
             "payload len (chars) : min=%-5d  max=%-5d  mean=%.0f",
             min(payload_bytes),

@@ -6,7 +6,7 @@ Source: https://huggingface.co/datasets/sahil2801/CodeAlpaca-20k
 Input schema  : JSON array of { output, instruction, input }
 Output schema : JSONL of { prompt, payload }]
 
-Tokenizer: loaded from strix/model/tokenizer.json (all-MiniLM-L6-v2). 
+Tokenizer: loaded from strix/model/tokenizer.json (all-MiniLM-L6-v2).
 
 Prompt construction & filtering:
   - prompt  = instruction + "\n" + input  (if input is non-empty)
@@ -32,7 +32,7 @@ from typing import Iterator
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from _common import MAX_PROMPT_TOKENS
+from _common import MAX_BOUND_TOKENS
 from _preprocess import count_tokens, entrypoint
 from tokenizers import Tokenizer
 
@@ -44,7 +44,7 @@ def iter_raw_records(input_path: Path) -> Iterator[dict]:
         raise ValueError(
             f"Expected a JSON array at top level, got {type(records).__name__}"
         )
-    
+
     yield from records
 
 def build_prompt(instruction: str, input_: str) -> str:
@@ -69,9 +69,9 @@ def process_record(record: dict,
     if not prompt:
         return None, "empty_prompt"
 
-    if count_tokens(tokenizer, prompt) > MAX_PROMPT_TOKENS:
+    if count_tokens(tokenizer, prompt) > MAX_BOUND_TOKENS:
         return {"prompt": prompt, "payload": output_}, "overlimit"
-    
+
     return {"prompt": prompt, "payload": output_}, None
 
 if __name__ == "__main__":

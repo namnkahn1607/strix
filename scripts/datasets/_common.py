@@ -11,11 +11,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # Invariant enforced by all-MiniLM-L6-v2.
-MAX_PROMPT_TOKENS = 256
+MAX_BOUND_TOKENS = 256
 
 def assert_in_venv():
     """
-    Fail loud with a clear, actionable message if not running inside a 
+    Fail loud with a clear, actionable message if not running inside a
     virtual environment. MUST be called before any third-party import.
     """
     if sys.prefix == sys.base_prefix:
@@ -23,7 +23,7 @@ def assert_in_venv():
             "This script uses third-party libraries, so it MUST be run inside a venv.\n"
             "Fix: Move your cwd to strix/scripts/ && uv run python3 <script> ...\n"
         )
-    
+
 def repo_root() -> Path:
     """Resolve repository root from the script's location."""
     script_dir = Path(__file__).resolve().parent

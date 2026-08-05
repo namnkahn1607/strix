@@ -7,18 +7,18 @@ Each dataset's preprocessor supplies exactly 2 things:
         else a future dataset uses actually diverges - kept out of the shared
         driver on purpose, since it's the one part that's genuinely per-format,
         not per-dataset-logic.
- 
+
     process_record(record, tokenizer) -> tuple[dict | None, str | None]
         The real per-record decision. Return (kept_dict, None) to keep a
         record, or (None, "some_reason") to drop it with a labeled reason -
         the driver counts and reports whatever reason strings come back, so
         stats are always accurate to what actually happened, never inferred
         after the fact from the output shape.
- 
+
         build_prompt(...) is NOT a driver concern - its signature differs per
         dataset (different raw field names), so it lives entirely inside each
         dataset's own process_record.
- 
+
 ...then calls: entrypoint(iter_raw_records, process_record, description=__doc__)
 """
 
@@ -65,11 +65,11 @@ def load_default_tokenizer() -> Tokenizer:
 def count_tokens(tokenizer: Tokenizer, text: str) -> int:
     return len(tokenizer.encode(text).ids)
 
-def run(input_path: Path, output_path: Path, 
+def run(input_path: Path, output_path: Path,
         iter_raw_records: IterFn, process_record: ProcessFn):
     tokenizer = load_default_tokenizer()
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     total = kept = 0
     drop_reasons: Counter[str] = Counter()
     flagged: Counter[str] = Counter()
@@ -109,8 +109,8 @@ def parse_args(description: str | None) -> argparse.Namespace:
     )
 
     return parser.parse_args()
-    
-def entrypoint(iter_raw_records: IterFn, process_record: ProcessFn, 
+
+def entrypoint(iter_raw_records: IterFn, process_record: ProcessFn,
                description: str | None = None) -> int:
     args = parse_args(description)
 
@@ -125,4 +125,4 @@ def entrypoint(iter_raw_records: IterFn, process_record: ProcessFn,
     dataset_name = input_path.stem
     output_path = repo_root() / "data" / f"{dataset_name}.jsonl"
     run(input_path, output_path, iter_raw_records, process_record)
-    return 0 
+    return 0

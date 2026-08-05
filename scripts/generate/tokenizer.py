@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
 Generate BERT Tokenizer ONNX graph from tokenizer.json.
- 
+
 Inputs  : model/tokenizer.json + config.json
 Outputs : model/tokenizer.onnx
- 
+
 Usage:
     uv run python3 generate/tokenizer.py
 """

@@ -21,7 +21,7 @@ from pathlib import Path
 
 from _common import assert_in_venv, load_manifest, raw_dataset_path
 
-# This script uses third-party library. 
+# This script uses third-party library.
 # MUST ensure it is run inside a virtual environment.
 assert_in_venv()
 
@@ -40,7 +40,7 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter)
 
     parser.add_argument(
-        "info_toml", type=Path, 
+        "info_toml", type=Path,
         help="Path to the TOML dataset manifest."
     )
 
@@ -56,7 +56,7 @@ def main() -> int:
     if not info_toml.is_file() or info_toml.suffix.lower() != ".toml":
         log.error("Not a valid input file: %s. Must be a TOML.", info_toml)
         return 1
-    
+
     manifest = load_manifest(info_toml)
 
     output_path = raw_dataset_path(manifest)

@@ -5,7 +5,7 @@
 #
 # Source: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
 # Usage: bash scripts/fetch/tokenizer.sh
-# Output: 
+# Output:
 #   strix/model/tokenizer.json
 #   strix/model/config.json
 ################################################################################
