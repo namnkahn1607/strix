@@ -144,7 +144,7 @@ install_llvm() {
         log "Missing ${missing[*]} - installing LLVM $LLVM_VERSION via apt.llvm.org."
         curl -fsSL https://apt.llvm.org/llvm.sh -o /tmp/llvm.sh
         chmod +x /tmp/llvm.sh
-        sudo /tmp/llvm.sh "$LLVM_VERSION"
+        sudo /tmp/llvm.sh "$LLVM_VERSION" -n noble
         rm -f /tmp/llvm.sh
 
         # clang-tidy and lldb are not pulled in by llvm.sh without "all".
@@ -162,7 +162,7 @@ install_just() {
     log "Check & install task runner 'just'."
     command -v just >/dev/null 2>&1 || {
         log "Missing just - installing to /usr/local/bin."
-        curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
+        curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | \
             sudo bash -s -- --to /usr/local/bin
     }
 }
