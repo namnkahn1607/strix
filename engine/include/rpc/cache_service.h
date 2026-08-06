@@ -8,7 +8,7 @@
 #include <grpcpp/grpcpp.h>
 
 #include "index/vector_index.h"
-#include "inference/inference_model.h"
+#include "inference/sentence_encoder.h"
 #include "strix.grpc.pb.h"
 #include "strix.pb.h"
 
@@ -21,7 +21,9 @@
 class CacheServiceImpl final : public proto::v1::CacheService::Service {
 public:
     // `CacheServiceImpl` holds references to `Embedder` and `MemoryArena`.
-    explicit CacheServiceImpl(const Embedder& embedder, VectorIndex& index);
+    explicit CacheServiceImpl(
+        const SentenceEncoder& embedder, VectorIndex& index
+    );
 
     CacheServiceImpl(const CacheServiceImpl&)            = delete;
     CacheServiceImpl& operator=(const CacheServiceImpl&) = delete;
@@ -45,8 +47,8 @@ public:
     ) override;
 
 private:
-    const Embedder& embedder_;
-    VectorIndex&    index_;
+    const SentenceEncoder& encoder_;
+    VectorIndex&           index_;
 
     // `ProcessOutcome()` is used by `CheckCache` to populate from a raw search
     // result `candidate` into the `response`.

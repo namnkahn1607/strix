@@ -9,11 +9,16 @@
 #include <exception>
 #include <optional>
 
+#include "common/constants.h"
 #include "common/syscall_utils.h"
+#include "inference/sentence_encoder.h"
+#include "inference/simd_float_buf.h"
 #include "strix.pb.h"
 
-CacheServiceImpl::CacheServiceImpl(const Embedder& embedder, VectorIndex& index)
-    : embedder_(embedder), index_(index) {}
+CacheServiceImpl::CacheServiceImpl(
+    const SentenceEncoder& encoder, VectorIndex& index
+)
+    : encoder_(encoder), index_(index) {}
 
 grpc::Status CacheServiceImpl::CheckCache(
     [[maybe_unused]] grpc::ServerContext* context,
@@ -29,9 +34,12 @@ grpc::Status CacheServiceImpl::CheckCache(
         // Vectorization
         // ------------------------------------------------------------------
 
-        auto encode_result = embedder_.Encode(request->prompt());
-        if (!encode_result.ok()) {
-            switch (encode_result.error()) {
+        SimdFloatBuf query_buf;
+        if (auto encode_err = encoder_.Encode(
+                request->prompt(),
+                std::span<float, kVectorDim>{query_buf.data(), kVectorDim}
+            )) {
+            switch (encode_err.value()) {
                 case EncodeError::kTokenLimitExceeded:
                     response->set_check_state(proto::v1::CACHE_STATE_REJECTED);
                     return grpc::Status::OK;
@@ -45,7 +53,7 @@ grpc::Status CacheServiceImpl::CheckCache(
             }
         }
 
-        const float* query = encode_result.value().get();
+        const float* query = query_buf.data();
 
         // ------------------------------------------------------------------
         // Vector Searching: HIT path

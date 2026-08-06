@@ -10,11 +10,9 @@
 #include <thread>
 
 #include "common/constants.h"
-#include "index/avx2_kernel.h"
 #include "index/ivf_config.h"
 #include "index/vector_index.h"
-#include "inference/aligned_vec.h"
-#include "inference/inference_model.h"
+#include "inference/sentence_encoder.h"
 #include "memory/arena_config.h"
 #include "memory/memory_arena.h"
 #include "rpc/cache_service.h"
@@ -32,31 +30,31 @@ inline constexpr uint32_t kShutdownTimeout = 5;
 // `WarmupEngine()` drives the ONNX runtime and AVX2 dispatch through one full
 // execution path before the server starts accepting requests, eliminating JIT
 // initialization and cold-cache latency from the first real request.
-void WarmupEngine(const Embedder& embedder) {
-    std::cout << "[Vector Engine] Warming up ONNX runtime...\n";
+// void WarmupEngine(const SentenceEncoder& encoder) {
+//     std::cout << "[Vector Engine] Warming up ONNX runtime...\n";
 
-    constexpr uint32_t kWarmupRounds = 3;
-    const std::string  dummy_prompt  = "Hello, World!";
+//     constexpr uint32_t kWarmupRounds = 3;
+//     const std::string  dummy_prompt  = "Hello, World!";
 
-    AlignedVec dummy_vec;
-    for (uint32_t i = 0; i < kWarmupRounds; ++i) {
-        auto result = embedder.Encode(dummy_prompt);
-        if (result.ok()) {
-            dummy_vec = std::move(result.value());
-        }
-    }
+//     AlignedVec dummy_vec;
+//     for (uint32_t i = 0; i < kWarmupRounds; ++i) {
+//         auto result = encoder.Encode(dummy_prompt);
+//         if (result.ok()) {
+//             dummy_vec = std::move(result.value());
+//         }
+//     }
 
-    // Warm-up AVX2 dispatch with a zero-initialized batch.
-    auto dummy_batch = CreateAlignedVector(4 * kVectorDim);
-    std::memset(dummy_batch.get(), 0, 4 * kVectorMemsize);
+//     // Warm-up AVX2 dispatch with a zero-initialized batch.
+//     auto dummy_batch = CreateAlignedVector(4 * kVectorDim);
+//     std::memset(dummy_batch.get(), 0, 4 * kVectorMemsize);
 
-    float scores[kBatchSize] = {};
-    if (dummy_vec) {
-        DotProductBatch(dummy_vec.get(), dummy_batch.get(), scores);
-    }
+//     float scores[kBatchSize] = {};
+//     if (dummy_vec) {
+//         DotProductBatch(dummy_vec.get(), dummy_batch.get(), scores);
+//     }
 
-    std::cout << "[Vector Engine] Warm-up completed.\n";
-}
+//     std::cout << "[Vector Engine] Warm-up completed.\n";
+// }
 
 // `RunServer()` starts the gRPC server and GC background thread, then blocks on
 // the epoll event loop until a shutdown signal arrives (Death Pipe EOF or
@@ -64,13 +62,13 @@ void WarmupEngine(const Embedder& embedder) {
 // `fd_sig` must be a `signalfd` created by `main()` after the signal mask is
 // set.
 void RunServer(
-    const Embedder& embedder, VectorIndex& index, MemoryArena& arena,
+    const SentenceEncoder& encoder, VectorIndex& index, MemoryArena& arena,
     std::atomic<bool>& g_shutdown_req, int fd_sig
 ) {
     const std::string server_address{"unix:///tmp/strix.sock"};
     unlink("/tmp/strix.sock");
 
-    CacheServiceImpl service(embedder, index);
+    CacheServiceImpl service(encoder, index);
 
     grpc::ServerBuilder builder;
     builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
@@ -206,7 +204,7 @@ int main() {
     }
 
     try {
-        const Embedder embedder(tok_path, bert_path);
+        const SentenceEncoder encoder(tok_path, bert_path);
         std::cout << "[Vector Engine] Initialized Inference Model.\n";
 
         const auto arena =
@@ -220,11 +218,11 @@ int main() {
             indexer.ReleaseNode(node_id);
         });
 
-        WarmupEngine(embedder);
+        // WarmupEngine(encoder);
 
         std::cout << "[Vector Engine] Opening to gRPC...\n";
         std::atomic<bool> g_shutdown_req{false};
-        RunServer(embedder, indexer, *arena, g_shutdown_req, fd_sig);
+        RunServer(encoder, indexer, *arena, g_shutdown_req, fd_sig);
         std::cout << "[Vector Engine] Closing...\n";
 
     } catch (const std::exception& e) {
