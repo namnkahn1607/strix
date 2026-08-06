@@ -106,7 +106,7 @@ target_include_directories(engine_memory
 target_link_libraries(engine_memory PRIVATE engine_options engine_common)
 
 # Module 3: Inference
-add_library(engine_inference STATIC src/inference/inference_model.cc)
+add_library(engine_inference STATIC src/inference/sentence_encoder.cc)
 target_include_directories(engine_inference
     PUBLIC ${PUBLIC_HEADER_ROOT}
     PRIVATE ${ENGINE_SOURCE_ROOT}/inference
@@ -199,12 +199,6 @@ add_unit_test(inference_test inference
     LIBS engine_common engine_inference
 )
 
-# Control block ops
-add_unit_test(control_block_test memory
-    SOURCES src/memory/tests/control_block_test.cc
-    LIBS engine_memory
-)
-
 # Read/Write payload
 add_unit_test(memory_arena_test memory
     SOURCES src/memory/tests/memory_arena_test.cc
@@ -246,15 +240,9 @@ add_micro_bench(avx2_kernel_bench index
     LIBS engine_options engine_common engine_index
 )
 
-# Inference model: Zero-shot
+# Inference model: Custom ops
 add_micro_bench(inference_bench inference
     SOURCES src/inference/bench/inference_bench.cc
-    LIBS engine_options engine_common engine_inference
-)
-
-# Inference model: Custom ops
-add_micro_bench(custom_ops_bench inference
-    SOURCES src/inference/bench/custom_ops_bench.cc
     LIBS engine_options engine_common engine_inference
 )
 
