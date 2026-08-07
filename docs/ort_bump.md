@@ -5,7 +5,7 @@ newer upstream release.
 
 ## Prerequisites
 
-- `clang-17` / `clang++-17` available.
+- `clang-18` / `clang++-18` available.
 - CMake 3.28.x available.
 - A spare working directory *outside* the repository (do not do exploratory
   compiles inside `engine/vendor/onnxruntime`).
@@ -49,11 +49,12 @@ then let the compiler find the rest:
 ```bash
 # Attempt a full compile:
 ./build.sh --cmake_path <path-to-cmake-3.28.x> \
+  --ctest_path <path-to-ctest-3.28.x> \
   --cmake_generator Ninja --config Release --build_shared_lib \
   --parallel 4 --use_extensions --skip_tests \
   --cmake_extra_defines \
-    CMAKE_C_COMPILER=/usr/bin/clang-17 \
-    CMAKE_CXX_COMPILER=/usr/bin/clang++-17 \
+    CMAKE_C_COMPILER=/usr/bin/clang-18 \
+    CMAKE_CXX_COMPILER=/usr/bin/clang++-18 \
     CMAKE_CXX_FLAGS="-Wno-error -O3 -march=x86-64-v3" \
     CMAKE_C_FLAGS="-Wno-error -O3 -march=x86-64-v3"
 ```

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.22)
+cmake_minimum_required(VERSION 3.28)
 project(strix_engine VERSION 1.0)
 
 enable_testing()
@@ -21,7 +21,7 @@ set(PUBLIC_HEADER_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/include")
 # ==============================================================================
 # 1. ORT LIBRARY
 # ORT is vendored as a pre-built shared library under ort/, bypassing vcpkg.
-# The library is compiled DYNAMICALLY using clang++-17.
+# The library is compiled DYNAMICALLY using clang++-18.
 # ==============================================================================
 set(ORT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/ort")
 add_library(ONNXRuntime SHARED IMPORTED)

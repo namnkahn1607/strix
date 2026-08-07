@@ -16,13 +16,13 @@
                 "VCPKG_BINARY_SOURCES": "clear;files,$env{HOME}/.cache/vcpkg-archives,readwrite"
             },
             "cacheVariables": {
-                "CMAKE_C_COMPILER": "/usr/bin/clang-17",
-                "CMAKE_CXX_COMPILER": "/usr/bin/clang++-17",
+                "CMAKE_C_COMPILER": "/usr/bin/clang-18",
+                "CMAKE_CXX_COMPILER": "/usr/bin/clang++-18",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
                 "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/vendor/vcpkg/scripts/buildsystems/vcpkg.cmake",
-                "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=lld-17",
-                "CMAKE_SHARED_LINKER_FLAGS": "-fuse-ld=lld-17",
-                "CMAKE_MODULE_LINKER_FLAGS": "-fuse-ld=lld-17",
+                "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=lld-18",
+                "CMAKE_SHARED_LINKER_FLAGS": "-fuse-ld=lld-18",
+                "CMAKE_MODULE_LINKER_FLAGS": "-fuse-ld=lld-18",
                 "VCPKG_INSTALLED_DIR": "${sourceDir}/out/vcpkg_installed",
                 "VCPKG_TARGET_TRIPLET": "x64-linux",
                 "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/cmake/vcpkg-triplets",
@@ -32,14 +32,14 @@
         {
             "name": "debug",
             "inherits": "base-wsl",
-            "displayName": "Debug (Clang-17)",
+            "displayName": "Debug (Clang-18)",
             "binaryDir": "${sourceDir}/out/debug",
             "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
         },
         {
             "name": "release",
             "inherits": "base-wsl",
-            "displayName": "Release (Clang-17)",
+            "displayName": "Release (Clang-18)",
             "binaryDir": "${sourceDir}/out/release",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
@@ -49,7 +49,7 @@
         {
             "name": "asan",
             "inherits": "base-wsl",
-            "displayName": "Address Sanitizer (Clang-17)",
+            "displayName": "Address Sanitizer (Clang-18)",
             "binaryDir": "${sourceDir}/out/asan",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
@@ -60,7 +60,7 @@
         {
             "name": "tsan",
             "inherits": "base-wsl",
-            "displayName": "Thread Sanitizer (Clang-17)",
+            "displayName": "Thread Sanitizer (Clang-18)",
             "binaryDir": "${sourceDir}/out/tsan",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",

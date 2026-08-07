@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 ################################################################################
-# Idempotent installer/bootstrapper for engine/ devtools.
+# Idempotent install & bootstrap Shell script for C/C++ devtools.
 #
 # Usage:
 #   bash cpp_toolchain.sh <target> [<target> ...]
@@ -11,8 +11,8 @@
 #   cmake   CMake build system, vendored fallback.
 #           Resolved binary path is persisited to .state/cmake_bin.
 #   utils   base utilities (python3, pkg-config, curl, tar, zip, unzip, realpath)
-#   llvm    clang/clang++/clang-tidy/lld/lldb, pinned to LLVM_VERSION
-#   just    `just`` task runner
+#   llvm    clang/clang++/clang-tidy/clang-format/lld/lldb, LLVM 18.
+#   just    Task runner
 #   vcpkg   vcpkg submodule sync + bootstrap + builtin-baseline pin.
 #   ort     onnxruntime submodule sync + Clang patch series + build + harvest.
 
@@ -59,7 +59,7 @@ install_ninja() {
 # cmake
 # ==============================================================================
 CMAKE_MIN_MAJOR=3
-CMAKE_MIN_MINOR=22
+CMAKE_MIN_MINOR=28
 CMAKE_VENDOR_VERSION="3.31.12" # Latest CMake 3
 
 install_cmake() {
@@ -103,6 +103,8 @@ install_cmake() {
 
     echo "$cmake_bin" > "$STATE_DIR/cmake_bin"
     log "Resolved binary: $cmake_bin."
+
+    echo "$cmake_bin"
 }
 
 # ==============================================================================
@@ -129,11 +131,14 @@ install_utils() {
 # ==============================================================================
 # llvm
 # ==============================================================================
-LLVM_VERSION=17
+LLVM_VERSION=18
 
 install_llvm() {
     log "Check & install LLVM $LLVM_VERSION toolchain."
-    local tools=("clang-$LLVM_VERSION" "clang++-$LLVM_VERSION" "clang-tidy-$LLVM_VERSION" "lld-$LLVM_VERSION" "lldb-$LLVM_VERSION")
+    local tools=(
+        "clang-$LLVM_VERSION"
+        "clang-tidy-$LLVM_VERSION" "clang-format-$LLVM_VERSION" 
+        "lld-$LLVM_VERSION" "lldb-$LLVM_VERSION")
     local missing=()
 
     for tool in "${tools[@]}"; do
@@ -141,15 +146,9 @@ install_llvm() {
     done
 
     if [[ ${#missing[@]} -gt 0 ]]; then
-        log "Missing ${missing[*]} - installing LLVM $LLVM_VERSION via apt.llvm.org."
-        curl -fsSL https://apt.llvm.org/llvm.sh -o /tmp/llvm.sh
-        chmod +x /tmp/llvm.sh
-        sudo /tmp/llvm.sh "$LLVM_VERSION" -n noble
-        rm -f /tmp/llvm.sh
-
-        # clang-tidy and lldb are not pulled in by llvm.sh without "all".
-        sudo apt-get install -y "clang-tidy-$LLVM_VERSION"
-        sudo apt-get install -y "lldb-$LLVM_VERSION"
+        log "Missing ${missing[*]} - installing from noble universe archive."
+        sudo apt-get update -qq
+        sudo apt-get install -y "${missing[@]}"
     else
         log "All necessary LLVM $LLVM_VERSION tools present."
     fi
@@ -206,24 +205,6 @@ bootstrap_vcpkg() {
 # ==============================================================================
 # ort
 # ==============================================================================
-# ORT build requires CMake >= 3.28
-ORT_CMAKE_VERSION="3.28.6"
-
-_resolve_ort_cmake() {
-    local vendor_dir="$PROJECT_ROOT/vendor/cmake-ort"
-    if [[ ! -x "$vendor_dir/bin/cmake" ]]; then
-        log "Installing dedicated CMake $ORT_CMAKE_VERSION for ORT build."
-        mkdir -p "$vendor_dir"
-
-        local tarfile="cmake-${ORT_CMAKE_VERSION}-linux-x86_64.tar.gz"
-        curl -fsSL -o "/tmp/$tarfile" \
-            "https://github.com/Kitware/CMake/releases/download/v${ORT_CMAKE_VERSION}/${tarfile}"
-        tar -xzf "/tmp/$tarfile" -C "$vendor_dir" --strip-components=1
-        rm -f "/tmp/$tarfile"
-    fi
-    echo "$vendor_dir/bin/cmake"
-}
-
 ORT_TAG="v1.23.2"
 EXPECTED_ORT_COMMIT="a83fc4d58cb48eb68890dd689f94f28288cf2278"
 
@@ -278,14 +259,21 @@ bootstrap_ort() {
         return 0
     fi
 
-    local cmake_ort_bin
-    cmake_ort_bin="$(_resolve_ort_cmake)"
+    local cmake_origin cmake_ort_bin ctest_ort_bin
+    cmake_origin="$(install_cmake)"
+    cmake_ort_bin="$(command -v "$cmake_origin")" \
+        || die "Failed to resolve absolute path for cmake: $cmake_origin"
+    ctest_ort_bin="$(dirname "$cmake_ort_bin")/ctest"
+    if [[ ! -x "$ctest_ort_bin" ]]; then
+        die "ctest not found or not executable at: $ctest_ort_bin"
+    fi
 
     log "Building onnxruntime. Might take a while."
     (
         cd "$ORT_SRC_DIR"
         ./build.sh \
             --cmake_path "$cmake_ort_bin" \
+            --ctest_path "$ctest_ort_bin" \
             --cmake_generator Ninja \
             --config Release \
             --build_shared_lib \
@@ -293,8 +281,8 @@ bootstrap_ort() {
             --use_extensions \
             --skip_tests \
             --cmake_extra_defines \
-                CMAKE_C_COMPILER=/usr/bin/clang-17 \
-                CMAKE_CXX_COMPILER=/usr/bin/clang++-17 \
+                CMAKE_C_COMPILER=/usr/bin/clang-18 \
+                CMAKE_CXX_COMPILER=/usr/bin/clang++-18 \
                 CMAKE_CXX_FLAGS="-Wno-error -O3 -march=x86-64-v3" \
                 CMAKE_C_FLAGS="-Wno-error -O3 -march=x86-64-v3"
     ) || die "Build failed."
