@@ -96,6 +96,9 @@ static void BenchConcurrentInference(
 }  // namespace
 
 int main(int argc, char* argv[]) {
+    // Important: force re-enter with ASLR turned off.
+    benchmark::MaybeReenterWithoutASLR(argc, argv);
+    
     for (const size_t tok_count : {16U, 32U, 64U, 128U, 256U}) {
         const std::string name = "BenchConcurrentInference_" +
                                  std::to_string(tok_count) + "TokPrompt";
@@ -117,6 +120,5 @@ int main(int argc, char* argv[]) {
     benchmark::Initialize(&argc, argv);
     benchmark::RunSpecifiedBenchmarks();
     benchmark::Shutdown();
-
     return 0;
 }
