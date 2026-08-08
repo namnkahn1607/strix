@@ -14,6 +14,6 @@ AlignConsecutiveDeclarations:
 BreakConstructorInitializers: BeforeComma
 IndentWidth: 4
 InsertNewlineAtEOF: true
-SortIncludes:    true
+SortIncludes: true
 TabWidth: 4
 UseTab: Never

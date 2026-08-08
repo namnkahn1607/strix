@@ -232,7 +232,7 @@ bootstrap_ort() {
     git -C "$ORT_SRC_DIR" submodule foreach --recursive \
         'git checkout --force . && git clean -fdx'
 
-    log "Applying clang-17 compatibility patch series."
+    log "Applying clang++-18 compatibility patch series."
     shopt -s nullglob
     local patches=("$ORT_PATCH_DIR"/*.diff)
     shopt -u nullglob
