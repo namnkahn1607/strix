@@ -6,6 +6,7 @@
 #include <cassert>
 #include <functional>
 #include <optional>
+#include <string>
 
 #include "arena_config.h"
 #include "common/constants.h"
@@ -117,7 +118,7 @@ private:
 
     // Metadata array: one `MetaNode` per slot.
     MetaNode* metadata_;
-    
+
     // Vector array: `kVectorDim` floats per slot.
     float* vectors_;
 
