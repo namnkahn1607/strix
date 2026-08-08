@@ -10,7 +10,8 @@
 #   ninja   Ninja generator
 #   cmake   CMake build system, vendored fallback.
 #           Resolved binary path is persisited to .state/cmake_bin.
-#   utils   base utilities (python3, pkg-config, curl, tar, zip, unzip, realpath)
+#   utils   base utilities (build-essential, python3, pkg-config, curl, tar,
+#           zip, unzip, realpath)
 #   llvm    clang/clang++/clang-tidy/clang-format/lld/lldb, LLVM 18.
 #   just    Task runner
 #   vcpkg   vcpkg submodule sync + bootstrap + builtin-baseline pin.
@@ -22,7 +23,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)" # strix/
+REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"  # strix/
 PROJECT_ROOT="$REPO_ROOT/engine"
 cd "$PROJECT_ROOT"
 
@@ -112,7 +113,7 @@ install_cmake() {
 # ==============================================================================
 install_utils() {
     log "Check & install system base utilities."
-    local required=(python3 pkg-config curl tar zip unzip realpath)
+    local required=(build-essential python3 pkg-config curl tar zip unzip realpath)
     local missing=()
 
     for tool in "${required[@]}"; do
