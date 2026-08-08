@@ -4,7 +4,7 @@
 # strix/engine/, which includes:
 #   1. System packages: git, python3, curl, ninja-build, just, LLVM toolchain
 #      and other utilities.
-#   2. Install a vendored CMake into vendor/cmake/ if minimum CMake requirements 
+#   2. Install a vendored CMake into vendor/cmake/ if minimum CMake requirements
 #      are not met.
 #   3. Synchronize and bootstrap vcpkg submodule on pinned release.
 #   4. Generate local secrets.
@@ -37,15 +37,15 @@ CMAKE_BIN_STATE="$PROJECT_ROOT/.state/cmake_bin"
 [[ -f "$CMAKE_BIN_STATE" ]] || die "Missing $CMAKE_BIN_STATE - Install script did not run or failed."
 CMAKE_BIN="$(cat "$CMAKE_BIN_STATE")"
 [[ "$CMAKE_BIN" == "cmake" || -x "$CMAKE_BIN" ]] || die "Resolved CMAKE_BIN ('$CMAKE_BIN') is not executable."
- 
+
 # ==============================================================================
 # 2. Secrets
 # ==============================================================================
 log "[2/$TOTAL_PHASE] Generate/update secrets"
- 
+
 ENV_FILE="$PROJECT_ROOT/.env"
 touch "$ENV_FILE"
- 
+
 upsert_env_var() {
     local key="$1" value="$2"
     if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
@@ -54,13 +54,13 @@ upsert_env_var() {
         echo "${key}=${value}" >> "$ENV_FILE"
     fi
 }
- 
+
 resolve_model() {
     local filename="$1"
     local results
- 
+
     mapfile -t results < <(find "$REPO_ROOT" -name "$filename" -type f 2>/dev/null)
- 
+
     if [[ ${#results[@]} -eq 0 ]]; then
         die "'$filename' not found anywhere under $REPO_ROOT"
     fi
@@ -69,21 +69,21 @@ resolve_model() {
         printf '  %s\n' "${results[@]}" >&2
         die "Remove duplicates or set the path manually in .env."
     fi
- 
+
     realpath "${results[0]}"
 }
- 
+
 TOKENIZER_PATH="$(resolve_model tokenizer.onnx)"
 TRANSFORMER_PATH="$(resolve_model transformer.onnx)"
- 
+
 upsert_env_var "TOKENIZER_PATH" "$TOKENIZER_PATH"
 upsert_env_var "TRANSFORMER_PATH" "$TRANSFORMER_PATH"
- 
+
 # ==============================================================================
 # 3. Configure CMake presets
 # ==============================================================================
 log "[3/$TOTAL_PHASE] Configure CMake presets"
- 
+
 echo ""
 echo "Which presets do you want configured?"
 echo "  [Y] Release only          (try out Strix)"
@@ -91,15 +91,19 @@ echo "  [n] Debug + Asan + Tsan   (development, release stays unconfigured)"
 echo "  [a] All                   (might take longer)"
 read -rp "Choice [Y/n/a]: " answer
 answer="${answer:-Y}"
- 
+
+# Explicit declaring the Clang compiler for vcpkg.
+export CC=/usr/bin/clang-18
+export CXX=/usr/bin/clang++-18
+
 compile_database() {
     local build_type="$1"
     local output_file=".clangd"
- 
+
     if [[ -z "$build_type" ]]; then
         die "Missing build type argument to compile_database()."
     fi
- 
+
     case "$build_type" in
         "debug" | "asan" | "tsan")
             cat << 'EOF' > "$output_file"
@@ -109,7 +113,7 @@ CompileFlags:
 EOF
             log "Generated compile database for build type: $build_type"
             ;;
- 
+
         "release")
             cat << 'EOF' > "$output_file"
 ---
@@ -118,13 +122,13 @@ CompileFlags:
 EOF
             log "Generated compile database for build type: $build_type"
             ;;
- 
+
         *)
             die "Unsupported/wrong build type: $build_type"
             ;;
     esac
 }
- 
+
 case "$answer" in
     [Aa]*)
         log "Configuring all four presets."
@@ -148,5 +152,5 @@ case "$answer" in
         compile_database "release"
         ;;
 esac
- 
+
 log "Finished!"
