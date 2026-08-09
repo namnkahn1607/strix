@@ -199,6 +199,12 @@ add_unit_test(inference_test inference
     LIBS engine_common engine_inference
 )
 
+# Control block
+add_unit_test(control_block_test memory
+    SOURCES src/inference/tests/control_block_test.cc
+    LIBS engine common engine_memory
+)
+
 # Read/Write payload
 add_unit_test(memory_arena_test memory
     SOURCES src/memory/tests/memory_arena_test.cc
