@@ -201,7 +201,7 @@ add_unit_test(inference_test inference
 
 # Control block
 add_unit_test(control_block_test memory
-    SOURCES src/inference/tests/control_block_test.cc
+    SOURCES src/memory/tests/control_block_test.cc
     LIBS engine common engine_memory
 )
 
