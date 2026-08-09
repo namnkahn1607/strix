@@ -17,7 +17,7 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(git rev-parse --show-toplevel)" # strix/
+REPO_ROOT="$(git rev-parse --show-toplevel)"  # strix/
 PROJECT_ROOT="$REPO_ROOT/engine"
 cd "$PROJECT_ROOT"
 
@@ -67,7 +67,7 @@ resolve_model() {
     if [[ ${#results[@]} -gt 1 ]]; then
         warn "Multiple '$filename' found - ambiguous:"
         printf '  %s\n' "${results[@]}" >&2
-        die "Remove duplicates or set the path manually in .env."
+        die "Remove duplicate or set the path manually in .env."
     fi
 
     realpath "${results[0]}"
