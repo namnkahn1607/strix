@@ -47,6 +47,19 @@
             }
         },
         {
+            "name": "release-lto",
+            "inherits": "release",
+            "displayName": "Release LTO (Clang-18)",
+            "binaryDir": "${sourceDir}/out/release-lto",
+            "cacheVariables": {
+                "CMAKE_C_FLAGS": "-flto=thin",
+                "CMAKE_CXX_FLAGS": "-flto=thin",
+                "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=lld-18 -flto=thin",
+                "CMAKE_SHARED_LINKER_FLAGS": "-fuse-ld=lld-18 -flto=thin",
+                "CMAKE_MODULE_LINKER_FLAGS": "-fuse-ld=lld-18 -flto=thin"
+            }
+        },
+        {
             "name": "asan",
             "inherits": "base-wsl",
             "displayName": "Address Sanitizer (Clang-18)",
@@ -72,12 +85,14 @@
     "buildPresets": [
         { "name": "debug", "configurePreset": "debug", "jobs": 4 },
         { "name": "release", "configurePreset": "release", "jobs": 4 },
+        { "name": "release-lto", "configurePreset": "release-lto", "jobs": 4},
         { "name": "asan", "configurePreset": "asan", "jobs": 4 },
         { "name": "tsan", "configurePreset": "tsan", "jobs": 4 }
     ],
     "testPresets": [
         { "name": "debug", "configurePreset": "debug", "output": { "outputOnFailure": true } },
         { "name": "release", "configurePreset": "release", "output": { "outputOnFailure": true } },
+        { "name": "release-lto", "configurePreset": "release-lto", "output": { "outputOnFailure": true } },
         { "name": "asan", "configurePreset": "asan", "output": { "outputOnFailure": true } },
         { "name": "tsan", "configurePreset": "tsan", "output": { "outputOnFailure": true } }
     ]
