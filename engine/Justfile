@@ -38,9 +38,13 @@ init-env:
 config preset="debug":
     @{{cmake_bin}} --preset {{preset}}
 
-# Build specified preset
+# Build specified target of a preset
 build preset="debug" target="strix_engine":
     @{{cmake_bin}} --build --preset {{preset}} --target {{target}}
+
+# Build all target of a specified preset
+build-all preset="debug":
+    @{{cmake_bin}} --build --preset {{preset}}
 
 # Configure & build under Release
 release: (config "release") (build "release")
