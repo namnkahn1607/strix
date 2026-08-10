@@ -18,7 +18,7 @@
 #include <thread>
 
 #include "common/constants.h"
-#include "free_list.h"
+#include "common/tagged_trieber.h"
 #include "index/ivf_config.h"
 #include "index/search_result.h"
 #include "level0_ring.h"
@@ -32,7 +32,7 @@ class VectorIndex::Impl {
 public:
     Impl(MemoryArena& arena, uint32_t l0_cap, const IvfConfig& config)
         : arena_(arena)
-        , free_list_(arena.max_slots)
+        , free_node_list_(arena.max_slots)
         , l0_buffer_(l0_cap)
         , node_owner_(std::make_unique_for_overwrite<std::atomic<uint32_t>[]>(
               arena.max_slots
@@ -79,7 +79,7 @@ public:
     }
 
     MemoryArena& arena_;
-    FreeList     free_list_;
+    TreiberStack free_node_list_;
     L0Buffer     l0_buffer_;
 
     // `node_owner_`, a single-source-of-truth cluster ID tracker for every
@@ -125,8 +125,8 @@ VectorIndex::~VectorIndex() = default;
 std::optional<uint32_t> VectorIndex::AcquireNode(
     const float* query, const uint64_t now
 ) noexcept {
-    const uint32_t node_id = impl()->free_list_.Pop();
-    if (node_id == FreeList::kEmpty) {
+    const uint32_t node_id = impl()->free_node_list_.Pop();
+    if (node_id == TreiberStack::kEmpty) {
         return std::nullopt;
     }
 
@@ -155,7 +155,7 @@ std::optional<uint32_t> VectorIndex::AcquireNode(
         const uint64_t rollback =
             PackControl(NodeState::kDead, EvictState::kCold, new_version, 0, 0);
         node.control_block.store(rollback, std::memory_order_release);
-        impl()->free_list_.Push(node_id);
+        impl()->free_node_list_.Push(node_id);
         return std::nullopt;
     }
 
@@ -163,7 +163,7 @@ std::optional<uint32_t> VectorIndex::AcquireNode(
 }
 
 void VectorIndex::ReleaseNode(const uint32_t node_id) noexcept {
-    impl()->free_list_.Push(node_id);
+    impl()->free_node_list_.Push(node_id);
 }
 
 std::optional<SearchResult> VectorIndex::SearchL0(const float* query
