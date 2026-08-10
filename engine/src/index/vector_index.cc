@@ -18,7 +18,7 @@
 #include <thread>
 
 #include "common/constants.h"
-#include "common/tagged_trieber.h"
+#include "common/tagged_treiber.h"
 #include "index/ivf_config.h"
 #include "index/search_result.h"
 #include "level0_ring.h"
