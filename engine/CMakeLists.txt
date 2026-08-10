@@ -116,7 +116,6 @@ target_link_libraries(engine_inference PUBLIC ONNXRuntime)
 
 # Module 4: Index
 add_library(engine_index STATIC
-    src/index/free_list.cc
     src/index/level0_ring.cc
     src/index/level1_ivf.cc
     src/index/recalibration.cc
@@ -211,12 +210,6 @@ add_unit_test(memory_arena_test memory
     LIBS engine_common engine_memory
 )
 
-# Free-list
-add_unit_test(free_list_test index
-    SOURCES src/index/tests/free_list_test.cc
-    LIBS engine_common engine_index
-)
-
 # Level-0 node buffer
 add_unit_test(level0_ring_test index
     SOURCES src/index/tests/level0_ring_test.cc
@@ -258,12 +251,6 @@ add_micro_bench(memory_arena_bench memory
     LIBS engine_options engine_common engine_memory
 )
 
-# Free-list
-add_micro_bench(free_list_bench index
-    SOURCES src/index/bench/free_list_bench.cc
-    LIBS engine_options engine_common engine_index
-)
-
 # Level-0 node buffer
 add_micro_bench(level0_ring_bench index
     SOURCES src/index/bench/level0_ring_bench.cc
@@ -274,6 +261,12 @@ add_micro_bench(level0_ring_bench index
 add_micro_bench(vector_search_bench index
     SOURCES src/index/bench/vector_search_bench.cc
     LIBS engine_options engine_common engine_memory engine_index
+)
+
+# Treiber stack
+add_micro_bench(tagged_treiber_bench common
+    SOURCES src/common/bench/tagged_treiber_bench.cc
+    LIBS engine_common
 )
 
 # ==============================================================================
