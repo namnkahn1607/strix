@@ -216,6 +216,12 @@ add_unit_test(level0_ring_test index
     LIBS engine_common engine_index
 )
 
+# Treiber stack
+add_unit_test(tagged_treiber_test common
+    SOURCES src/common/tests/tagged_treiber_test.cc
+    LIBS engine_common
+)
+
 # ==============================================================================
 # 7. MICRO-BENCHMARK
 # ==============================================================================
