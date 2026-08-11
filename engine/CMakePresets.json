@@ -2,12 +2,12 @@
     "version": 3,
     "cmakeMinimumRequired": {
         "major": 3,
-        "minor": 22,
-        "patch": 1
+        "minor": 28,
+        "patch": 3
     },
     "configurePresets": [
         {
-            "name": "base-wsl",
+            "name": "base",
             "hidden": true,
             "generator": "Ninja",
             "environment": {
@@ -15,41 +15,74 @@
                 "VCPKG_DOWNLOADS": "$env{HOME}/.cache/vcpkg-downloads",
                 "VCPKG_BINARY_SOURCES": "clear;files,$env{HOME}/.cache/vcpkg-archives,readwrite"
             },
-            "cacheVariables": {
+            "cacheVariables" : {
                 "CMAKE_C_COMPILER": "/usr/bin/clang-18",
                 "CMAKE_CXX_COMPILER": "/usr/bin/clang++-18",
-                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-                "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/vendor/vcpkg/scripts/buildsystems/vcpkg.cmake",
                 "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=lld-18",
                 "CMAKE_SHARED_LINKER_FLAGS": "-fuse-ld=lld-18",
                 "CMAKE_MODULE_LINKER_FLAGS": "-fuse-ld=lld-18",
-                "VCPKG_INSTALLED_DIR": "${sourceDir}/out/vcpkg_installed",
-                "VCPKG_TARGET_TRIPLET": "x64-linux",
-                "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/cmake/vcpkg-triplets",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+                "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/vendor/vcpkg/scripts/buildsystems/vcpkg.cmake",
                 "VCPKG_INSTALL_OPTIONS": "--clean-after-build"
             }
         },
         {
+            "name": "base-dbg",
+            "hidden": true,
+            "inherits": "base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "VCPKG_TARGET_TRIPLET": "x64-linux",
+                "VCPKG_INSTALLED_DIR": "${sourceDir}/out/vcpkg_installed-dbg"
+            }
+        },
+        {
+            "name": "base-rel",
+            "hidden": true,
+            "inherits": "base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/cmake/vcpkg-triplets",
+                "VCPKG_TARGET_TRIPLET": "x64-linux-release",
+                "VCPKG_INSTALLED_DIR": "${sourceDir}/out/vcpkg_installed-rel"
+            }
+        },
+        {
             "name": "debug",
-            "inherits": "base-wsl",
+            "inherits": "base-dbg",
             "displayName": "Debug (Clang-18)",
-            "binaryDir": "${sourceDir}/out/debug",
-            "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+            "binaryDir": "${sourceDir}/out/debug"
         },
         {
             "name": "release",
-            "inherits": "base-wsl",
+            "inherits": "base-rel",
             "displayName": "Release (Clang-18)",
-            "binaryDir": "${sourceDir}/out/release",
+            "binaryDir": "${sourceDir}/out/release"
+        },
+        {
+            "name": "asan",
+            "inherits": "base-dbg",
+            "displayName": "Address Sanitizer (Clang-18)",
+            "binaryDir": "${sourceDir}/out/asan",
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Release",
-                "VCPKG_TARGET_TRIPLET": "x64-linux-release"
+                "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -g -gsplit-dwarf -O1 -fno-omit-frame-pointer",
+                "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=lld-18 -fsanitize=address,undefined"
+            }
+        },
+        {
+            "name": "tsan",
+            "inherits": "base-dbg",
+            "displayName": "Thread Sanitizer (Clang-18)",
+            "binaryDir": "${sourceDir}/out/tsan",
+            "cacheVariables": {
+                "CMAKE_CXX_FLAGS": "-fsanitize=thread -g -gsplit-dwarf -O1",
+                "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=lld-18 -fsanitize=thread"
             }
         },
         {
             "name": "release-lto",
-            "inherits": "release",
-            "displayName": "Release LTO (Clang-18)",
+            "inherits": "base-rel",
+            "displayName": "LTO Release (Clang-18)",
             "binaryDir": "${sourceDir}/out/release-lto",
             "cacheVariables": {
                 "CMAKE_C_FLAGS": "-flto=thin",
@@ -58,42 +91,20 @@
                 "CMAKE_SHARED_LINKER_FLAGS": "-fuse-ld=lld-18 -flto=thin",
                 "CMAKE_MODULE_LINKER_FLAGS": "-fuse-ld=lld-18 -flto=thin"
             }
-        },
-        {
-            "name": "asan",
-            "inherits": "base-wsl",
-            "displayName": "Address Sanitizer (Clang-18)",
-            "binaryDir": "${sourceDir}/out/asan",
-            "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug",
-                "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -g -gsplit-dwarf -O1 -fno-omit-frame-pointer",
-                "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined"
-            }
-        },
-        {
-            "name": "tsan",
-            "inherits": "base-wsl",
-            "displayName": "Thread Sanitizer (Clang-18)",
-            "binaryDir": "${sourceDir}/out/tsan",
-            "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug",
-                "CMAKE_CXX_FLAGS": "-fsanitize=thread -g -gsplit-dwarf -O1",
-                "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=thread"
-            }
         }
     ],
     "buildPresets": [
         { "name": "debug", "configurePreset": "debug", "jobs": 4 },
-        { "name": "release", "configurePreset": "release", "jobs": 4 },
-        { "name": "release-lto", "configurePreset": "release-lto", "jobs": 4},
+        { "name": "release", "configurePreset": "release", "jobs": 4},
         { "name": "asan", "configurePreset": "asan", "jobs": 4 },
-        { "name": "tsan", "configurePreset": "tsan", "jobs": 4 }
+        { "name": "tsan", "configurePreset": "tsan", "jobs": 4 },
+        { "name": "release-lto", "configurePreset": "release-lto", "jobs": 4}
     ],
     "testPresets": [
         { "name": "debug", "configurePreset": "debug", "output": { "outputOnFailure": true } },
         { "name": "release", "configurePreset": "release", "output": { "outputOnFailure": true } },
-        { "name": "release-lto", "configurePreset": "release-lto", "output": { "outputOnFailure": true } },
         { "name": "asan", "configurePreset": "asan", "output": { "outputOnFailure": true } },
-        { "name": "tsan", "configurePreset": "tsan", "output": { "outputOnFailure": true } }
+        { "name": "tsan", "configurePreset": "tsan", "output": { "outputOnFailure": true } },
+        { "name": "release-lto", "configurePreset": "release-lto", "output": { "outputOnFailure": true } }
     ]
 }
