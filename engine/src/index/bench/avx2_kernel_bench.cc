@@ -1,112 +1,112 @@
-// Author: namnkahn1607
+// AVX2 + FMA accelerated dot product kernel micro-benchmark: isolate and
+// measure the performance delta between 2 dot product kernel APIs.
 //
-// Microbenchmarks for DotProductBatch - the AVX2 SIMD kernel that computes
-// dot products between one query vector and a batch of 4 node vectors.
-//
-// Build with: -O3 -mavx2 -mfma
-// Reported metrics per benchmark:
-//   items_per_second : number of vectors scored per second
-//   bytes_per_second : memory bandwidth consumed (read-only, no write)
+// To make the delta attributable not to distinction in memory layout, cache
+// behavior or data churn, both 2 benchmarks run against an identical harness,
+// which is a contiguous 2'048-vector buffer.
 
 #include <benchmark/benchmark.h>
+#include <mm_malloc.h>
 
+#include <new>
 #include <random>
 
+#include "common/constants.h"
 #include "index/avx2_kernel.h"
 
 namespace {
 
-inline constexpr uint32_t kAlign = 32;
-inline constexpr uint32_t kDim   = 384;
+constexpr uint32_t kNumVectors = 2'048u;  // 3072 KiB buf size
 
-// FillRandom(): fills `count` floats with random uniform values in [-1, 1].
-void FillRandom(float* dst, const int32_t count, const uint64_t seed = 42) {
-    std::mt19937                          gen(seed);  // NOLINT(cert-msc51-cpp)
-    std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
-    for (int32_t i = 0; i < count; ++i) {
-        dst[i] = dist(gen);
+// AllocVectorBuf allocates a contiguous array of `num_vectors`, then generate
+// arbitrary values for every dimension of each vector using `seed`.
+float* AllocVectorBuf(uint32_t num_vectors, uint32_t seed = 0xABC) {
+    constexpr uint32_t kAlign    = 32;
+    const uint32_t     total_dim = num_vectors * kVectorDim;
+
+    auto* raw = _mm_malloc(total_dim * sizeof(float), kAlign);
+    if (raw == nullptr) {
+        throw std::bad_alloc();
     }
+
+    auto* buf = static_cast<float*>(raw);
+
+    std::mt19937                   gen(seed);
+    std::uniform_real_distribution dist(-1.0f, 1.0f);
+    for (uint32_t i = 0; i < total_dim; ++i) {
+        buf[i] = dist(gen);
+    }
+
+    return buf;
 }
 
 }  // namespace
 
-// -----------------------------------------------------------------------------
-// BenchBatch4_1K
-// Simulates a full L0 Buffer scan: 1,000 vectors x 384 dimensions.
-// Expected to run entirely from L2/L3 cache (~1.5 MB working set).
-// -----------------------------------------------------------------------------
-
-static void BenchBatch4_1K(benchmark::State& state) {
-    constexpr uint32_t kNumVectors  = 1'000;
-    constexpr uint32_t kTotalFloats = kDim * kNumVectors;
-
-    auto* l0_cache =
-        static_cast<float*>(_mm_malloc(kTotalFloats * sizeof(float), kAlign));
-    auto* query = static_cast<float*>(_mm_malloc(kDim * sizeof(float), kAlign));
-
-    FillRandom(l0_cache, kTotalFloats, 42);
-    FillRandom(query, kDim, 99);
+// BenchDotProduct_Contiguous benchmarks `DotProductContiguousBatch()`: consumes
+// a vector batch per call via a single base pointer and fixed dimension stride.
+static void BenchDotProduct_Contiguous(benchmark::State& state) {
+    auto* buf   = AllocVectorBuf(kNumVectors);
+    auto* query = AllocVectorBuf(1);
 
     for ([[maybe_unused]] auto _ : state) {
-        for (uint32_t i = 0; i < kNumVectors; i += 4) {
-            float* node_batch = l0_cache + i * kDim;
-            float  scores[4]  = {};
+        for (uint32_t i = 0; i < kNumVectors; i += kBatchSize) {
+            float* batch_start        = buf + i * kVectorDim;
+            float  scores[kBatchSize] = {};
 
             benchmark::DoNotOptimize(query);
-            benchmark::DoNotOptimize(node_batch);
-            DotProductBatch(query, node_batch, scores);
+            benchmark::DoNotOptimize(batch_start);
+            DotProductContiguousBatch(query, batch_start, scores);
             benchmark::DoNotOptimize(scores);
         }
     }
 
     state.SetItemsProcessed(state.iterations() * kNumVectors);
-    state.SetBytesProcessed(state.iterations() *
-                            static_cast<int64_t>(kTotalFloats * sizeof(float)));
 
-    _mm_free(l0_cache);
     _mm_free(query);
+    _mm_free(buf);
 }
 
-BENCHMARK(BenchBatch4_1K)->Unit(benchmark::kNanosecond)->Iterations(10'000);
+BENCHMARK(BenchDotProduct_Contiguous)
+    ->Unit(benchmark::kNanosecond)
+    // ->Repetitions(10)
+    // ->ReportAggregatesOnly(true)
+    ->Iterations(1'000u);
 
-// -----------------------------------------------------------------------------
-// BenchBatch4_20K
-// Cache-pressure workload: 20,000 vectors ~ 30 MB working set.
-// Exceeds L3 cache on most CPUs, forcing fetches from main memory.
-// Models worst-case throughput as the index grows toward L1 buffer size.
-// -----------------------------------------------------------------------------
-
-static void BenchBatch4_20K(benchmark::State& state) {
-    constexpr uint32_t kNumVectors  = 20000;
-    constexpr uint32_t kTotalFloats = kDim * kNumVectors;
-
-    auto* l0_cache =
-        static_cast<float*>(_mm_malloc(kTotalFloats * sizeof(float), kAlign));
-    auto* query = static_cast<float*>(_mm_malloc(kDim * sizeof(float), kAlign));
-
-    FillRandom(l0_cache, static_cast<int32_t>(kTotalFloats), 42);
-    FillRandom(query, kDim, 99);
+// BenchDotProduct_Discrete benchmarks `DotProductDiscreteBatch()`: consumes a
+// vector batch per call via independent pointers.
+static void BenchDotProduct_Discrete(benchmark::State& state) {
+    auto* buf   = AllocVectorBuf(kNumVectors);
+    auto* query = AllocVectorBuf(1);
 
     for ([[maybe_unused]] auto _ : state) {
-        for (uint32_t i = 0; i < kNumVectors; i += 4) {
-            float* node_batch = l0_cache + i * kDim;
-            float  scores[4]  = {};
+        for (uint32_t i = 0; i < kNumVectors; i += kBatchSize) {
+            float* v0 = buf + i * kVectorDim;
+            float* v1 = v0 + kVectorDim;
+            float* v2 = v0 + 2 * kVectorDim;
+            float* v3 = v0 + 3 * kVectorDim;
+
+            float scores[kBatchSize] = {};
 
             benchmark::DoNotOptimize(query);
-            benchmark::DoNotOptimize(node_batch);
-            DotProductBatch(query, node_batch, scores);
+            benchmark::DoNotOptimize(v0);
+            benchmark::DoNotOptimize(v1);
+            benchmark::DoNotOptimize(v2);
+            benchmark::DoNotOptimize(v3);
+            DotProductDiscreteBatch(query, v0, v1, v2, v3, scores);
             benchmark::DoNotOptimize(scores);
         }
     }
 
     state.SetItemsProcessed(state.iterations() * kNumVectors);
-    state.SetBytesProcessed(state.iterations() *
-                            static_cast<int64_t>(kTotalFloats * sizeof(float)));
 
-    _mm_free(l0_cache);
     _mm_free(query);
+    _mm_free(buf);
 }
 
-BENCHMARK(BenchBatch4_20K)->Unit(benchmark::kMillisecond)->Iterations(10);
+BENCHMARK(BenchDotProduct_Discrete)
+    ->Unit(benchmark::kNanosecond)
+    // ->Repetitions(10)
+    // ->ReportAggregatesOnly(true)
+    ->Iterations(1'000u);
 
 BENCHMARK_MAIN();
