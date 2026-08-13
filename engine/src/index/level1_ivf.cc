@@ -63,7 +63,7 @@ uint32_t RoutingTable::MatchCluster(const float* query) const noexcept {
 
     for (uint32_t i = 0; i < num_clusters; i += kBatchSize) {
         float scores[kBatchSize];
-        DotProductBatch(query, centroids_ + kVectorDim * i, scores);
+        DotProductContiguousBatch(query, centroids_ + kVectorDim * i, scores);
 
         for (uint32_t k = 0; k < kBatchSize; ++k) {
             if (scores[k] > best_score) {

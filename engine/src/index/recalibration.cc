@@ -200,7 +200,9 @@ void Recalibrator::StepKmeansPPSeeding() noexcept {
     const bool is_first_centroid = (kmeanspp_seeded_ == 0);
     for (uint32_t i = 0; i < config_.kmeans_sample_size; i += kBatchSize) {
         float scores[kBatchSize];
-        DotProductBatch(chosen_vec, kmeans_sample_ + kVectorDim * i, scores);
+        DotProductContiguousBatch(
+            chosen_vec, kmeans_sample_ + kVectorDim * i, scores
+        );
 
         for (uint32_t k = 0; k < kBatchSize; ++k) {
             const float dist_sq = 2.0f * (1.0f - scores[k]);

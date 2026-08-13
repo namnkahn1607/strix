@@ -88,7 +88,7 @@ std::optional<SearchResult> ScoreCandidates(
         }
 
         float scores[kBatchSize];
-        DotProductIndirectBatch(
+        DotProductDiscreteBatch(
             query, arena.GetVector(batch_ids[0]), arena.GetVector(batch_ids[1]),
             arena.GetVector(batch_ids[2]), arena.GetVector(batch_ids[3]), scores
         );
