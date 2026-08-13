@@ -1,12 +1,11 @@
 # ==============================================================================
 # strix/engine/Justfile
-# Can be used only after executing 'bash bootstrap.sh'.
+# Can be used only after executing 'bash setup.sh'.
 #
 # Requires: just (https://github.com/casey/just)
 # Help:     just --list
 # ==============================================================================
 
-# Automatically load .env, failed if not present.
 set dotenv-required := true
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
@@ -20,19 +19,14 @@ default:
 
 # ------------------------------------------------------------------------------
 # Registry
-# Add new Benchmark suite names here only; all *-all targets pick them up 
-# automatically. Test suites are automatically discovered by CTest.
+# Contain the NAME(s) (without suffix) of the bench & test suites.
 # ------------------------------------------------------------------------------
-bench_names := "avx2_kernel inference custom_ops free_list level0_ring vector_search"
-test_names := "avx2_kernel inference control_block free_list level0_ring"
+bench_names := "avx2_kernel inference custom_ops level0_ring tagged_treiber"
+test_names := "avx2_kernel inference control_block level0_ring tagged_treiber"
 
 # ==============================================================================
 # General
 # ==============================================================================
-
-# Create secret file .env
-init-env:
-    @bash init_env.sh
 
 # Configure specified preset
 config preset="debug":
@@ -46,10 +40,10 @@ build preset="debug" target="strix_engine":
 build-all preset="debug":
     @{{cmake_bin}} --build --preset {{preset}}
 
-# Configure & build under Release
+# Configure & build under Release preset
 release: (config "release") (build "release")
 
-# Configure & build under Debug
+# Configure & build under Debug preset
 debug: (config) (build)
 
 # ==============================================================================
@@ -143,7 +137,7 @@ clear-all:
         fi
     done
 
-# Wipe out everything including CMake cache
+# Wipe out everything
 nuke:
     @rm -rf out/
     @echo "Nuked artifact directory"
