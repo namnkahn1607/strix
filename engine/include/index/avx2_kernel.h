@@ -1,36 +1,30 @@
-// Author: namnkahn1607
-//
 // AVX2 + FMA accelerated dot product kernel.
-// Falls back to a scalar loop on non-x86_64 targets.
+// Fallback to scalar computing on non-x86_64 targets.
 
 #pragma once
 
 #include "common/constants.h"
 
-// Number of vectors processed per dot product kernel call. Hardwired to 4
-// as each of the 4 accumulators maps to to one YMM lane pair, and the final
-// horizontal reduction folds all 4 scores in a single _mm_add_ps pass.
-// Changing this constant requires re-writing the kernel.
+// Number of vectors processed per dot product kernel call.
+// Hardwired to 4 as each of 4 accumulators maps to one YMM lane pair, and the
+// horizontal reduction folds all 4 scores in a single `_mm_add_ps()` pass.
 inline constexpr uint32_t kBatchSize = 4;
 
 #if defined(__x86_64__) || defined(_M_X64)
 
 #include <immintrin.h>
 
-// `DotProductBatch()` computes dot product between one query vector and a
-// contiguous batch of `kBatchSize` node vectors, writing result to `scores`.
+// DotProductContiguousBatch computes dot product between one query vector and
+// a contiguous batch of `kBatchSize` node vectors, hence writing the result
+// values back to `scores`.
 //
-// Memory layout:
-//   1. `query`      : 32-bit aligned, length of `kVectorDim` floats.
-//   2. `node_batch` : 32-bit aligned, `kBatchSize` * `kVectorDim` floats.
-//   3. `scores`     : writable buffer of at least `kBatchSize` floats.
-//
-// `kVectorDim` must be a multiple of 16 (two AVX2 registers per iteration).
-// The loop is fully unrolled accross 4 nodes to maximize ILP.
-__attribute__((target("avx2,fma"))) inline void DotProductBatch(
+// Expects `query` and `node_batch` to be 32-byte aligned; all buffer arguments
+// must have the appropriate length.
+__attribute__((target("avx2,fma"))) inline void DotProductContiguousBatch(
     const float* __restrict query, const float* __restrict node_batch,
     float* __restrict scores
 ) noexcept {
+    // Fully unrolled across 4 nodes to maximize ILP.
     const float* __restrict__ n0 = node_batch;
     const float* __restrict__ n1 = node_batch + kVectorDim;
     const float* __restrict__ n2 = node_batch + kVectorDim * 2;
@@ -98,9 +92,10 @@ __attribute__((target("avx2,fma"))) inline void DotProductBatch(
     _mm_storeu_ps(scores, _mm_add_ps(lo, hi));
 }
 
-// `DotProductIndirectBatch()`; same register-blocked AVX2/FMA strategy as
-// `DotProductBatch()`, but receives 4 independent pointers to vectors
-__attribute__((target("avx2,fma"))) inline void DotProductIndirectBatch(
+// DotProductDiscreteBatch offers the same AVX2/FMA strategy as
+// `DotProductContiguousBatch()`, but receives `kBatchSize` independent
+// pointers to vectors as arguments instead of one pointer to a batch.
+__attribute__((target("avx2,fma"))) inline void DotProductDiscreteBatch(
     const float* __restrict query, const float* __restrict v0,
     const float* __restrict v1, const float* __restrict v2,
     const float* __restrict v3, float* __restrict scores
@@ -152,8 +147,8 @@ __attribute__((target("avx2,fma"))) inline void DotProductIndirectBatch(
 
 #else  // non-x86_64 scalar fallback
 
-// Scalar fallback for `DotProductBatch()`. Row-major traversal over
-// `kBatchSize` nodes; no SIMD, no alignment requirements.
+// Scalar fallback of `DotProductContiguousBatch()`. Perform row-major computing
+// over `kBatchSize` nodes; no alignment required.
 inline void DotProductBatch(
     const float* __restrict__ query, const float* __restrict__ node_batch,
     float* __restrict__ scores
@@ -169,9 +164,8 @@ inline void DotProductBatch(
     }
 }
 
-// Scalar fallback for `DotProductIndirectBatch()`. Put all vectors in a batch
-// of `kBatchSize` then perform row-major order traversal.
-// No SIMD, no alignment requirements.
+// Scalar fallback of `DotProductDiscreteBatch()`. Batch all vectors then
+// perform row-major computing; no alignment required.
 inline void DotProductIndirectBatch(
     const float* __restrict__ query, const float* __restrict__ v0,
     const float* __restrict__ v1, const float* __restrict__ v2,
