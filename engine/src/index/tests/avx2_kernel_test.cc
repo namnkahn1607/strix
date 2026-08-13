@@ -1,283 +1,288 @@
-// Author: namnkahn1607
-//
-// Unit tests for DotProductL0_Batch4 - the AVX2 SIMD kernel that computes
-// dot products between one query vector and a batch of 4 node vectors.
-//
-// Correctness strategy: a 'scalar' implementation is used as the oracle.
-// Tolerance: 1e-4f accounts for FMA instruction reordering vs scalar addition.
+// AVX2 + FMA accelerated dot product kernel unit test.
+// A scalar-compute implementation is used as the correctness oracle.
 
 #include "index/avx2_kernel.h"
 
 #include <gtest/gtest.h>
+#include <mm_malloc.h>
 
+#include <algorithm>
 #include <cmath>
+#include <new>
 #include <random>
+
+#include "common/constants.h"
 
 namespace {
 
-inline constexpr float   kApprox3 = 1e-3f;
-inline constexpr float   kApprox4 = 1e-4f;
-inline constexpr int32_t kAlign   = 32;
-inline constexpr int32_t kDim     = 384;
-inline constexpr int32_t kBatch   = 4;
+inline constexpr float kApprox4 = 1e-4f;
 
-// ScalarDotProduct(): computes dot product between 2 normalized vectors in
-// scalar mode; no SIMD optimizations. Used as correctness oracle.
-float ScalarDotProduct(const float* query, const float* node_vector) {
-    float sum = 0.0f;
-
-    for (int32_t i = 0; i < kDim; ++i) {
-        sum += (query[i] * node_vector[i]);
-    }
-
-    return sum;
-}
-
-// Normalize(): scaling a vector to a magnitude (length) of exactly 1.
-void Normalize(float* vec, const int32_t dim) {
+// Normalize scales a vector to a magnitude length of `1`.
+void Normalize(float* vec, const size_t dim) {
     float norm = 0.0f;
-    for (int32_t i = 0; i < dim; ++i) {
+    for (size_t i = 0; i < dim; ++i) {
         norm += vec[i] * vec[i];
     }
 
-    norm = std::sqrt(norm);
-    for (int32_t i = 0; i < dim; ++i) {
-        vec[i] /= norm;
+    norm = 1 / std::sqrt(norm);
+    for (size_t i = 0; i < dim; ++i) {
+        vec[i] *= norm;
     }
 }
 
-};  // namespace
+// ScalarDotProduct computes dot product value between 2 normalized vectors
+// in a scalar way. Used as correctness oracle.
+// `query` and `node_vector` will be normalized.
+float ScalarDotProduct(float* query, float* node_vector) {
+    Normalize(query, kVectorDim);
+    Normalize(node_vector, kVectorDim);
 
-// -----------------------------------------------------------------------------
-// Test fixture: allocates 32-byte aligned query and node_batch buffers.
-// All tests that require normalized vectors call GenerateNormalizedBatch().
-// -----------------------------------------------------------------------------
+    float sum = 0.0f;
+    for (size_t i = 0; i < kVectorDim; ++i) {
+        sum += (query[i] * node_vector[i]);
+    }
+    return sum;
+}
 
-class DotProductBatch4Test : public ::testing::Test {
+}  // namespace
+
+class DotProductBatchTest : public ::testing::Test {
 protected:
-    float* query      = nullptr;
-    float* node_batch = nullptr;
-
     void SetUp() override {
-        query = static_cast<float*>(_mm_malloc(kDim * sizeof(float), kAlign));
-        node_batch = static_cast<float*>(
-            _mm_malloc(kBatch * kDim * sizeof(float), kAlign)
-        );
+        query_      = AllocVectorBuf(kVectorMemsize);
+        node_batch_ = AllocVectorBuf(kBatchSize * kVectorMemsize);
     }
 
     void TearDown() override {
-        _mm_free(query);
-        _mm_free(node_batch);
+        _mm_free(query_);
+        _mm_free(node_batch_);
     }
 
-    // Fills query and all 4 node vectors with random values, then normalizes
-    // each to unit L2 norm. Random seeded for reproducibility.
-    void GenerateNormalized(const uint64_t seed = 42) const {
-        std::mt19937                          gen(seed);
-        std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+    // Refresh `query_` and `node_batch_` with randomized values, then
+    // normalize them (again).
+    void Initialize(const uint64_t seed = 0x123) const noexcept {
+        std::mt19937                   gen(seed);
+        std::uniform_real_distribution dist(-1.0f, 1.0f);
 
-        for (int32_t i = 0; i < kDim; ++i) {
-            query[i] = dist(gen);
+        for (uint32_t i = 0; i < kVectorDim; ++i) {
+            query_[i] = dist(gen);
         }
+        Normalize(query_, kVectorDim);
 
-        Normalize(query, kDim);
-
-        for (int32_t b = 0; b < kBatch; ++b) {
-            float* node = node_batch + b * kDim;
-
-            for (int32_t i = 0; i < kDim; ++i) {
+        for (uint32_t b = 0; b < kBatchSize; ++b) {
+            float* node = node_batch_ + b * kVectorDim;
+            for (size_t i = 0; i < kVectorDim; ++i) {
                 node[i] = dist(gen);
             }
-
-            Normalize(node, kDim);
+            Normalize(node, kVectorDim);
         }
+    }
+
+    // Compute using the API provided by the dot product kernel.
+    // The results of each are written onto the buffers received, which must be
+    // of size `kBatchSize`.
+    void Compute(float* contig_scores, float* disc_scores) const noexcept {
+        DotProductContiguousBatch(query_, node_batch_, contig_scores);
+        DotProductDiscreteBatch(
+            query_, node_batch_, node_batch_ + kVectorDim,
+            node_batch_ + 2 * kVectorDim, node_batch_ + 3 * kVectorDim,
+            disc_scores
+        );
+    }
+
+    // Grade a `scores` buffer against the results produced by the scalar
+    // oracle. Approximate by `10e-4`.
+    void GradeScalar(float* scores) const noexcept {
+        for (uint32_t b = 0; b < kBatchSize; ++b) {
+            const float expected =
+                ScalarDotProduct(query_, node_batch_ + b * kVectorDim);
+            EXPECT_NEAR(scores[b], expected, kApprox4) << "lane=" << b;
+        }
+    }
+
+    float* query_      = nullptr;
+    float* node_batch_ = nullptr;
+
+private:
+    float* AllocVectorBuf(const size_t size) {
+        constexpr uint32_t kAlign = 32;
+
+        auto* raw = _mm_malloc(size, kAlign);
+        if (raw == nullptr) {
+            throw std::bad_alloc();
+        }
+
+        return static_cast<float*>(raw);
     }
 };
 
 // -----------------------------------------------------------------------------
-// CompareWithScalarOracle
-// Runs 1,000 iterations with different random seeds to verify that AVX2
-// output matches those of 'scalar' Dot Product.
-// -----------------------------------------------------------------------------
-
-TEST_F(DotProductBatch4Test, CompareWithScalarOracle) {
-    for (uint64_t iter = 0; iter < 1000; ++iter) {
-        GenerateNormalized(iter);
-
-        float scores[kBatch] = {};
-        DotProductBatch(query, node_batch, scores);
-
-        for (int32_t b = 0; b < kBatch; ++b) {
-            const float expected =
-                ScalarDotProduct(query, node_batch + b * kDim);
-            EXPECT_NEAR(scores[b], expected, kApprox4)
-                << "lane=" << b << " iter=" << iter;
-        }
-    }
-}
-
-// -----------------------------------------------------------------------------
-// IdenticalVectors
-// query == node for all 4 lanes. Dot Product of a unit vector with itself
-// must equal 1.0.
-// Tests the upper bound of the similarity range.
-// -----------------------------------------------------------------------------
-
-TEST_F(DotProductBatch4Test, IdenticalVectors) {
-    GenerateNormalized();
-    for (int32_t b = 0; b < kBatch; ++b) {
-        std::copy_n(query, kDim, node_batch + b * kDim);
-    }
-
-    float scores[kBatch] = {};
-    DotProductBatch(query, node_batch, scores);
-
-    for (int32_t b = 0; b < kBatch; ++b) {
-        EXPECT_NEAR(scores[b], 1.0f, kApprox4) << "lane=" << b;
-    }
-}
-
-// -----------------------------------------------------------------------------
-// OppositeVectors
-// node = -query for all 4 lanes. Dot product must equal -1.0.
-// Tests the lower bound of the similarity range.
-// -----------------------------------------------------------------------------
-
-TEST_F(DotProductBatch4Test, OppositeVectors) {
-    GenerateNormalized();
-    for (int32_t b = 0; b < kBatch; ++b) {
-        float* node = node_batch + b * kDim;
-        for (int32_t i = 0; i < kDim; ++i) {
-            node[i] = -query[i];
-        }
-    }
-
-    float scores[kBatch] = {};
-    DotProductBatch(query, node_batch, scores);
-
-    for (int32_t b = 0; b < kBatch; ++b) {
-        EXPECT_NEAR(scores[b], -1.0f, kApprox4) << "lane=" << b;
-    }
-}
-
-// -----------------------------------------------------------------------------
-// MixedLanes
-// Each of the 4 lanes holds a different vector relationship to query:
-//   Lane 0: identical to query      -> score ~ +1.0
-//   Lane 1: opposite to query       -> score ~ -1.0
-//   Lane 2: orthogonal to query     -> score ~  0.0
-//   Lane 3: independent random vec  -> score compared to scalar oracle
-//
-// Purpose: verify that AVX2 horizontal reduction does not bleed values
-// across lanes. Each lane must be independent.
-// -----------------------------------------------------------------------------
-
-TEST_F(DotProductBatch4Test, MixedLanes) {
-    // Lane 3: Independent random
-    GenerateNormalized(7);
-
-    // Lane 0: Identical
-    std::copy_n(query, kDim, node_batch + 0 * kDim);
-
-    // Lane 1: Opposite
-    for (int32_t i = 0; i < kDim; ++i) {
-        node_batch[1 * kDim + i] = -query[i];
-    }
-
-    // Lane 2: Orthogonal
-    {
-        float* node2 = node_batch + 2 * kDim;
-        std::fill_n(node2, kDim, 0.0f);
-
-        // Gram-Schmidt: node2 = e_1 - (e_1 \dot query) * query
-        node2[0] = 1.0f;
-
-        const float proj = query[0];  // e_1 \dot query = query[0]
-        for (int32_t i = 0; i < kDim; ++i) {
-            node2[i] -= proj * query[i];
-        }
-
-        Normalize(node2, kDim);
-    }
-
-    float scores[kBatch] = {};
-    DotProductBatch(query, node_batch, scores);
-
-    float scalar_lane3 = ScalarDotProduct(query, node_batch + 3 * kDim);
-
-    EXPECT_NEAR(scores[0], 1.0f, kApprox4) << "lane=0 (identical)";
-    EXPECT_NEAR(scores[1], -1.0f, kApprox4) << "lane=1 (opposite)";
-    EXPECT_NEAR(scores[2], 0.0f, kApprox3) << "lane=2 (orthogonal)";
-    EXPECT_NEAR(scores[3], scalar_lane3, kApprox4) << "lane=3 (random)";
-}
-
-// -----------------------------------------------------------------------------
 // Deterministic
-// Same input must produce bitwise-identical output across repeated calls.
-// FMA is deterministic for identical inputs on the same CPU; this test
-// catches any accidental use of non-deterministic intrinsics.
+// Identical input must produce bitwise-identical output across repeated calls,
+// as FMA is deterministic on the same CPU.
+// Catches any accidental use of non-deterministic intrinsics.
 // -----------------------------------------------------------------------------
+TEST_F(DotProductBatchTest, Deterministic) {
+    constexpr uint32_t kTotalCalls = 100;
+    Initialize(0xDEADBEEF);
 
-TEST_F(DotProductBatch4Test, Deterministic) {
-    GenerateNormalized();
+    float init_contig[kBatchSize] = {};
+    float init_disc[kBatchSize]   = {};
+    Compute(init_contig, init_disc);
 
-    float first[kBatch] = {};
-    DotProductBatch(query, node_batch, first);
+    for (uint32_t c = 0; c < kTotalCalls; ++c) {
+        float curr_contig[kBatchSize] = {};
+        float curr_disc[kBatchSize]   = {};
+        Compute(curr_contig, curr_disc);
 
-    for (int c = 0; c < 10; ++c) {
-        float scores[kBatch] = {};
-        DotProductBatch(query, node_batch, scores);
-        for (int32_t b = 0; b < kBatch; ++b) {
-            EXPECT_EQ(scores[b], first[b]) << "lane=" << b << " call=" << c;
+        for (uint32_t b = 0; b < kBatchSize; ++b) {
+            EXPECT_EQ(curr_contig[b], init_contig[b])
+                << "lane=" << b << "call=" << c;
+            EXPECT_EQ(curr_disc[b], init_disc[b])
+                << "lane=" << b << "call=" << c;
+
+            // Cross-API deterministic
+            EXPECT_NEAR(curr_contig[b], curr_disc[b], kApprox4)
+                << "lane=" << b << "call=" << c;
         }
     }
 }
 
 // -----------------------------------------------------------------------------
 // ZeroQuery
-// Query vector is all zeros. All dot products must be exactly 0.0.
-// Not a realistic production case (Embedder rejects degenerated vectors),
-// but verifies the kernel does not produce NaN or garbage on zero input.
+// When the query vector is all zeros, all dot products must be exactly 0.
 // -----------------------------------------------------------------------------
+TEST_F(DotProductBatchTest, ZeroQuery) {
+    Initialize(0xDEADC0DE);
+    std::fill_n(query_, kVectorDim, 0.0f);
 
-TEST_F(DotProductBatch4Test, ZeroQuery) {
-    GenerateNormalized();
-    std::fill_n(query, kDim, 0.0f);
+    float contig_scores[kBatchSize] = {};
+    float disc_scores[kBatchSize]   = {};
+    Compute(contig_scores, disc_scores);
 
-    float scores[kBatch] = {};
-    DotProductBatch(query, node_batch, scores);
-
-    for (int32_t b = 0; b < kBatch; ++b) {
-        EXPECT_FLOAT_EQ(scores[b], 0.0f) << "lane=" << b;
+    for (uint32_t b = 0; b < kBatchSize; ++b) {
+        EXPECT_FLOAT_EQ(contig_scores[b], 0.0f) << "lane=" << b;
+        EXPECT_FLOAT_EQ(disc_scores[b], 0.0f) << "lane=" << b;
     }
 }
 
 // -----------------------------------------------------------------------------
-// SingleHotVector
-// query = e_k (unit vector along dimension k).
-// node[b] = e_{b} for b in [0, 3].
-// Expected: scores[b] = query[b] = delta(k, b).
-// Isolates individual dimensions to catch indexing bugs in the SIMD loop.
+// CompareWithScalarOracle
+// Multiple iterations with random seed to ensure identical behavior between the
+// FMA-accelerated kernel and the scalar one.
 // -----------------------------------------------------------------------------
+TEST_F(DotProductBatchTest, CompareWithScalarOracle) {
+    constexpr uint64_t kAttempt = 1'000u;
+    for (uint64_t atmp = 0; atmp < kAttempt; ++atmp) {
+        Initialize(atmp);
+        float contig_scores[kBatchSize] = {};
+        float disc_scores[kBatchSize]   = {};
+        Compute(contig_scores, disc_scores);
+        GradeScalar(contig_scores);
+        GradeScalar(disc_scores);
+    }
+}
 
-TEST_F(DotProductBatch4Test, SingleHotVector) {
-    std::fill_n(query, kDim, 0.0f);
-    std::fill_n(node_batch, kBatch * kDim, 0.0f);
-
-    // query = e_0
-    query[0] = 1.0f;
-
-    // node[b] = e_b
-    for (int32_t b = 0; b < kBatch; ++b) {
-        node_batch[b * kDim + b] = 1.0f;
+// -----------------------------------------------------------------------------
+// IdenticalVectors
+// All lanes are the same as the query vector, and dot product of a unit vector
+// with itself must equal 1.0.
+// -----------------------------------------------------------------------------
+TEST_F(DotProductBatchTest, IdenticalVectors) {
+    Initialize();
+    for (uint32_t b = 0; b < kBatchSize; ++b) {
+        std::copy_n(query_, kVectorDim, node_batch_ + b * kVectorDim);
     }
 
-    float scores[kBatch] = {};
-    DotProductBatch(query, node_batch, scores);
+    float contig_scores[kBatchSize] = {};
+    float disc_scores[kBatchSize]   = {};
+    Compute(contig_scores, disc_scores);
+    GradeScalar(contig_scores);
+    GradeScalar(disc_scores);
+}
 
-    // Only lane 0 should have score = 1.0, rest = 0.0
-    EXPECT_FLOAT_EQ(scores[0], 1.0f) << "lane=0 (e_0 \\dot e_0)";
-    for (int32_t b = 1; b < kBatch; ++b) {
-        EXPECT_FLOAT_EQ(scores[b], 0.0f) << "lane=" << b << " (e_0 \\dot e_b)";
+// -----------------------------------------------------------------------------
+// OppositeVectors
+// All lanes are the opposing to the query vector, and all dot products are
+// expected to be -1.0.
+// -----------------------------------------------------------------------------
+TEST_F(DotProductBatchTest, OppositeVectors) {
+    constexpr float kExpectedDotProduct = -1.0f;
+
+    Initialize();
+    for (uint32_t b = 0; b < kBatchSize; ++b) {
+        float* node = node_batch_ + b * kVectorDim;
+        for (size_t i = 0; i < kVectorDim; ++i) {
+            node[i] = -query_[i];
+        }
+    }
+
+    float contig_scores[kBatchSize] = {};
+    float disc_scores[kBatchSize]   = {};
+    Compute(contig_scores, disc_scores);
+
+    for (uint32_t b = 0; b < kBatchSize; ++b) {
+        EXPECT_NEAR(contig_scores[b], kExpectedDotProduct, kApprox4)
+            << "lane=" << b;
+        EXPECT_NEAR(disc_scores[b], kExpectedDotProduct, kApprox4)
+            << "lane=" << b;
+    }
+}
+
+// -----------------------------------------------------------------------------
+// MixedLanes
+// Each lane holds a different vector relationship to query:
+//   Lane 0: identical to query   -> score ~ +1.0
+//   Lane 1: opposite to query    -> score ~ -1.0
+//   Lane 2: orthogonal to query  -> score ~  0.0
+//   Lane 3: random vec           -> score against the scalar oracle
+//
+// Verifies that horizontal reduction does not bleed values across lanes.
+// -----------------------------------------------------------------------------
+TEST_F(DotProductBatchTest, MixedLanes) {
+    const char* kLaneNames[kBatchSize] = {
+        "identical", "opposite", "orthogonal", "random"
+    };
+
+    // Lane 3: Total random.
+    Initialize(0xCAFEBABE);
+
+    // Lane 0: Identical.
+    std::copy_n(query_, kVectorDim, node_batch_);
+
+    // Lane 1: Opposite.
+    for (size_t i = 0; i < kVectorDim; ++i) {
+        node_batch_[kVectorDim + i] = -query_[i];
+    }
+
+    // Lane 2: Orthogonal.
+    {
+        float* v2 = node_batch_ + 2 * kVectorDim;
+        std::fill_n(v2, kVectorDim, 0.0f);
+
+        // Gram-Schmidt: v2 = e_1 - (e_1 \dot query_) * query_.
+        v2[0] = 1.0f;
+        // e_1 \dot query_ = query_[0].
+        const float proj = query_[0];
+        for (size_t i = 0; i < kVectorDim; ++i) {
+            v2[i] -= proj * query_[i];
+        }
+        Normalize(v2, kVectorDim);
+    }
+
+    float expected_scores[kBatchSize] = {
+        1.0f, -1.0f, 0.0f,
+        ScalarDotProduct(query_, node_batch_ + 3 * kVectorDim)
+    };
+    float contig_scores[kBatchSize] = {};
+    float disc_scores[kBatchSize]   = {};
+    Compute(contig_scores, disc_scores);
+
+    for (uint32_t b = 0; b < kBatchSize; ++b) {
+        const float expected = expected_scores[b];
+        EXPECT_NEAR(contig_scores[b], expected, kApprox4)
+            << "lane=" << b << "(" << kLaneNames[b] << ")";
+        EXPECT_NEAR(disc_scores[b], expected, kApprox4)
+            << "lane=" << b << "(" << kLaneNames[b] << ")";
     }
 }
