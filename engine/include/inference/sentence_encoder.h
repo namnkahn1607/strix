@@ -8,7 +8,7 @@
 #include <span>
 #include <string>
 
-#include "common/constants.h"
+#include "info.h"
 
 // EncodeError lists all predictable, non-fatal encoding failures. Callers are
 // expected to translate these into gRPC status codes.

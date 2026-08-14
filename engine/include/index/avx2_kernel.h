@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "common/constants.h"
+#include "inference/info.h"
 
 // Number of vectors processed per dot product kernel call.
 // Hardwired to 4 as each of 4 accumulators maps to one YMM lane pair, and the

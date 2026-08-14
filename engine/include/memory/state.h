@@ -2,6 +2,10 @@
 
 #pragma once
 
+// Maximum lifetime of a `kPending` node in seconds.
+// Nodes remaining `kPending` beyond this deadline are treated as stale by GC.
+inline constexpr uint32_t kPendingLifespan = 30;
+
 // NodeState represents state machine lifecycle for a single node slot.
 // A state transition can only be achieved using compare-and-swap operation.
 //

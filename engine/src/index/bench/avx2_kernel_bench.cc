@@ -11,7 +11,6 @@
 #include <new>
 #include <random>
 
-#include "common/constants.h"
 #include "index/avx2_kernel.h"
 
 namespace {
@@ -50,8 +49,9 @@ static void BenchDotProduct_Contiguous(benchmark::State& state) {
 
     for ([[maybe_unused]] auto _ : state) {
         for (uint32_t i = 0; i < kNumVectors; i += kBatchSize) {
-            float* batch_start        = buf + i * kVectorDim;
-            float  scores[kBatchSize] = {};
+            float* batch_start = buf + i * kVectorDim;
+
+            float scores[kBatchSize] = {};
 
             benchmark::DoNotOptimize(query);
             benchmark::DoNotOptimize(batch_start);

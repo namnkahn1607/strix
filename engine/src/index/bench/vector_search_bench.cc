@@ -10,7 +10,6 @@
 #include <atomic>
 #include <thread>
 
-#include "common/constants.h"
 #include "index/vector_index.h"
 #include "level0_ring.h"
 #include "memory/memory_arena.h"

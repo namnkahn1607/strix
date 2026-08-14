@@ -14,7 +14,6 @@
 #include <stdexcept>
 #include <thread>
 
-#include "common/constants.h"
 #include "common/syscall_utils.h"
 #include "memory/control_block.h"
 #include "memory/meta_node.h"

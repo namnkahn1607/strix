@@ -2,7 +2,8 @@
 
 #pragma once
 
-#include "common/constants.h"
+// Total number of slots in the unified `MemoryArena` (all tiers combined)
+inline constexpr uint32_t kTotalSlots = 1 << 19;
 
 // ArenaConfig defines the specification of `MemoryArena` at construction time.
 //

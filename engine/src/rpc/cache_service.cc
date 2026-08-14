@@ -9,7 +9,7 @@
 #include <exception>
 #include <optional>
 
-#include "common/constants.h"
+#include "inference/info.h"
 #include "common/syscall_utils.h"
 #include "inference/sentence_encoder.h"
 #include "inference/simd_float_buf.h"

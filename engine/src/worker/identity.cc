@@ -5,7 +5,6 @@
 #include <cstdlib>
 #include <iostream>
 
-#include "common/constants.h"
 #include "common/tagged_treiber.h"
 
 #define ABORT(msg)                                                      \

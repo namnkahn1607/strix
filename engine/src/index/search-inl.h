@@ -7,7 +7,6 @@
 
 #include <optional>
 
-#include "common/constants.h"
 #include "index/avx2_kernel.h"
 #include "index/search_result.h"
 #include "level0_ring.h"

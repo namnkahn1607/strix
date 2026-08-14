@@ -16,7 +16,6 @@
 #include <thread>
 #include <vector>
 
-#include "common/constants.h"
 #include "inference/sentence_encoder.h"
 #include "inference/simd_float_buf.h"
 
@@ -65,7 +64,6 @@ protected:
         ASSERT_NE(bert_path, nullptr) << "TRANSFORMER_PATH is not set";
 
         encoder = std::make_unique<SentenceEncoder>(tok_path, bert_path);
-
         SimdFloatBuf truth_buf;
 
         auto encode_err = encoder->Encode(

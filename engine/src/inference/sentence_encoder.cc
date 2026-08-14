@@ -13,19 +13,25 @@
 #include <stdexcept>
 #include <string>
 
-#include "common/constants.h"
+#include "inference/info.h"
+
+namespace {
+
+// Maximum word piece sequence length accepted by `all-MiniLM-L6-v2`.
+inline constexpr size_t kMaxTokens = 256;
+
+}  // namespace
 
 Ort::SessionOptions SentenceEncoder::InitOptions() {
     Ort::SessionOptions options;
 
+    options.EnableOrtCustomOps();
     options.SetGraphOptimizationLevel(ORT_ENABLE_ALL);
 
     // Single-threaded ORT execution. Avoid spawning too many threads, which
     // introduces unnecessary context-switch overhead.
     options.SetInterOpNumThreads(1);
     options.SetIntraOpNumThreads(1);
-
-    options.EnableOrtCustomOps();
 
     return options;
 }

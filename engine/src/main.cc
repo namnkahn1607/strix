@@ -10,13 +10,14 @@
 #include <csignal>
 #include <thread>
 
-#include "common/constants.h"
+#include "index/avx2_kernel.h"
 #include "index/ivf_config.h"
 #include "index/vector_index.h"
 #include "inference/sentence_encoder.h"
 #include "memory/arena_config.h"
 #include "memory/memory_arena.h"
 #include "rpc/cache_service.h"
+#include "worker/identity.h"
 
 namespace {
 
@@ -31,31 +32,25 @@ inline constexpr uint32_t kShutdownTimeout = 5;
 // `WarmupEngine()` drives the ONNX runtime and AVX2 dispatch through one full
 // execution path before the server starts accepting requests, eliminating JIT
 // initialization and cold-cache latency from the first real request.
-// void WarmupEngine(const SentenceEncoder& encoder) {
-//     std::cout << "[Vector Engine] Warming up ONNX runtime...\n";
+void WarmupEngine(const SentenceEncoder& encoder) {
+    constexpr uint32_t kWarmupRounds = 3;
+    const std::string  dummy_prompt  = "Hello, World!";
 
-//     constexpr uint32_t kWarmupRounds = 3;
-//     const std::string  dummy_prompt  = "Hello, World!";
+    std::cout << "[Vector Engine] Warming up ONNX runtime...\n";
 
-//     AlignedVec dummy_vec;
-//     for (uint32_t i = 0; i < kWarmupRounds; ++i) {
-//         auto result = encoder.Encode(dummy_prompt);
-//         if (result.ok()) {
-//             dummy_vec = std::move(result.value());
-//         }
-//     }
+    alignas(32) std::array<float, kVectorDim> dummy_buf;
+    for (uint32_t i = 0; i < kWarmupRounds; ++i) {
+        auto _ = encoder.Encode(dummy_prompt, dummy_buf);
+    }
 
-//     // Warm-up AVX2 dispatch with a zero-initialized batch.
-//     auto dummy_batch = CreateAlignedVector(4 * kVectorDim);
-//     std::memset(dummy_batch.get(), 0, 4 * kVectorMemsize);
+    float scores[4] = {};
+    DotProductDiscreteBatch(
+        dummy_buf.data(), dummy_buf.data(), dummy_buf.data(), dummy_buf.data(),
+        dummy_buf.data(), scores
+    );
 
-//     float scores[kBatchSize] = {};
-//     if (dummy_vec) {
-//         DotProductBatch(dummy_vec.get(), dummy_batch.get(), scores);
-//     }
-
-//     std::cout << "[Vector Engine] Warm-up completed.\n";
-// }
+    std::cout << "[Vector Engine] Warm-up completed.\n";
+}
 
 // `RunServer()` starts the gRPC server and GC background thread, then blocks on
 // the epoll event loop until a shutdown signal arrives (Death Pipe EOF or
@@ -233,7 +228,7 @@ int main() {
             indexer.ReleaseNode(node_id);
         });
 
-        // WarmupEngine(encoder);
+        WarmupEngine(encoder);
 
         std::cout << "[Vector Engine] Opening to gRPC...\n";
         std::atomic<bool> g_shutdown_req{false};

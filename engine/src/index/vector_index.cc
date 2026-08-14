@@ -17,7 +17,6 @@
 #include <string>
 #include <thread>
 
-#include "common/constants.h"
 #include "common/tagged_treiber.h"
 #include "index/ivf_config.h"
 #include "index/search_result.h"

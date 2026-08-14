@@ -4,6 +4,10 @@
 
 #include <optional>
 
+// Minimum cosine similarity threshold for a cache hit.
+// NOTE: single-threshold heuristic; should be a runtime configurable.
+inline constexpr float kSimilarityThreshold = 0.85f;
+
 // `SearchOutcome` describes result of a vector search against either tier.
 // Only record information of a node whose similarity score exceeds the
 // pre-defined `kSimiarityThreshold`.

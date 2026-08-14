@@ -14,6 +14,10 @@
 #include "ivf_config.h"
 #include "memory/memory_arena.h"
 
+// L0 (hot-tier) buffer capacity, in slots. Sized to to fit in L2/L3 cache
+// footprint for the frontier dynamic working set.
+inline constexpr uint32_t kL0Capacity = 1 << 12;
+
 // `CacheOutcome` represents part of the cache states returned by Data plane to
 // the Control plane.
 // Used as classification result of `VectorIndex::FetchPayload()`.

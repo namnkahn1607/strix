@@ -6,7 +6,7 @@
 #include <array>
 #include <memory>
 
-#include "common/constants.h"
+#include "info.h"
 
 // SimdFloatBuf represents a 32-byte aligned buffer of `kVectorDim` floats.
 class alignas(32) SimdFloatBuf {

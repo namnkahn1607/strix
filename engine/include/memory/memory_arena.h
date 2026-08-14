@@ -9,7 +9,7 @@
 #include <string>
 
 #include "arena_config.h"
-#include "common/constants.h"
+#include "inference/info.h"
 #include "meta_node.h"
 
 // MemoryArenaPrivateAccess grants user code the ability to access and interact

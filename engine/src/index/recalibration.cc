@@ -11,7 +11,6 @@
 #include <memory>
 #include <random>
 
-#include "common/constants.h"
 #include "common/syscall_utils.h"
 #include "index/avx2_kernel.h"
 #include "level1_ivf.h"
