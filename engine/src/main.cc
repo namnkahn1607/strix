@@ -3,6 +3,7 @@
 // Orchestrator: initializes all subsystems, injects dependencies,
 // and runs the shutdown event loop via epoll + signalfd.
 
+#include <grpcpp/resource_quota.h>
 #include <sys/epoll.h>
 #include <sys/signalfd.h>
 
@@ -73,6 +74,20 @@ void RunServer(
     grpc::ServerBuilder builder;
     builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
     builder.RegisterService(&service);
+
+    grpc::ResourceQuota quota;
+    quota.SetMaxThreads(kNumRPCWorkers);
+    builder.SetResourceQuota(quota);
+
+    builder.SetSyncServerOption(
+        grpc::ServerBuilder::SyncServerOption::NUM_CQS, 1
+    );
+    builder.SetSyncServerOption(
+        grpc::ServerBuilder::SyncServerOption::MIN_POLLERS, kNumRPCWorkers
+    );
+    builder.SetSyncServerOption(
+        grpc::ServerBuilder::SyncServerOption::MAX_POLLERS, kNumRPCWorkers
+    );
 
     const std::unique_ptr<grpc::Server> server(builder.BuildAndStart());
     if (!server) {
