@@ -97,15 +97,7 @@ add_library(engine_common INTERFACE)
 target_include_directories(engine_common INTERFACE ${PUBLIC_HEADER_ROOT})
 target_link_libraries(engine_common INTERFACE engine_options)
 
-# Module 2: Memory
-add_library(engine_memory STATIC src/memory/memory_arena.cc)
-target_include_directories(engine_memory
-    PUBLIC ${PUBLIC_HEADER_ROOT}
-    PRIVATE ${ENGINE_SOURCE_ROOT}/memory
-)
-target_link_libraries(engine_memory PRIVATE engine_options engine_common)
-
-# Module 3: Inference
+# Module 2: Inference
 add_library(engine_inference STATIC src/inference/sentence_encoder.cc)
 target_include_directories(engine_inference
     PUBLIC ${PUBLIC_HEADER_ROOT}
@@ -114,7 +106,23 @@ target_include_directories(engine_inference
 target_link_libraries(engine_inference PRIVATE engine_options engine_common)
 target_link_libraries(engine_inference PUBLIC ONNXRuntime)
 
-# Module 4: Index
+# Module 3: Worker
+add_library(engine_worker STATIC src/worker/identity.cc)
+target_include_directories(engine_worker
+    PUBLIC ${PUBLIC_HEADER_ROOT}
+    PRIVATE ${ENGINE_SOURCE_ROOT}/worker
+)
+target_link_libraries(engine_worker PRIVATE engine_options engine_common)
+
+# Module 4: Memory
+add_library(engine_memory STATIC src/memory/memory_arena.cc)
+target_include_directories(engine_memory
+    PUBLIC ${PUBLIC_HEADER_ROOT}
+    PRIVATE ${ENGINE_SOURCE_ROOT}/memory
+)
+target_link_libraries(engine_memory PRIVATE engine_options engine_common)
+
+# Module 5: Index
 add_library(engine_index STATIC
     src/index/level0_ring.cc
     src/index/level1_ivf.cc
@@ -131,7 +139,7 @@ target_link_libraries(engine_index PRIVATE
     engine_memory
 )
 
-# Module 5: Network
+# Module 6: Network
 add_library(engine_service STATIC src/rpc/cache_service.cc)
 target_include_directories(engine_service
     PUBLIC ${PUBLIC_HEADER_ROOT}
@@ -140,8 +148,9 @@ target_include_directories(engine_service
 target_link_libraries(engine_service PRIVATE 
     engine_options
     engine_common
-    engine_memory
     engine_inference
+    engine_worker
+    engine_memory
     engine_index
     engine_contract
 )
