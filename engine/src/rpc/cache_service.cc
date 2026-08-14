@@ -14,6 +14,7 @@
 #include "inference/sentence_encoder.h"
 #include "inference/simd_float_buf.h"
 #include "strix.pb.h"
+#include "worker/identity.h"
 
 CacheServiceImpl::CacheServiceImpl(
     const SentenceEncoder& encoder, VectorIndex& index
@@ -25,6 +26,8 @@ grpc::Status CacheServiceImpl::CheckCache(
     const proto::v1::CheckCacheRequest*   request,
     proto::v1::CheckCacheResponse*        response
 ) {
+    RegisterWorker();
+    
     try {
         if (request->prompt().empty()) {
             return {grpc::StatusCode::INVALID_ARGUMENT, "Prompt is empty"};
