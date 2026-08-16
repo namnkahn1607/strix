@@ -18,12 +18,12 @@ struct HazardRange {
 // protection against GC eviction.
 // Note: `N` should equal the number of workers in gRPC thread pool.
 template <size_t N>
-class HazardOffsetTable {
+class HazardTable final {
 public:
     // Publishes a new "hazard zone" in payload buffer.
     // Used by `MemoryArena::ReadPayload()`, paired with a `Clear()` call
     // afterward.
-    void Publish(size_t wid, uint64_t offset, uint32_t length) noexcept {
+    void Publish(uint32_t wid, uint64_t offset, uint32_t length) noexcept {
         slots_[wid].value.store(
             PackHazard(offset, length), std::memory_order_release
         );
@@ -32,7 +32,7 @@ public:
     // Detaches an existing "hazard zone" in payload buffer.
     // Used by `MemoryArena::ReadPayload()`, paired with a previous `Publish`
     // call.
-    void Clear(size_t wid) noexcept {
+    void Clear(uint32_t wid) noexcept {
         slots_[wid].value.store(0, std::memory_order_release);
     }
 
@@ -60,7 +60,7 @@ private:
         std::atomic<uint64_t> value{0};
     };
 
-    // Checks if 2 range `[ao, ao + al)` and `[bo, bo + bl)` intersect.
+    // Checks if 2 ranges `[ao, ao + al)` and `[bo, bo + bl)` intersect.
     static bool Intersect(
         uint64_t ao, uint32_t al, uint64_t bo, uint32_t bl
     ) noexcept {
