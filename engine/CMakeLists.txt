@@ -106,7 +106,12 @@ target_include_directories(engine_inference
 target_link_libraries(engine_inference PRIVATE engine_options engine_common)
 target_link_libraries(engine_inference PUBLIC ONNXRuntime)
 
-# Module 3: Worker
+# Module 3: Dot product (kernel)
+add_library(engine_dpkernel INTERFACE)
+target_include_directories(engine_dpkernel INTERFACE ${PUBLIC_HEADER_ROOT})
+target_link_libraries(engine_dpkernel INTERFACE engine_options engine_inference)
+
+# Module 4: Worker
 add_library(engine_worker STATIC src/worker/identity.cc)
 target_include_directories(engine_worker
     PUBLIC ${PUBLIC_HEADER_ROOT}
@@ -114,7 +119,7 @@ target_include_directories(engine_worker
 )
 target_link_libraries(engine_worker PRIVATE engine_options engine_common)
 
-# Module 4: Memory
+# Module 5: Memory
 add_library(engine_memory STATIC src/memory/memory_arena.cc)
 target_include_directories(engine_memory
     PUBLIC ${PUBLIC_HEADER_ROOT}
@@ -122,7 +127,7 @@ target_include_directories(engine_memory
 )
 target_link_libraries(engine_memory PRIVATE engine_options engine_common)
 
-# Module 5: Index
+# Module 6: Index
 add_library(engine_index STATIC
     src/index/level0_ring.cc
     src/index/level1_ivf.cc
@@ -139,7 +144,7 @@ target_link_libraries(engine_index PRIVATE
     engine_memory
 )
 
-# Module 6: Network
+# Module 7: Network
 add_library(engine_service STATIC src/rpc/cache_service.cc)
 target_include_directories(engine_service
     PUBLIC ${PUBLIC_HEADER_ROOT}
@@ -149,7 +154,6 @@ target_link_libraries(engine_service PRIVATE
     engine_options
     engine_common
     engine_inference
-    engine_worker
     engine_memory
     engine_index
     engine_contract
@@ -162,8 +166,10 @@ add_executable(strix_engine src/main.cc)
 target_link_libraries(strix_engine PRIVATE 
     engine_options 
     engine_common
-    engine_memory 
     engine_inference 
+    engine_dpkernel
+    engine_worker
+    engine_memory
     engine_index
     engine_service
     engine_contract
@@ -195,10 +201,10 @@ function(add_unit_test target_name module_name)
     gtest_discover_tests(${target_name})
 endfunction()
 
-# AVX2 dot product
-add_unit_test(avx2_kernel_test index
-    SOURCES src/index/tests/avx2_kernel_test.cc
-    LIBS engine_common engine_index
+# Dot product
+add_unit_test(avx2_kernel_test dot_product
+    SOURCES src/dot_product/tests/avx2_kernel_test.cc
+    LIBS engine_common engine_dpkernel
 )
 
 # Inference model
@@ -248,10 +254,10 @@ function(add_micro_bench target_name module_name)
     )
 endfunction()
 
-# AVX2 dot product
-add_micro_bench(avx2_kernel_bench index
-    SOURCES src/index/bench/avx2_kernel_bench.cc
-    LIBS engine_options engine_common engine_index
+# Dot product
+add_micro_bench(avx2_kernel_bench dot_product
+    SOURCES src/dot_product/bench/avx2_kernel_bench.cc
+    LIBS engine_options engine_common engine_dpkernel
 )
 
 # Inference model: Custom ops

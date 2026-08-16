@@ -1,7 +1,7 @@
 // AVX2 + FMA accelerated dot product kernel unit test.
 // A scalar-compute implementation is used as the correctness oracle.
 
-#include "index/avx2_kernel.h"
+#include "dot_product/avx2_kernel.h"
 
 #include <gtest/gtest.h>
 #include <mm_malloc.h>
@@ -10,8 +10,6 @@
 #include <cmath>
 #include <new>
 #include <random>
-
-#include "common/constants.h"
 
 namespace {
 

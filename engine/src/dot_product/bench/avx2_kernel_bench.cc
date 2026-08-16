@@ -11,7 +11,7 @@
 #include <new>
 #include <random>
 
-#include "index/avx2_kernel.h"
+#include "dot_product/avx2_kernel.h"
 
 namespace {
 

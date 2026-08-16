@@ -5,9 +5,9 @@
 
 #include "inference/info.h"
 
-// Number of vectors processed per dot product kernel call.
-// Hardwired to 4 as each of 4 accumulators maps to one YMM lane pair, and the
-// horizontal reduction folds all 4 scores in a single `_mm_add_ps()` pass.
+// Number of vectors processed per dot product kernel call, hardwired to `4`.
+// As each accumulators maps to one `YMM` lane pair, and the horizontal
+// reduction folds all 4 scores in a single `_mm_add_ps()` pass.
 inline constexpr uint32_t kBatchSize = 4;
 
 #if defined(__x86_64__) || defined(_M_X64)
