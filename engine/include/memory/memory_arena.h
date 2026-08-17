@@ -18,6 +18,9 @@
 // with private fields of `MemoryArena`.
 class MemoryArenaPrivateAccess;
 
+template <size_t N>
+class HazardTable;
+
 // MemoryArena owns and manages the primary memory regions: metadata array,
 // vector array and an optional payload ring buffer.
 //
@@ -113,6 +116,13 @@ private:
     // Scans the node slot array and expires all stale PENDING nodes to DEAD.
     void SweepStalePending(uint64_t curr_time) noexcept;
 
+    // Attempts to reclaim space occuppied by payload of `node_id` using
+    // `read_tail_` advancing.
+    // If `release_node == true`, `node_id` will be released back to Freelist.
+    void TryReclaimSpace(
+        uint32_t node_id, uint64_t tail, uint32_t total_len, bool release_node
+    ) noexcept;
+
     // Metadata array: one `MetaNode` per slot.
     MetaNode* metadata_;
 
@@ -127,6 +137,9 @@ private:
 
     // Callback hook invoked by the GC when a node is evicted.
     NodeFreedCallback on_node_freed_;
+
+    // Managing table of published hazard zones.
+    std::unique_ptr<HazardTable<kNumRPCWorkers>> hazard_table_;
 };
 
 class MemoryArenaPrivateAccess final {
