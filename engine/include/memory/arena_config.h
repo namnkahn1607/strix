@@ -1,4 +1,4 @@
-// Memory Arena runtime configurator declaration.
+// Memory Arena runtime configuration.
 
 #pragma once
 
@@ -7,7 +7,7 @@ inline constexpr uint32_t kTotalSlots = 1 << 19;
 
 // ArenaConfig defines the specification of `MemoryArena` at construction time.
 //
-// All validation are performed inside the constructor.
+// All validation are performed inside `MemoryArena` constructor.
 struct ArenaConfig {
     // Total number of node/vector slots.
     // Must be non-zero and a multiple of `kBatchSize`.
@@ -24,20 +24,20 @@ struct ArenaConfig {
     // Non-zero values are used in testing to exercise wrap-around behavior.
     const uint64_t start_point = 0;
 
-    // Production configs `kTotalMaxSlots` slots, 4 GB payload buffer with
+    // Configures `kTotalMaxSlots` slots, 4 GB payload buffer with
     // `MAP_POPULATED` enabled.
     static ArenaConfig Production() {
         constexpr size_t kPayloadBufferSize = 0x100000000ULL;  // 4 GB
         return {kTotalSlots, kPayloadBufferSize};
     }
 
-    // Compact configs dynamic slot capacity, no payload buffer with
+    // Configures dynamic slot capacity, no payload buffer with
     // `MAP_POPULATED` enabled.
-    // For throughput benchmarks that need a smaller capacity but page still
-    // prefaulted. No notion of "tiers" is provided.
+    // For throughput benchmarks that need a smaller capacity but prefaulted
+    // pages. No notion of "tiers" is provided.
     static ArenaConfig Compact(uint32_t slots) { return {slots, 0}; }
 
-    // CompactLazy configs same as `Compact()` but `MAP_POPULATED` disabled.
+    // Configures same as `Compact()` but `MAP_POPULATED` disabled.
     // For unit tests where page prefaulting only adds startup latency.
     static ArenaConfig CompactLazy(uint32_t slots) { return {slots, 0, false}; }
 };

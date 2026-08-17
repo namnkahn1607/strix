@@ -5,15 +5,17 @@
 #include <atomic>
 #include <cassert>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 
-#include "arena_config.h"
 #include "inference/info.h"
-#include "meta_node.h"
+#include "memory/arena_config.h"
+#include "memory/meta_node.h"
+#include "worker/identity.h"
 
 // MemoryArenaPrivateAccess grants user code the ability to access and interact
-// with internal states/fields of `MemoryArena`.
+// with private fields of `MemoryArena`.
 class MemoryArenaPrivateAccess;
 
 // MemoryArena owns and manages the primary memory regions: metadata array,
@@ -24,11 +26,11 @@ class MemoryArenaPrivateAccess;
 // arithmetic with power-of-2 masking.
 //
 // Concurrency model:
-//   - Concurrent pipeline primitive: Multi-threaded design with distinct worker
-//     role: writer/reader and garbage collector.
-//   - Each individual method defines its own synchronization guarantees.
-//   - Thread-safety is NOT uniform across all APIs. Callers must consult the
-//     safety contract of each API during invocation.
+//   1. Concurrent pipeline primitive: multi-threaded design with distinct
+//      worker role: writer/reader and garbage collector.
+//   2. Each individual method defines its own synchronization guarantees.
+//   3. Thread-safety is NOT uniform across all APIs. Callers must consult the
+//      safety contract of each API during invocation.
 //
 // Ownership model: construct once, pass by reference to consumers.
 class MemoryArena final {
@@ -46,44 +48,41 @@ public:
     MemoryArena(MemoryArena&&)                 = delete;
     MemoryArena& operator=(MemoryArena&&)      = delete;
 
-    // ReadPayload copies `length` bytes starting at `v_offset` from the ring
-    // buffer into `out_payload`.
+    // Copies `length` bytes from `offset` in the buffer into `out_payload`.
     // Asserts non-null `payload_buf`. Caller MUST pre-resize the destination
     // buffer before invocation.
-    void ReadPayload(
-        uint64_t v_offset, uint32_t length, std::string* out_payload
-    ) const noexcept;
+    void ReadPayload(uint64_t offset, uint32_t length, std::string* out_payload)
+        const noexcept;
 
-    // WritePayload writes a `PayloadHeader` followed by payload of `length`
-    // bytes from source `in_payload` into the ring buffer and returns the
-    // virtual offset of the written header on success.
+    // Writes a `PayloadHeader` followed by `length` bytes from  `in_payload`
+    // into the buffer.
+    // The virtual offset of the written byte series is returned on success.
     // Asserts non-null `payload_buf`.
     std::optional<uint64_t> WritePayload(
         uint32_t node_id, const uint8_t* in_payload, uint32_t length
     ) noexcept;
 
-    // RunGarbageCollector triggers the GC that sweeps the slot array to find
-    // and evict `COLD READY` nodes while expiring stale `PENDING` nodes.
-    // Operates until `g_shutdown_req` is set to true. Must be launched on ONE
+    // Triggers the garbage collector that sweeps the node slot array to find
+    // and evict COLD READY nodes while expiring stale PENDING nodes.
+    // Operates until `shutdown_req` is set to `true`. Must be launched on ONE
     // dedicated thread; not re-entrant.
-    void RunGarbageCollector(const std::atomic<bool>& g_shutdown_req);
+    void RunGarbageCollector(const std::atomic<bool>& shutdown_req);
 
-    // SetNodeFreedCallback registers the dependency-inversion hook used by GC
-    // to notify `FreeList`.
-    // Must be wired exactly ONCE during system initialization, before spawning
-    // the GC thread.
+    // Registers the dependency-inversion hook used by GC to notify the Freelist
+    // that manages node ID.
+    // Wired exactly ONCE during system init, before spawning the GC thread.
     void SetNodeFreedCallback(NodeFreedCallback cb) {
         on_node_freed_ = std::move(cb);
     }
 
-    // GetNode returns a reference to the `MetaNode` at `node_id`.
-    // Caller must ensure `node_id` < `max_slots`.
+    // Returns a reference to the `MetaNode` at `node_id`.
+    // Caller must ensure `node_id < max_slots`.
     inline MetaNode& GetNode(const uint32_t node_id) const noexcept {
         return metadata_[static_cast<size_t>(node_id)];
     }
 
-    // GetVector returns a pointer to the vector's first float at `node_id`.
-    // Caller must ensure `node_id` < `max_slots`.
+    // Returns a pointer to the vector's first float at `node_id`.
+    // Caller must ensure `node_id < max_slots`.
     inline float* GetVector(const uint32_t node_id) const noexcept {
         return vectors_ + static_cast<size_t>(node_id) * kVectorDim;
     }
@@ -102,18 +101,16 @@ public:
 private:
     friend class MemoryArenaPrivateAccess;
 
-    // ActualIndex maps a virtual offset to its physical index in the ring
-    // buffer. Relies on `payload_buf_size_` being a power of 2.
+    // Maps a virtual offset to its physical index in the ring buffer.
     size_t ActualIndex(const uint64_t offset) const noexcept {
         return offset & (payload_buf_size - 1);
     }
 
-    // AllocatePayload reserves `length` bytes by advancing `write_head_`.
+    // Reserves `length` bytes by advancing `write_head_`.
     // Returns the virtual offset at which the caller may begin writing.
     std::optional<uint64_t> AllocatePayload(uint32_t length) noexcept;
 
-    // SweepStalePending scans the `MetaNode` array and transitions all
-    // stale `PENDING` nodes to `DEAD`.
+    // Scans the node slot array and expires all stale PENDING nodes to DEAD.
     void SweepStalePending(uint64_t curr_time) noexcept;
 
     // Metadata array: one `MetaNode` per slot.

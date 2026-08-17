@@ -1,4 +1,4 @@
-// Metadata struct for Memory Arena node slot.
+// Metadata struct of Memory Arena node slot.
 
 #pragma once
 
@@ -10,32 +10,28 @@
 //
 // Lock-free and not thread-safe.
 struct alignas(64) MetaNode {  // Avoid false sharing under concurrent access.
-    // Monotonic timestamp (seconds) at which this slot was acquired.
-    //
-    // Used by the GC to identify expired `kPending` nodes.
+    // Monotonic timestamp (in seconds) at which this slot was acquired; used
+    // to identify expired PENDING nodes.
     // Always written by the acquiring worker before publishing, so any read
     // observing `kPending` is valid.
     std::atomic<uint64_t> created_at;
 
     // The 64-bit control block word.
-    //
     // Not thread-safe. Any modification attempt must be done via
     // compare-and-swap, otherwise a direct store only if ownership is
     // guaranteed.
     std::atomic<uint64_t> control_block;
 
-    // LoadControl atomically loads and decodes the control block.
-    //
-    // By default, a `std::memory_order_acquire` load is performed.
+    // Atomically loads and decodes the control block.
+    // By default, an `std::memory_order_acquire` load is performed.
     ControlBlock LoadControl(
         const std::memory_order order = std::memory_order_acquire
     ) const noexcept {
         return UnpackControl(control_block.load(order));
     }
 
-    // LoadVersion extracts only the version field without decoding the
-    // rest of the control block word.
-    //
+    // Extracts only the version field without decoding the rest of the
+    // control block word.
     // Used on both sides of a seqlock-style version check.
     uint8_t LoadVersion(
         const std::memory_order order = std::memory_order_acquire
