@@ -13,7 +13,7 @@
 #include <stdexcept>
 
 #include "common/syscall_utils.h"
-#include "index/avx2_kernel.h"
+#include "dot_product/avx2_kernel.h"
 
 RoutingTable::RoutingTable(
     const uint32_t num_clusters, const uint32_t max_cluster_size,

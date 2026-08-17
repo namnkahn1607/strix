@@ -7,7 +7,7 @@
 
 #include <optional>
 
-#include "index/avx2_kernel.h"
+#include "dot_product/avx2_kernel.h"
 #include "index/search_result.h"
 #include "level0_ring.h"
 #include "memory/memory_arena.h"

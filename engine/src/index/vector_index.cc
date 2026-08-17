@@ -26,6 +26,7 @@
 #include "memory/meta_node.h"
 #include "recalibration.h"
 #include "search-inl.h"
+#include "dot_product/avx2_kernel.h"
 
 class VectorIndex::Impl {
 public:
