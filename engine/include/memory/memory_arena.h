@@ -1,4 +1,4 @@
-// Memory Arena declaration.
+// Memory Arena: declaration, private accessor.
 
 #pragma once
 
@@ -9,15 +9,13 @@
 #include <optional>
 #include <string>
 
+#include "common/cache_outcome.h"
 #include "inference/info.h"
 #include "memory/arena_config.h"
 #include "memory/meta_node.h"
 #include "worker/identity.h"
 
-// MemoryArenaPrivateAccess grants user code the ability to access and interact
-// with private fields of `MemoryArena`.
 class MemoryArenaPrivateAccess;
-
 template <size_t N>
 class HazardTable;
 
@@ -38,8 +36,7 @@ class HazardTable;
 // Ownership model: construct once, pass by reference to consumers.
 class MemoryArena final {
 public:
-    // NodeFreedCallback defines the signature for cross-layer eviction
-    // notification.
+    // Defines the signature for cross-layer eviction notification.
     // Pass `node_id` that was just reclaimed by garbage collector.
     using NodeFreedCallback = std::function<void(uint32_t)>;
 
@@ -51,22 +48,21 @@ public:
     MemoryArena(MemoryArena&&)                 = delete;
     MemoryArena& operator=(MemoryArena&&)      = delete;
 
-    // Copies `length` bytes from `offset` in the buffer into `out_payload`.
-    // Asserts non-null `payload_buf`. Caller MUST pre-resize the destination
-    // buffer before invocation.
-    void ReadPayload(uint64_t offset, uint32_t length, std::string* out_payload)
-        const noexcept;
-
-    // Writes a `PayloadHeader` followed by `length` bytes from  `in_payload`
-    // into the buffer.
-    // The virtual offset of the written byte series is returned on success.
+    // Reads payload of the specified node slot into `out`.
     // Asserts non-null `payload_buf`.
+    CacheOutcome ReadPayload(
+        uint32_t node_id, uint8_t exp_ver, uint64_t curr_time, std::string* out
+    ) const noexcept;
+
+    // Writes a `PayloadHeader` followed by `length` bytes of `in` to the
+    // buffer. The virtual offset of the written byte series is returned on
+    // success. Asserts non-null `payload_buf`.
     std::optional<uint64_t> WritePayload(
-        uint32_t node_id, const uint8_t* in_payload, uint32_t length
+        uint32_t node_id, const uint8_t* in, uint32_t length
     ) noexcept;
 
-    // Triggers the garbage collector that sweeps the node slot array to find
-    // and evict COLD READY nodes while expiring stale PENDING nodes.
+    // Triggers the garbage collector that sweeps the payload buffer to find and
+    // evict COLD READY nodes.
     // Operates until `shutdown_req` is set to `true`. Must be launched on ONE
     // dedicated thread; not re-entrant.
     void RunGarbageCollector(const std::atomic<bool>& shutdown_req);
@@ -84,7 +80,7 @@ public:
         return metadata_[static_cast<size_t>(node_id)];
     }
 
-    // Returns a pointer to the vector's first float at `node_id`.
+    // Returns a pointer to the first float of vector at `node_id`.
     // Caller must ensure `node_id < max_slots`.
     inline float* GetVector(const uint32_t node_id) const noexcept {
         return vectors_ + static_cast<size_t>(node_id) * kVectorDim;
@@ -109,16 +105,16 @@ private:
         return offset & (payload_buf_size - 1);
     }
 
-    // Reserves `length` bytes by advancing `write_head_`.
+    // Allocates by reserving `length` bytes by advancing `write_head_`.
     // Returns the virtual offset at which the caller may begin writing.
     std::optional<uint64_t> AllocatePayload(uint32_t length) noexcept;
 
     // Scans the node slot array and expires all stale PENDING nodes to DEAD.
     void SweepStalePending(uint64_t curr_time) noexcept;
 
-    // Attempts to reclaim space occuppied by payload of `node_id` using
-    // `read_tail_` advancing.
-    // If `release_node == true`, `node_id` will be released back to Freelist.
+    // Attempts to reclaim space occupied by payload of `node_id`.
+    // If `release_node == true`, `node_id` will be released back to Freelist
+    // upon space reclaiming.
     void TryReclaimSpace(
         uint32_t node_id, uint64_t tail, uint32_t total_len, bool release_node
     ) noexcept;
@@ -142,15 +138,17 @@ private:
     std::unique_ptr<HazardTable<kNumRPCWorkers>> hazard_table_;
 };
 
+// MemoryArenaPrivateAccess grants user code the ability to access and interact
+// with private fields of `MemoryArena`.
 class MemoryArenaPrivateAccess final {
 public:
-    // PrefaultBuffer writes 2 bytes into the payload ring buffer: at index `0`
-    // and at `write_head`, forcing the kernel to fault all pages immediately.
+    // Writes 2 bytes into the payload buffer: one at index `0` and another
+    // at `write_head`, triggering pagefault immediately.
     //
     // Only call this when `MemoryArena` was constructed with `MAP_POPULATE`
     // disabled and non-null payload buffer.
     // Calling it inside concurrently writers or on an already-populated memory
-    // wastes time and may introduce cache pressure.
+    // might waste time and introduce cache pressure.
     static void PrefaultBuffer(MemoryArena& arena) noexcept {
         assert(
             arena.payload_buf_ != nullptr &&
