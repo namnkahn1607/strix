@@ -9,11 +9,11 @@
 #include <exception>
 #include <optional>
 
-#include "inference/info.h"
 #include "common/syscall_utils.h"
+#include "inference/info.h"
 #include "inference/sentence_encoder.h"
 #include "inference/simd_float_buf.h"
-#include "strix.pb.h"
+#include "cache.pb.h"
 #include "worker/identity.h"
 
 CacheServiceImpl::CacheServiceImpl(
@@ -23,11 +23,11 @@ CacheServiceImpl::CacheServiceImpl(
 
 grpc::Status CacheServiceImpl::CheckCache(
     [[maybe_unused]] grpc::ServerContext* context,
-    const proto::v1::CheckCacheRequest*   request,
-    proto::v1::CheckCacheResponse*        response
+    const strix::v1::CheckCacheRequest*   request,
+    strix::v1::CheckCacheResponse*        response
 ) {
     RegisterWorker();
-    
+
     try {
         if (request->prompt().empty()) {
             return {grpc::StatusCode::INVALID_ARGUMENT, "Prompt is empty"};
@@ -44,11 +44,11 @@ grpc::Status CacheServiceImpl::CheckCache(
             )) {
             switch (encode_err.value()) {
                 case EncodeError::kTokenLimitExceeded:
-                    response->set_check_state(proto::v1::CACHE_STATE_REJECTED);
+                    response->set_check_state(strix::v1::CACHE_STATE_REJECTED);
                     return grpc::Status::OK;
 
                 case EncodeError::kDegeneratedVector:
-                    response->set_check_state(proto::v1::CACHE_STATE_REJECTED);
+                    response->set_check_state(strix::v1::CACHE_STATE_REJECTED);
                     return {
                         grpc::StatusCode::INTERNAL,
                         "Degenerate vector from model"
@@ -94,11 +94,11 @@ grpc::Status CacheServiceImpl::CheckCache(
 
         const auto node_id_opt = index_.AcquireNode(query, curr_time);
         if (!node_id_opt.has_value()) {
-            response->set_check_state(proto::v1::CACHE_STATE_REJECTED);
+            response->set_check_state(strix::v1::CACHE_STATE_REJECTED);
             return grpc::Status::OK;
         }
 
-        response->set_check_state(proto::v1::CACHE_STATE_MISS);
+        response->set_check_state(strix::v1::CACHE_STATE_MISS);
         response->set_node_id(*node_id_opt);
         return grpc::Status::OK;
 
@@ -114,8 +114,8 @@ grpc::Status CacheServiceImpl::CheckCache(
 
 grpc::Status CacheServiceImpl::SetCache(
     [[maybe_unused]] grpc::ServerContext* context,
-    const proto::v1::SetCacheRequest*     request,
-    proto::v1::SetCacheResponse*          response
+    const strix::v1::SetCacheRequest*     request,
+    strix::v1::SetCacheResponse*          response
 ) {
     try {
         const uint32_t     node_id = request->node_id();
@@ -149,7 +149,7 @@ grpc::Status CacheServiceImpl::SetCache(
 
 bool CacheServiceImpl::ProcessCandidate(
     const SearchOutcome& candidate, const uint64_t timestamp,
-    proto::v1::CheckCacheResponse* response
+    strix::v1::CheckCacheResponse* response
 ) const {
     const auto outcome = index_.FetchPayload(
         candidate.node_id, candidate.version, timestamp,
@@ -158,16 +158,15 @@ bool CacheServiceImpl::ProcessCandidate(
 
     switch (outcome) {
         case CacheOutcome::kHit:
-            response->set_check_state(proto::v1::CACHE_STATE_HIT);
+            response->set_check_state(strix::v1::CACHE_STATE_HIT);
             return true;
 
         case CacheOutcome::kPendingHit:
-            response->set_check_state(proto::v1::CACHE_STATE_PENDING);
+            response->set_check_state(strix::v1::CACHE_STATE_PENDING);
             response->set_node_id(candidate.node_id);
             return true;
 
-        case CacheOutcome::kMiss:
-            return false;
+        case CacheOutcome::kMiss: return false;
     }
 
     return false;

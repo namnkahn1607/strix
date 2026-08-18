@@ -9,8 +9,8 @@
 
 #include "index/vector_index.h"
 #include "inference/sentence_encoder.h"
-#include "strix.grpc.pb.h"
-#include "strix.pb.h"
+#include "cache.grpc.pb.h"
+#include "cache.pb.h"
 
 // `CacheServiceImpl`, gRPC service implementation for the Strix semantic cache.
 //
@@ -18,7 +18,7 @@
 //   - Validate incoming RPC fields.
 //   - Orchestrate Vectorization -> Vector search -> Payload read/write.
 //   - Translate results and errors into gRPC Status codes and response protos.
-class CacheServiceImpl final : public proto::v1::CacheService::Service {
+class CacheServiceImpl final : public strix::v1::CacheService::Service {
 public:
     // `CacheServiceImpl` holds references to `Embedder` and `MemoryArena`.
     explicit CacheServiceImpl(
@@ -35,15 +35,15 @@ public:
     // the `kSimilarityThreshold` is found.
     grpc::Status CheckCache(
         grpc::ServerContext*                context,
-        const proto::v1::CheckCacheRequest* request,
-        proto::v1::CheckCacheResponse*      response
+        const strix::v1::CheckCacheRequest* request,
+        strix::v1::CheckCacheResponse*      response
     ) override;
 
     // `SetCache()` encodes the request prompt, writes the vector into a free
     // slot, and commits the payload to the ring buffer.
     grpc::Status SetCache(
-        grpc::ServerContext* context, const proto::v1::SetCacheRequest* request,
-        proto::v1::SetCacheResponse* response
+        grpc::ServerContext* context, const strix::v1::SetCacheRequest* request,
+        strix::v1::SetCacheResponse* response
     ) override;
 
 private:
@@ -57,6 +57,6 @@ private:
     // untouched, delegating further decisions to the caller.
     bool ProcessCandidate(
         const SearchOutcome& candidate, uint64_t timestamp,
-        proto::v1::CheckCacheResponse* response
+        strix::v1::CheckCacheResponse* response
     ) const;
 };

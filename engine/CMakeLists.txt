@@ -45,8 +45,8 @@ target_compile_options(engine_options INTERFACE
 # ==============================================================================
 # 3. AUTO-GENERATE CONTRACTS
 # ==============================================================================
-set(PROTO_DIR "${STRIX_REPO_ROOT}/api/proto/v1")
-set(PROTO_FILE "${PROTO_DIR}/strix.proto")
+set(PROTO_DIR "${STRIX_REPO_ROOT}/proto/strix/v1")
+set(PROTO_FILE "${PROTO_DIR}/cache.proto")
 set(PROTO_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
 # Pre-make directory in case of non-existing
@@ -59,10 +59,10 @@ set(GRPC_PLUGIN_EXEC "$<TARGET_FILE:gRPC::grpc_cpp_plugin>")
 # Execute command to generate contracts
 add_custom_command(
     OUTPUT
-        "${PROTO_GEN_DIR}/strix.pb.cc"
-        "${PROTO_GEN_DIR}/strix.pb.h"
-        "${PROTO_GEN_DIR}/strix.grpc.pb.cc"
-        "${PROTO_GEN_DIR}/strix.grpc.pb.h"
+        "${PROTO_GEN_DIR}/cache.pb.cc"
+        "${PROTO_GEN_DIR}/cache.pb.h"
+        "${PROTO_GEN_DIR}/cache.grpc.pb.cc"
+        "${PROTO_GEN_DIR}/cache.grpc.pb.h"
     COMMAND ${PROTOC_EXEC}
     ARGS
         --grpc_out="${PROTO_GEN_DIR}"
@@ -79,8 +79,8 @@ add_custom_command(
 
 # Package generated contracts into a static independent target
 add_library(engine_contract STATIC
-    "${PROTO_GEN_DIR}/strix.pb.cc"
-    "${PROTO_GEN_DIR}/strix.grpc.pb.cc"
+    "${PROTO_GEN_DIR}/cache.pb.cc"
+    "${PROTO_GEN_DIR}/cache.grpc.pb.cc"
 )
 target_link_libraries(engine_contract PUBLIC gRPC::grpc++ protobuf::libprotobuf)
 target_include_directories(engine_contract PUBLIC "${PROTO_GEN_DIR}")

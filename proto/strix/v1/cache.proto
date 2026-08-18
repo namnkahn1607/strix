@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package proto.v1;
+package strix.v1;
 
 option go_package = "gateway/internal/pb;pb";
 
