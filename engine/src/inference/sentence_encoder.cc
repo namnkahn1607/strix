@@ -39,8 +39,8 @@ Ort::SessionOptions SentenceEncoder::InitOptions() {
 SentenceEncoder::SentenceEncoder(const char* tok_path, const char* bert_path)
     : env_{Ort::Env(ORT_LOGGING_LEVEL_ERROR, "onnx-env")}
     , options_{InitOptions()}
-    , tok_session_(env_, tok_path, options_)
-    , bert_session_(env_, bert_path, options_) {}
+    , tok_session_{env_, tok_path, options_}
+    , bert_session_{env_, bert_path, options_} {}
 
 std::optional<EncodeError> SentenceEncoder::Encode(
     const std::string& prompt, std::span<float, kVectorDim> out

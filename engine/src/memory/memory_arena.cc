@@ -26,10 +26,10 @@
 #include "worker/identity.h"
 
 MemoryArena::MemoryArena(const ArenaConfig& config)
-    : max_slots(config.max_slots)
-    , payload_buf_size(config.payload_buf_size)
-    , write_head_(config.start_point)
-    , read_tail_(config.start_point) {
+    : max_slots{config.max_slots}
+    , payload_buf_size{config.payload_buf_size}
+    , write_head_{config.start_point}
+    , read_tail_{config.start_point} {
     if (!(max_slots != 0 && max_slots % kBatchSize == 0)) {
         throw std::invalid_argument(
             "Arena slots must be non-zero and multiple of 'kBatchSize'"
