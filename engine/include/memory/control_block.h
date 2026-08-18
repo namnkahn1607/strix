@@ -13,13 +13,11 @@
 
 #include "state.h"
 
-// Shifts
 inline constexpr uint32_t kNodeStateShift = 62U;
 inline constexpr uint32_t kEvictShift     = 61U;
 inline constexpr uint32_t kVersionShift   = 57U;
 inline constexpr uint32_t kLengthShift    = 36U;
 
-// Ensure that the control block bit layout are configured correctly.
 static_assert(
     kEvictShift + 1 == kNodeStateShift,
     "'evict' bit must sit below the 'state' field"
@@ -36,7 +34,6 @@ static_assert(
     kLengthShift == 36, "'virtual offset' occupies bits [0, 36) unconditionally"
 );
 
-// Masks
 inline constexpr uint64_t kNodeStateMask     = 0x3ULL;
 inline constexpr uint64_t kEvictStateMask    = 0x1ULL;
 inline constexpr uint64_t kVersionMask       = 0xFULL;
@@ -49,7 +46,7 @@ inline constexpr uint32_t kMaxPayloadLength  = 0x1F'FFFFU;
 // finished committing its new vector data onto the node.
 //
 // This asymmetry lets a seqlock-style version check: snapshot -> read data ->
-// snapshot again, detect "cross-ownership" between multiple workers.
+// snapshot again, detect ownership change across multiple workers.
 inline uint8_t NextVersion(const uint8_t version) noexcept {
     return (version + 1) & kVersionMask;
 }
