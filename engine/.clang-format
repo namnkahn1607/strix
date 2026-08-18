@@ -11,6 +11,7 @@ AlignConsecutiveDeclarations:
   Enabled: true
   AcrossEmptyLines: false
   AcrossComments: false
+AllowShortCaseLabelsOnASingleLine: true
 BreakConstructorInitializers: BeforeComma
 IndentWidth: 4
 InsertNewlineAtEOF: true
