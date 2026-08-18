@@ -10,24 +10,17 @@
 #include <memory>
 #include <optional>
 
+#include "common/cache_outcome.h"
 #include "index/search_result.h"
 #include "ivf_config.h"
 #include "memory/memory_arena.h"
 
+class L0Buffer;
+class VectorIndexPrivateAccess;
+
 // L0 (hot-tier) buffer capacity, in slots. Sized to to fit in L2/L3 cache
 // footprint for the frontier dynamic working set.
 inline constexpr uint32_t kL0Capacity = 1 << 12;
-
-// `CacheOutcome` represents part of the cache states returned by Data plane to
-// the Control plane.
-// Used as classification result of `VectorIndex::FetchPayload()`.
-enum class CacheOutcome : uint8_t { kMiss, kPendingHit, kHit };
-
-class L0Buffer;
-
-// `VectorIndexBenchAccess` grants benchmark code direct access to the private
-// member `L0Buffer` field of `VectorIndex`.
-class VectorIndexBenchAccess;
 
 // `VectorIndex` indexes vectors and payloads in a single `MemoryArena`, while
 // surfaces the appropriate vector search and payload commit/fetch APIs to the
