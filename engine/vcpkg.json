@@ -1,5 +1,5 @@
 {
-  "name": "strix-proxy",
+  "name": "strix-engine",
   "version-string": "1.0",
   "dependencies": [
     "grpc",
