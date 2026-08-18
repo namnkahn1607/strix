@@ -91,7 +91,7 @@ static void BenchSearchL0_ConcurrentContention(benchmark::State& state) {
             index->AcquireNode(fill_vec, 0);
         }
 
-        L0Buffer& ring = VectorIndexBenchAccess::GetL0Buffer(*index);
+        L0Buffer& ring = VectorIndexPrivateAccess::GetL0Buffer(*index);
         workers        = new std::vector<std::thread>();
 
         // Initiate one Consumer worker.

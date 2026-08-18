@@ -72,18 +72,15 @@ public:
     //                     the Node is already `kDead`, a stale PENDING node, or
     //                     failed to allocate buffer for `*out`.
     //   - `kPendingHit` : hit a fresh `kPending` Node, `*out` is left empty.
-    CacheOutcome FetchPayload(
-        uint32_t node_id, uint8_t expected_version, uint64_t curr_time,
-        std::string* out
-    ) const;
+    CacheOutcome Fetch(
+        uint32_t node_id, uint8_t exp_ver, uint64_t curr_time, std::string* out
+    ) const noexcept;
 
     // `CommitPayload()` is called to write payload of a `kPending` Node that is
     // previously allocated by `AcquireNode()`.
     // Best effort, no retry: return false if the target Node is no longer
     // in state `kPending`, or the payload buffer of `MemoryArena` is saturated.
-    bool CommitPayload(
-        uint32_t node_id, const uint8_t* in, uint32_t length
-    ) noexcept;
+    bool Commit(uint32_t node_id, const uint8_t* in, uint32_t length) noexcept;
 
     // `RunCoordinator()` triggers the background coordinator worker that
     // bootstraps the IVF from live L0 traffic, then schedules and performs
@@ -91,22 +88,24 @@ public:
     void RunCoordinator(const std::atomic<bool>& shutdown_req);
 
 private:
-    friend class VectorIndexBenchAccess;
+    friend class VectorIndexPrivateAccess;
 
     class Impl;
     std::unique_ptr<Impl> pimpl_;
 
-    Impl*       impl() noexcept { return pimpl_.get(); }
-    const Impl* impl() const noexcept { return pimpl_.get(); }
+    Impl*       Inner() noexcept { return pimpl_.get(); }
+    const Impl* Inner() const noexcept { return pimpl_.get(); }
 
     L0Buffer& GetL0Buffer() noexcept;
 };
 
-// `VectorIndexBenchAccess` defined out-of-line so ordinary callers never see
-// l0_indices_'s type requirements pulled into their translation unit through
-// this accessor; only benchmark code that explicitly includes this and
-// instantiates it pays for it.
-class VectorIndexBenchAccess {
+// `VectorIndexBenchAccess` grants user code direct access to the private field
+// `L0Buffer` of `VectorIndex`.
+//
+// Defined out-of-line so ordinary callers never see `L0Buffer` type
+// requirements pulled into their translation unit through this accessor; only
+// only user code that explicitly includes this and instantiates it pays for it.
+class VectorIndexPrivateAccess {
 public:
     static L0Buffer& GetL0Buffer(VectorIndex& index) noexcept {
         return index.GetL0Buffer();

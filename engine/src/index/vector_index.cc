@@ -10,7 +10,6 @@
 #include <atomic>
 #include <chrono>
 #include <cstring>
-#include <exception>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -18,6 +17,7 @@
 #include <thread>
 
 #include "common/tagged_treiber.h"
+#include "dot_product/avx2_kernel.h"
 #include "index/ivf_config.h"
 #include "index/search_result.h"
 #include "level0_ring.h"
@@ -26,7 +26,6 @@
 #include "memory/meta_node.h"
 #include "recalibration.h"
 #include "search-inl.h"
-#include "dot_product/avx2_kernel.h"
 
 class VectorIndex::Impl {
 public:
@@ -125,7 +124,7 @@ VectorIndex::~VectorIndex() = default;
 std::optional<uint32_t> VectorIndex::AcquireNode(
     const float* query, const uint64_t now
 ) noexcept {
-    const uint32_t node_id = impl()->free_node_list_.Pop();
+    const uint32_t node_id = Inner()->free_node_list_.Pop();
     if (node_id == TreiberStack::kEmpty) {
         return std::nullopt;
     }
@@ -135,11 +134,13 @@ std::optional<uint32_t> VectorIndex::AcquireNode(
     // evicted it. Pinning a lock here signals Reassignment that "a node is
     // no longer belongs to this cluster, please purge it rightaway if you
     // encounter any".
-    impl()->node_owner_[node_id].store(kUnclustered, std::memory_order_relaxed);
+    Inner()->node_owner_[node_id].store(
+        kUnclustered, std::memory_order_relaxed
+    );
 
-    std::memcpy(impl()->arena_.GetVector(node_id), query, kVectorMemsize);
+    std::memcpy(Inner()->arena_.GetVector(node_id), query, kVectorMemsize);
 
-    MetaNode& node = impl()->arena_.GetNode(node_id);
+    MetaNode& node = Inner()->arena_.GetNode(node_id);
     node.created_at.store(now, std::memory_order_relaxed);
 
     const uint8_t old_version = node.LoadVersion(std::memory_order_relaxed);
@@ -149,13 +150,13 @@ std::optional<uint32_t> VectorIndex::AcquireNode(
         PackControl(NodeState::kPending, EvictState::kHot, new_version, 0, 0);
     node.control_block.store(published, std::memory_order_release);
 
-    if (!impl()->l0_buffer_.TryPush(node_id)) {
+    if (!Inner()->l0_buffer_.TryPush(node_id)) {
         // Failed to register node to L0 buffer: the system is under high load.
         // Rollback to `kDead` and return to `FreeList`.
         const uint64_t rollback =
             PackControl(NodeState::kDead, EvictState::kCold, new_version, 0, 0);
         node.control_block.store(rollback, std::memory_order_release);
-        impl()->free_node_list_.Push(node_id);
+        Inner()->free_node_list_.Push(node_id);
         return std::nullopt;
     }
 
@@ -163,19 +164,19 @@ std::optional<uint32_t> VectorIndex::AcquireNode(
 }
 
 void VectorIndex::ReleaseNode(const uint32_t node_id) noexcept {
-    impl()->free_node_list_.Push(node_id);
+    Inner()->free_node_list_.Push(node_id);
 }
 
 std::optional<SearchResult> VectorIndex::SearchL0(const float* query
 ) const noexcept {
-    const uint32_t right = impl()->l0_buffer_.SnapPushHead();
-    const uint32_t left  = impl()->l0_buffer_.SnapPopTail();
+    const uint32_t right = Inner()->l0_buffer_.SnapPushHead();
+    const uint32_t left  = Inner()->l0_buffer_.SnapPopTail();
 
     uint32_t count = right - left;
     return ScoreCandidates</*kBoundsSafe=*/true>(
-        impl()->arena_, query,
+        Inner()->arena_, query,
         [&](uint32_t idx) noexcept {
-            return impl()->l0_buffer_.LoadSlot(left + idx);
+            return Inner()->l0_buffer_.LoadSlot(left + idx);
         },
         [count]() noexcept { return count; }
     );
@@ -184,14 +185,14 @@ std::optional<SearchResult> VectorIndex::SearchL0(const float* query
 std::optional<SearchResult> VectorIndex::SearchL1(const float* query
 ) const noexcept {
     const uint8_t active =
-        impl()->active_route_.load(std::memory_order_acquire);
-    const RoutingTable& table = impl()->routes_[active];
+        Inner()->active_route_.load(std::memory_order_acquire);
+    const RoutingTable& table = Inner()->routes_[active];
 
     const uint32_t cluster_id = table.MatchCluster(query);
     auto           members    = table.ClusterMemberIds(cluster_id);
 
     return ScoreCandidates</*kBoundsSafe=*/false>(
-        impl()->arena_, query,
+        Inner()->arena_, query,
         [&](uint32_t idx) noexcept {
             return members[idx].load(std::memory_order_acquire);
         },
@@ -201,78 +202,20 @@ std::optional<SearchResult> VectorIndex::SearchL1(const float* query
     );
 }
 
-CacheOutcome VectorIndex::FetchPayload(
-    const uint32_t node_id, const uint8_t expected_version,
-    const uint64_t curr_time, std::string* out
-) const {
-    MetaNode& node = impl()->arena_.GetNode(node_id);
-
-    {
-        const auto [state, ref, version, length, v_offset] = node.LoadControl();
-
-        if (version != expected_version || state == NodeState::kDead) {
-            return CacheOutcome::kMiss;
-        }
-
-        if (state == NodeState::kPending) {
-            const uint64_t ts = node.created_at.load(std::memory_order_acquire);
-            if (curr_time - ts > kPendingLifespan) {
-                return CacheOutcome::kMiss;
-            }
-
-            return CacheOutcome::kPendingHit;
-        }
-
-        try {
-            out->resize(length);
-        } catch (const std::exception&) {
-            return CacheOutcome::kMiss;
-        }
-
-        impl()->arena_.ReadPayload(v_offset, length, out);
-    }
-
-    if (node.LoadVersion(std::memory_order_acquire) != expected_version) {
-        out->clear();
-        return CacheOutcome::kMiss;
-    }
-
-    return CacheOutcome::kHit;
+CacheOutcome VectorIndex::Fetch(
+    const uint32_t node_id, const uint8_t exp_ver, const uint64_t curr_time,
+    std::string* out
+) const noexcept {
+    return Inner()->arena_.ReadPayload(node_id, exp_ver, curr_time, out);
 }
 
-bool VectorIndex::CommitPayload(
+bool VectorIndex::Commit(
     const uint32_t node_id, const uint8_t* in, const uint32_t length
 ) noexcept {
-    if (node_id >= impl()->arena_.max_slots) {
-        return false;
-    }
-
-    MetaNode& node = impl()->arena_.GetNode(node_id);
-    const auto [state, ref, version, old_len, old_off] = node.LoadControl();
-
-    if (state != NodeState::kPending) {
-        return false;
-    }
-
-    const auto opt_offset = impl()->arena_.WritePayload(node_id, in, length);
-    if (!opt_offset.has_value()) {
-        return false;
-    }
-
-    auto       expected = PackControl(state, ref, version, old_len, old_off);
-    const auto desired =
-        PackControl(NodeState::kReady, ref, version, length, *opt_offset);
-
-    // If this CAS fails, that means the node was evicted/reused between
-    // LoadControl() and this point.
-    // The payload bytes written becomes orphanated in the ring buffer, waiting
-    // for GC to come and reclaim.
-    return node.control_block.compare_exchange_strong(
-        expected, desired, std::memory_order_release, std::memory_order_relaxed
-    );
+    return Inner()->arena_.WritePayload(node_id, in, length).has_value();
 }
 
-L0Buffer& VectorIndex::GetL0Buffer() noexcept { return impl()->l0_buffer_; }
+L0Buffer& VectorIndex::GetL0Buffer() noexcept { return Inner()->l0_buffer_; }
 
 namespace {
 
@@ -295,8 +238,8 @@ void VectorIndex::RunCoordinator(const std::atomic<bool>& shutdown_req) {
     // -------------------------------------------------------------------------
     {
         const uint8_t inactive =
-            1 - impl()->active_route_.load(std::memory_order_acquire);
-        RoutingTable& table = impl()->routes_[inactive];
+            1 - Inner()->active_route_.load(std::memory_order_acquire);
+        RoutingTable& table = Inner()->routes_[inactive];
 
         uint32_t seeded = 0;
         while (seeded < table.num_clusters) {
@@ -304,13 +247,13 @@ void VectorIndex::RunCoordinator(const std::atomic<bool>& shutdown_req) {
                 return;
             }
 
-            const uint32_t node_id = impl()->l0_buffer_.TryPop();
+            const uint32_t node_id = Inner()->l0_buffer_.TryPop();
             if (node_id == L0Buffer::kEmpty) {
                 std::this_thread::sleep_for(kBootstrapIdleBackoff);
                 continue;
             }
 
-            MetaNode& node = impl()->arena_.GetNode(node_id);
+            MetaNode& node = Inner()->arena_.GetNode(node_id);
             const auto [state, ref, version, length, v_offset] =
                 node.LoadControl();
             if (state == NodeState::kDead) {
@@ -318,7 +261,7 @@ void VectorIndex::RunCoordinator(const std::atomic<bool>& shutdown_req) {
                 continue;
             }
 
-            const float* vec = impl()->arena_.GetVector(node_id);
+            const float* vec = Inner()->arena_.GetVector(node_id);
             table.SeedCentroid(seeded, vec);
 
             if (node.LoadVersion() != version) {
@@ -331,15 +274,15 @@ void VectorIndex::RunCoordinator(const std::atomic<bool>& shutdown_req) {
                 // fist member, so the cluster can never be full.
                 continue;
             }
-            impl()->node_owner_[node_id].store(
+            Inner()->node_owner_[node_id].store(
                 seeded, std::memory_order_relaxed
             );
 
             ++seeded;
         }
 
-        impl()->active_route_.store(inactive, std::memory_order_release);
-        impl()->ivf_enabled_.store(true, std::memory_order_release);
+        Inner()->active_route_.store(inactive, std::memory_order_release);
+        Inner()->ivf_enabled_.store(true, std::memory_order_release);
     }
 
     // -------------------------------------------------------------------------
@@ -347,14 +290,14 @@ void VectorIndex::RunCoordinator(const std::atomic<bool>& shutdown_req) {
     // started. And since no episode has been published, no semantic drift
     // happens (yet), so Reassignment is meaningless this time.
     // -------------------------------------------------------------------------
-    while (impl()->recalibrator_->CurrentPhase() == Recalibrator::Phase::kIdle
+    while (Inner()->recalibrator_->CurrentPhase() == Recalibrator::Phase::kIdle
     ) {
         if (shutdown_req.load(std::memory_order_relaxed)) {
             return;
         }
 
-        impl()->RunCompaction();
-        impl()->recalibrator_->NotifyCompactionSucceeded();
+        Inner()->RunCompaction();
+        Inner()->recalibrator_->NotifyCompactionSucceeded();
         std::this_thread::sleep_for(kCoordinatorTick);
     }
 
@@ -362,10 +305,10 @@ void VectorIndex::RunCoordinator(const std::atomic<bool>& shutdown_req) {
     // Steady-state. The Coordinator stays in this loop forever after.
     // -------------------------------------------------------------------------
     while (!shutdown_req.load(std::memory_order_relaxed)) {
-        impl()->RunCompaction();
-        impl()->recalibrator_->NotifyCompactionSucceeded();
-        impl()->recalibrator_->Tick();
-        impl()->RunReassignment();
+        Inner()->RunCompaction();
+        Inner()->recalibrator_->NotifyCompactionSucceeded();
+        Inner()->recalibrator_->Tick();
+        Inner()->RunReassignment();
         std::this_thread::sleep_for(kCoordinatorTick);
     }
 }

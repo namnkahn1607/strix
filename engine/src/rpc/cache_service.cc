@@ -130,7 +130,7 @@ grpc::Status CacheServiceImpl::SetCache(
             return {grpc::StatusCode::INVALID_ARGUMENT, "Oversized payload"};
         }
 
-        response->set_success(index_.CommitPayload(
+        response->set_success(index_.Commit(
             node_id, reinterpret_cast<const uint8_t*>(payload.data()),
             payload_len
         ));
@@ -151,7 +151,7 @@ bool CacheServiceImpl::ProcessCandidate(
     const SearchOutcome& candidate, const uint64_t timestamp,
     strix::v1::CheckCacheResponse* response
 ) const {
-    const auto outcome = index_.FetchPayload(
+    const auto outcome = index_.Fetch(
         candidate.node_id, candidate.version, timestamp,
         response->mutable_cached_payload()
     );
