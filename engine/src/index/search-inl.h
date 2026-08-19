@@ -44,7 +44,7 @@ struct TopTwoAccumulator {
     }
 
     std::optional<SearchResult> Finalize() const noexcept {
-        if (fst_score >= kSimilarityThreshold) {
+        if (fst_score < kSimilarityThreshold) {
             return std::nullopt;
         }
 
@@ -113,7 +113,7 @@ std::optional<SearchResult> ScoreCandidates(
             break;
         }
 
-        uint32_t record;
+        const uint32_t node_id = node_at(i);
         if constexpr (kBoundsSafe) {
             // L0-tier search falls here.
             const uint32_t pf_id = node_at(i + kPrefetchDistance);
@@ -126,8 +126,7 @@ std::optional<SearchResult> ScoreCandidates(
                 );
             }
 
-            record = node_at(i);
-            if (record == NodeBuf::kEmpty) {
+            if (node_id == NodeBuf::kEmpty) {
                 continue;
             }
 
@@ -140,11 +139,7 @@ std::optional<SearchResult> ScoreCandidates(
                 reinterpret_cast<const char*>(pf_vec) + 256,
                 /*rw=*/0, /*locality=*/3
             );
-
-            record = node_at(i);
         }
-
-        const uint32_t& node_id = record;
 
         batch_ids[batch_count]  = node_id;
         batch_vers[batch_count] = arena.GetNode(node_id).LoadVersion();
