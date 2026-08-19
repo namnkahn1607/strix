@@ -13,8 +13,10 @@ AlignConsecutiveDeclarations:
   AcrossComments: false
 AllowShortCaseLabelsOnASingleLine: true
 BreakConstructorInitializers: BeforeComma
+DerivePointerAlignment: false
 IndentWidth: 4
 InsertNewlineAtEOF: true
+PointerAlignment: Left
 SortIncludes: true
 TabWidth: 4
 UseTab: Never
