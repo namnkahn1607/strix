@@ -88,7 +88,7 @@ target_include_directories(engine_contract PUBLIC "${PROTO_GEN_DIR}")
 # ==============================================================================
 # 4. DATA PLANE MODULES
 #   include/<module>/*.h : Public API
-#   src/<module>/*.h     : Private API 
+#   src/<module>/*.h     : Private API
 # ==============================================================================
 set(ENGINE_SOURCE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
@@ -125,7 +125,11 @@ target_include_directories(engine_memory
     PUBLIC ${PUBLIC_HEADER_ROOT}
     PRIVATE ${ENGINE_SOURCE_ROOT}/memory
 )
-target_link_libraries(engine_memory PRIVATE engine_options engine_common)
+target_link_libraries(engine_memory PRIVATE
+    engine_options
+    engine_common
+    engine_worker
+)
 
 # Module 6: Index
 add_library(engine_index STATIC
@@ -138,7 +142,7 @@ target_include_directories(engine_index
     PUBLIC ${PUBLIC_HEADER_ROOT}
     PRIVATE ${ENGINE_SOURCE_ROOT}/index
 )
-target_link_libraries(engine_index PRIVATE 
+target_link_libraries(engine_index PRIVATE
     engine_options
     engine_common
     engine_memory
@@ -150,7 +154,7 @@ target_include_directories(engine_service
     PUBLIC ${PUBLIC_HEADER_ROOT}
     PRIVATE ${ENGINE_SOURCE_ROOT}/rpc
 )
-target_link_libraries(engine_service PRIVATE 
+target_link_libraries(engine_service PRIVATE
     engine_options
     engine_common
     engine_inference
@@ -163,10 +167,10 @@ target_link_libraries(engine_service PRIVATE
 # 5. FINAL EXECUTABLE
 # ==============================================================================
 add_executable(strix_engine src/main.cc)
-target_link_libraries(strix_engine PRIVATE 
-    engine_options 
+target_link_libraries(strix_engine PRIVATE
+    engine_options
     engine_common
-    engine_inference 
+    engine_inference
     engine_dpkernel
     engine_worker
     engine_memory
@@ -225,9 +229,9 @@ add_unit_test(memory_arena_test memory
     LIBS engine_common engine_memory
 )
 
-# Level-0 node buffer
-add_unit_test(level0_ring_test index
-    SOURCES src/index/tests/level0_ring_test.cc
+# L0-tier node buffer
+add_unit_test(node_buf_test index
+    SOURCES src/index/tests/node_buf_test.cc
     LIBS engine_common engine_index
 )
 
@@ -272,9 +276,9 @@ add_micro_bench(memory_arena_bench memory
     LIBS engine_options engine_common engine_memory
 )
 
-# Level-0 node buffer
-add_micro_bench(level0_ring_bench index
-    SOURCES src/index/bench/level0_ring_bench.cc
+# L0-tier node buffer
+add_micro_bench(node_buf_bench index
+    SOURCES src/index/bench/node_buf_bench.cc
     LIBS engine_options engine_common engine_index
 )
 
