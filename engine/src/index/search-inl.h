@@ -1,7 +1,4 @@
-// Author: namnkahn1607
-//
-// The shared batch-scoring kernel used by both L0 and L1
-// vector search subroutines.
+// Batch-scoring kernel shared by both L0/L1-tier search routines.
 
 #pragma once
 
@@ -9,22 +6,27 @@
 
 #include "dot_product/avx2_kernel.h"
 #include "index/search_result.h"
-#include "level0_ring.h"
 #include "memory/memory_arena.h"
+#include "node_buf.h"
 
-// Lookahead distance for the software prefetcher: 8 vectors, which is
-// 2 batch-4 iterations ahead of the position currently being scored.
+// Lookahead distance for software prefetcher: `2` batch iterations ahead of
+// the position currently being scored.
 inline constexpr uint32_t kPrefetchDistance = 2 * kBatchSize;
 
-// `TopTwoAccumulator` finalizes the vector search top 2 result by simutaneously
-// evaluating the dot product score.
+// TopTwoAccumulator finalizes top 2 search result by simutaneously evaluating
+// the dot product score.
 // CAUTION: Not intended to use externally.
 struct TopTwoAccumulator {
-    float    fst_score = -1.0f, sec_score = -1.0f;
-    uint32_t fst_id = 0, sec_id = 0;
-    uint8_t  fst_ver = 0, sec_ver = 0;
+    float fst_score = -1.0f;
+    float sec_score = -1.0f;
 
-    inline void Consider(uint32_t id, uint8_t ver, float score) noexcept {
+    uint32_t fst_id = 0;
+    uint32_t sec_id = 0;
+
+    uint8_t fst_ver = 0;
+    uint8_t sec_ver = 0;
+
+    void Consider(uint32_t id, uint8_t ver, float score) noexcept {
         if (score > fst_score) {
             sec_id    = fst_id;
             sec_score = fst_score;
@@ -41,14 +43,14 @@ struct TopTwoAccumulator {
         }
     }
 
-    inline std::optional<SearchResult> Finalize() const noexcept {
-        if (fst_score > kSimilarityThreshold) {
+    std::optional<SearchResult> Finalize() const noexcept {
+        if (fst_score >= kSimilarityThreshold) {
             return std::nullopt;
         }
 
         SearchResult res;
         res.primary = {fst_id, fst_ver};
-        if (sec_score > kSimilarityThreshold) {
+        if (sec_score >= kSimilarityThreshold) {
             res.secondary = {sec_id, sec_ver};
         }
 
@@ -56,9 +58,8 @@ struct TopTwoAccumulator {
     }
 };
 
-// `ScoreCandidates()` is the shared batch-scoring routine of both vector
-// search sub-routines. Takes `MemoryArena` explicitly as argument to access
-// vector data.
+// ScoreCandidates represents the shared batch-scoring kernel of both vector
+// search sub-routines.
 //
 //   1. `kBoundsSafe == true`  : For ring buffer has natural wrap-around (using
 //                               AND arithmetic). No manual bounds check needed.
@@ -80,8 +81,7 @@ std::optional<SearchResult> ScoreCandidates(
             return;
         }
 
-        // Pad unused lanes by duplicating the last valid pointer so the batch-4
-        // kernel never dereferences garbage.
+        // Pad unused lanes by duplicating the last valid item.
         for (uint32_t i = batch_count; i < kBatchSize; ++i) {
             batch_ids[i] = batch_ids[batch_count - 1];
         }
@@ -92,16 +92,16 @@ std::optional<SearchResult> ScoreCandidates(
             arena.GetVector(batch_ids[2]), arena.GetVector(batch_ids[3]), scores
         );
 
-        // Cautious: Only consider non-padding items.
+        // Only consider non-padding items.
         for (uint32_t k = 0; k < batch_count; ++k) {
             const uint32_t id = batch_ids[k];
 
-            const uint8_t curr_ver = arena.GetNode(id).LoadVersion();
-            if (curr_ver != batch_vers[k]) {
+            if (arena.GetNode(id).LoadVersion() != batch_vers[k]) {
+                // Version mismatch: torn-read in computing dot product. Skip.
                 continue;
             }
 
-            acc.Consider(id, curr_ver, scores[k]);
+            acc.Consider(id, batch_vers[k], scores[k]);
         }
 
         batch_count = 0;
@@ -115,9 +115,9 @@ std::optional<SearchResult> ScoreCandidates(
 
         uint32_t record;
         if constexpr (kBoundsSafe) {
-            // L0 vector search falls here. No branching check.
+            // L0-tier search falls here.
             const uint32_t pf_id = node_at(i + kPrefetchDistance);
-            if (pf_id != L0Buffer::kEmpty) {
+            if (pf_id != NodeBuf::kEmpty) {
                 const float* pf_vec = arena.GetVector(pf_id);
                 __builtin_prefetch(pf_vec, /*rw=*/0, /*locality=*/3);
                 __builtin_prefetch(
@@ -127,12 +127,12 @@ std::optional<SearchResult> ScoreCandidates(
             }
 
             record = node_at(i);
-            if (record == L0Buffer::kEmpty) {
+            if (record == NodeBuf::kEmpty) {
                 continue;
             }
 
         } else if (i + kPrefetchDistance < count) {
-            // L1 vector search falls here.
+            // L1-tier search falls here.
             const uint32_t pf_id  = node_at(i + kPrefetchDistance);
             const float*   pf_vec = arena.GetVector(pf_id);
             __builtin_prefetch(pf_vec, /*rw=*/0, /*locality=*/3);
