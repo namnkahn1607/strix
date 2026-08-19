@@ -129,7 +129,7 @@ target_link_libraries(engine_memory PRIVATE engine_options engine_common)
 
 # Module 6: Index
 add_library(engine_index STATIC
-    src/index/level0_ring.cc
+    src/index/node_buf.cc
     src/index/level1_ivf.cc
     src/index/recalibration.cc
     src/index/vector_index.cc
