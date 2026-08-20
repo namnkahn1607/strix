@@ -15,15 +15,11 @@ struct IvfConfig {
     // Must be greater than the average number of vectors per cluster.
     const uint32_t max_cluster_size;
 
-    // Page prefault enabled? (default: `true`).
-    const bool prefault = true;
-
     // Configures `1024` clusters, `1024` max size with page prefault.
     static IvfConfig Standard() {
         return {
             /*num_clusters=*/1'024,
             /*max_cluster_size=*/1'024,
-            /*prefault=*/true,
         };
     }
 };

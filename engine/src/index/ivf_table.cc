@@ -28,7 +28,7 @@ IvfTable::IvfTable(const IvfConfig& config)
     }
 
     centroids_ = static_cast<float*>(
-        common::AllocMMap(num_clusters * kVectorMemsize, config.prefault)
+        common::AllocMMap(num_clusters * kVectorMemsize, true)
     );
     cluster_sizes_   = std::make_unique<std::atomic<uint32_t>[]>(num_clusters);
     cluster_members_ = std::make_unique<std::atomic<uint32_t>[]>(
