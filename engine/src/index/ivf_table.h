@@ -15,7 +15,7 @@
 // Thread-safe under multiple reader, single writer.
 //
 // Ownership model: construct once, pass by reference to consumers.
-class IvfTable {
+class IvfTable final {
 public:
     static constexpr uint32_t kUnclustered = 0xFFFFFFFFu;
 
