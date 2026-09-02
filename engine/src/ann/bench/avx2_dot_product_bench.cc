@@ -14,10 +14,10 @@ namespace inference = strix::inference;
 
 namespace {
 
-// Both benchmark run against a contiguous buffer of 2048 vectors.
+// Both benchmark run against a contiguous buffer of 1024 vectors.
 // Get the performance delta attributable not to memory layout, cache behavior
 // distinction or data churn.
-constexpr uint32_t kNumVectors = 2'048u;
+constexpr uint32_t kNumVectors = 1'024u;
 
 float* AllocVecBuf(uint32_t num_vectors, uint32_t seed = 0xABC) {
     constexpr uint32_t kAlign    = 32;
@@ -53,7 +53,7 @@ static void BenchDotProduct_Contiguous(benchmark::State& state) {
 
             benchmark::DoNotOptimize(query);
             benchmark::DoNotOptimize(batch_start);
-            ann::DotProductContiguousBatch(query, batch_start, scores);
+            ann::BatchDotProduct(query, batch_start, scores);
             benchmark::DoNotOptimize(scores);
         }
     }
@@ -85,7 +85,7 @@ static void BenchDotProduct_Discrete(benchmark::State& state) {
             benchmark::DoNotOptimize(v1);
             benchmark::DoNotOptimize(v2);
             benchmark::DoNotOptimize(v3);
-            ann::DotProductDiscreteBatch(query, v0, v1, v2, v3, scores);
+            ann::BatchDotProduct(query, v0, v1, v2, v3, scores);
             benchmark::DoNotOptimize(scores);
         }
     }
