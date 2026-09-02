@@ -10,4 +10,8 @@ inline constexpr size_t kMaxTokens = 256;
 inline constexpr size_t kVectorDim     = 384;
 inline constexpr size_t kVectorMemsize = kVectorDim * sizeof(float);
 
+static_assert(
+    kVectorDim % 8 == 0, "Vector dimension must fit in AVX2 registers."
+);
+
 }  // namespace strix::inference
