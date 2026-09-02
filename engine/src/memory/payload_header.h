@@ -1,25 +1,28 @@
-// Payload header struct definition with valid identifier.
+// Payload header.
 
 #pragma once
 
 #include <cstdint>
 
-// `PayloadHeader` is prepended to every payload in ring buffer.
-// Enables constant reverse-lookup from a ring buffer payload to its `MetaNode`.
+namespace strix::memory {
+
+// Header prepended to every payload in buffer.
+// Enables constant reverse-lookup from a payload buffer to its `MetaNode`.
 struct alignas(4) PayloadHeader {
-    static constexpr uint32_t kValidIdentifier = 0xDEADBEEFU;
+    static constexpr uint32_t kValidIdentifier = 0xDEADBEEFu;
 
     // Caller-supplied tag; used to verify header integrity.
     const uint32_t identifier;
 
-    // Index of the `MetaNode` that owns this payload.
+    // `MetaNode` ID that owns this payload.
     const uint32_t node_id;
-    
-    // Payload byte length, excluding this header.
+
+    // Payload length in bytes, excluding this header.
     const uint32_t length;
 };
 
-// Compile-time assertion to ensure expected memory footprint.
 static_assert(
-    sizeof(PayloadHeader) == 12, "PayloadHeader should be 12-byte in memory"
+    sizeof(PayloadHeader) == 12, "PayloadHeader must be 12-byte size in memory"
 );
+
+}  // namespace strix::memory

@@ -1,5 +1,3 @@
-// Control block internal structure fields with its encoder/decoder.
-//
 // Control block bit layout (64 bits):
 //   Bits 63–62  (2 bits)  : NodeState
 //   Bit  61     (1 bit)   : EvictState  (CLOCK reference bit)
@@ -13,10 +11,18 @@
 
 #include "state.h"
 
-inline constexpr uint32_t kNodeStateShift = 62U;
-inline constexpr uint32_t kEvictShift     = 61U;
-inline constexpr uint32_t kVersionShift   = 57U;
-inline constexpr uint32_t kLengthShift    = 36U;
+namespace strix::memory {
+
+inline constexpr uint32_t kNodeStateShift = 62;
+inline constexpr uint32_t kEvictShift     = 61;
+inline constexpr uint32_t kVersionShift   = 57;
+inline constexpr uint32_t kLengthShift    = 36;
+
+inline constexpr uint64_t kNodeStateMask     = 0x3;
+inline constexpr uint64_t kEvictStateMask    = 0x1;
+inline constexpr uint64_t kVersionMask       = 0xF;
+inline constexpr uint64_t kVirtualOffsetMask = 0xF'FFFF'FFFFFFFFull;
+inline constexpr uint32_t kMaxPayloadLength  = 0x1F'FFFFu;
 
 static_assert(
     kEvictShift + 1 == kNodeStateShift,
@@ -24,67 +30,54 @@ static_assert(
 );
 static_assert(
     kVersionShift + 4 == kEvictShift,
-    "'version' field must occupy the 4 bits below the 'evict' bit"
+    "'version' field must occupy the 4-bit below the 'evict' bit"
 );
 static_assert(
     kLengthShift + 21 == kVersionShift,
-    "'length' field must sit below the 'version' field"
+    "'length' field must occupy the 21-bit sit below the 'version' field"
 );
-static_assert(
-    kLengthShift == 36, "'virtual offset' occupies bits [0, 36) unconditionally"
-);
+static_assert(kLengthShift == 36, "'virtual offset' must occupy bits [0, 36)");
 
-inline constexpr uint64_t kNodeStateMask     = 0x3ULL;
-inline constexpr uint64_t kEvictStateMask    = 0x1ULL;
-inline constexpr uint64_t kVersionMask       = 0xFULL;
-inline constexpr uint64_t kVirtualOffsetMask = 0xF'FFFF'FFFFULL;
-inline constexpr uint32_t kMaxPayloadLength  = 0x1F'FFFFU;
-
-// NextVersion advances a 4-bit version counter with wrap-around.
-//
-// Use only after a worker successfully acquired a fresh `node_id` and
-// finished committing its new vector data onto the node.
-//
-// This asymmetry lets a seqlock-style version check: snapshot -> read data ->
-// snapshot again, detect ownership change across multiple workers.
-inline uint8_t NextVersion(const uint8_t version) noexcept {
-    return (version + 1) & kVersionMask;
+// Advances a 4-bit version counter with wrap-around.
+// Use only after a successful node acquisition and the owner has finished
+// writing its new vector data onto that node.
+inline uint8_t NextVersion(const uint8_t ver) noexcept {
+    // This asymmetry lets a seqlock-style version check (snapshot -> read
+    // -> snapshot again) detects ownership change mid-read.
+    return (ver + 1) & kVersionMask;
 }
 
-// ControlBlock provides the decoded view of control block of a `MetaNode`.
-// Produced by `UnpackControl(uint64_t)`; consumed by any logical worker that
-// needs to access the internal state/field of a node.
+// Decoded view of control block.
 struct ControlBlock {
+    // By default, overflow argument values are truncated to fit their field's
+    // bit-width (e.g. X bits) by keeping only X LSB(s).
+    static uint64_t Pack(
+        NodeState state, EvictState ref, uint8_t ver, uint32_t length,
+        uint64_t offset
+    ) noexcept {
+        return (static_cast<uint64_t>(state) << kNodeStateShift) |
+               (static_cast<uint64_t>(ref) << kEvictShift) |
+               ((static_cast<uint64_t>(ver) & kVersionMask) << kVersionShift) |
+               (static_cast<uint64_t>(length & kMaxPayloadLength)
+                << kLengthShift) |
+               (offset & kVirtualOffsetMask);
+    }
+
+    static ControlBlock Unpack(uint64_t ctrl) noexcept {
+        return {
+            static_cast<NodeState>((ctrl >> kNodeStateShift) & kNodeStateMask),
+            static_cast<EvictState>((ctrl >> kEvictShift) & kEvictStateMask),
+            static_cast<uint8_t>((ctrl >> kVersionShift) & kVersionMask),
+            static_cast<uint32_t>((ctrl >> kLengthShift) & kMaxPayloadLength),
+            ctrl & kVirtualOffsetMask
+        };
+    }
+
     NodeState  state;           // Current lifecycle state of the node.
     EvictState ref;             // Reference bit used by CLOCK algorithm.
     uint8_t    version;         // Seqlock-style version counter.
-    uint32_t   length;          // Payload length in bytes (max 2 MB - 1 byte).
-    uint64_t   virtual_offset;  // Virtual buffer offset (max 64 GB).
+    uint32_t   length;          // Payload length in bytes (max 2 MiB - 1 byte).
+    uint64_t   virtual_offset;  // Virtual buffer offset (max 64 GiB).
 };
 
-// PackControl encodes a `[state, ref, version, length, offset]` tuple into
-// a 64-bit control block word.
-//
-// By default, overflow argument values are truncated to fit their field's
-// bit-width (e.g. X bits) by keeping only X LSB(s).
-inline uint64_t PackControl(
-    const NodeState state, const EvictState ref, const uint8_t version,
-    const uint32_t length, const uint64_t offset
-) noexcept {
-    return (static_cast<uint64_t>(state) << kNodeStateShift) |
-           (static_cast<uint64_t>(ref) << kEvictShift) |
-           ((static_cast<uint64_t>(version) & kVersionMask) << kVersionShift) |
-           (static_cast<uint64_t>(length & kMaxPayloadLength) << kLengthShift) |
-           (offset & kVirtualOffsetMask);
-}
-
-// UnpackControl decodes a raw 64-bit word into a single `ControlBlock`.
-inline ControlBlock UnpackControl(const uint64_t control) noexcept {
-    return {
-        static_cast<NodeState>((control >> kNodeStateShift) & kNodeStateMask),
-        static_cast<EvictState>((control >> kEvictShift) & kEvictStateMask),
-        static_cast<uint8_t>((control >> kVersionShift) & kVersionMask),
-        static_cast<uint32_t>((control >> kLengthShift) & kMaxPayloadLength),
-        control & kVirtualOffsetMask
-    };
-}
+}  // namespace strix::memory

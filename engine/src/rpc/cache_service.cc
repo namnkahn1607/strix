@@ -1,6 +1,4 @@
-// Author: namnkahn1607
-//
-// CacheServiceImpl method definitions: CheckCache and SetCache RPC handlers.
+// RPC service handler.
 
 #include "rpc/cache_service.h"
 
@@ -9,15 +7,18 @@
 #include <exception>
 #include <optional>
 
-#include "common/syscall_utils.h"
-#include "inference/info.h"
+#include "cache.pb.h"
 #include "inference/sentence_encoder.h"
 #include "inference/simd_float_buf.h"
-#include "cache.pb.h"
+#include "memory/control_block.h"
 #include "worker/identity.h"
 
+namespace strix::rpc {
+
+namespace mem = strix::memory;
+
 CacheServiceImpl::CacheServiceImpl(
-    const SentenceEncoder& encoder, VectorIndex& index
+    const inf::SentenceEncoder& encoder, coll::VectorIndex& index
 )
     : encoder_(encoder), index_(index) {}
 
@@ -26,28 +27,21 @@ grpc::Status CacheServiceImpl::CheckCache(
     const strix::v1::CheckCacheRequest*   request,
     strix::v1::CheckCacheResponse*        response
 ) {
-    RegisterWorker();
+    worker::Register();
 
     try {
         if (request->prompt().empty()) {
             return {grpc::StatusCode::INVALID_ARGUMENT, "Prompt is empty"};
         }
 
-        // ------------------------------------------------------------------
-        // Vectorization
-        // ------------------------------------------------------------------
-
-        SimdFloatBuf query_buf;
-        if (auto encode_err = encoder_.Encode(
-                request->prompt(),
-                std::span<float, kVectorDim>{query_buf.data(), kVectorDim}
-            )) {
+        inf::SimdFloatBuf query_buf;
+        if (auto encode_err = encoder_.Encode(request->prompt(), query_buf)) {
             switch (encode_err.value()) {
-                case EncodeError::kTokenLimitExceeded:
+                case inf::EncodeError::kTokenLimitExceeded:
                     response->set_check_state(strix::v1::CACHE_STATE_REJECTED);
                     return grpc::Status::OK;
 
-                case EncodeError::kDegeneratedVector:
+                case inf::EncodeError::kDegeneratedVector:
                     response->set_check_state(strix::v1::CACHE_STATE_REJECTED);
                     return {
                         grpc::StatusCode::INTERNAL,
@@ -56,50 +50,41 @@ grpc::Status CacheServiceImpl::CheckCache(
             }
         }
 
-        const float* query = query_buf.data();
-
-        // ------------------------------------------------------------------
-        // Vector Searching: HIT path
-        // ------------------------------------------------------------------
-
-        const uint64_t curr_time = common::MonotonicNow();
+        const float*      query     = query_buf.data();
+        Clock::time_point curr_time = Clock::now();
 
         const auto l0_result = index_.SearchL0(query);
         if (l0_result.has_value()) {
-            if (ProcessCandidate(l0_result->primary, curr_time, response)) {
+            if (Process(l0_result->primary, curr_time, response)) {
                 return grpc::Status::OK;
             }
 
             if (l0_result->secondary.has_value() &&
-                ProcessCandidate(*l0_result->secondary, curr_time, response)) {
+                Process(*l0_result->secondary, curr_time, response)) {
                 return grpc::Status::OK;
             }
         }
 
         const auto l1_result = index_.SearchL1(query);
         if (l1_result.has_value()) {
-            if (ProcessCandidate(l1_result->primary, curr_time, response)) {
+            if (Process(l1_result->primary, curr_time, response)) {
                 return grpc::Status::OK;
             }
 
             if (l1_result->secondary.has_value() &&
-                ProcessCandidate(*l1_result->secondary, curr_time, response)) {
+                Process(*l1_result->secondary, curr_time, response)) {
                 return grpc::Status::OK;
             }
         }
 
-        // ------------------------------------------------------------------
-        // Vector Searching: MISS path
-        // ------------------------------------------------------------------
-
-        const auto node_id_opt = index_.AcquireNode(query, curr_time);
-        if (!node_id_opt.has_value()) {
+        const auto opt_node_id = index_.AcquireNode(query, curr_time);
+        if (!opt_node_id.has_value()) {
             response->set_check_state(strix::v1::CACHE_STATE_REJECTED);
             return grpc::Status::OK;
         }
 
         response->set_check_state(strix::v1::CACHE_STATE_MISS);
-        response->set_node_id(*node_id_opt);
+        response->set_node_id(opt_node_id.value());
         return grpc::Status::OK;
 
     } catch (const std::exception& e) {
@@ -118,15 +103,15 @@ grpc::Status CacheServiceImpl::SetCache(
     strix::v1::SetCacheResponse*          response
 ) {
     try {
-        const uint32_t     node_id = request->node_id();
-        const std::string& payload = request->uncached_payload();
+        const auto  node_id = request->node_id();
+        const auto& payload = request->uncached_payload();
 
         if (request->uncached_payload().empty()) {
             return {grpc::StatusCode::INVALID_ARGUMENT, "Empty payload"};
         }
 
-        const uint32_t payload_len = static_cast<uint32_t>(payload.length());
-        if (payload_len > kMaxPayloadLength) {
+        const auto payload_len = static_cast<uint32_t>(payload.length());
+        if (payload_len > mem::kMaxPayloadLength) {
             return {grpc::StatusCode::INVALID_ARGUMENT, "Oversized payload"};
         }
 
@@ -134,7 +119,6 @@ grpc::Status CacheServiceImpl::SetCache(
             node_id, reinterpret_cast<const uint8_t*>(payload.data()),
             payload_len
         ));
-
         return grpc::Status::OK;
 
     } catch (const std::exception& e) {
@@ -147,27 +131,29 @@ grpc::Status CacheServiceImpl::SetCache(
     }
 }
 
-bool CacheServiceImpl::ProcessCandidate(
-    const SearchOutcome& candidate, const uint64_t timestamp,
+bool CacheServiceImpl::Process(
+    coll::SearchOutcome candidate, const Clock::time_point curr_time,
     strix::v1::CheckCacheResponse* response
 ) const {
     const auto outcome = index_.Fetch(
-        candidate.node_id, candidate.version, timestamp,
+        candidate.node_id, candidate.version, curr_time,
         response->mutable_cached_payload()
     );
 
     switch (outcome) {
-        case CacheOutcome::kHit:
+        case strix::CacheState::kHit:
             response->set_check_state(strix::v1::CACHE_STATE_HIT);
             return true;
 
-        case CacheOutcome::kPendingHit:
+        case strix::CacheState::kPendingHit:
             response->set_check_state(strix::v1::CACHE_STATE_PENDING);
             response->set_node_id(candidate.node_id);
             return true;
 
-        case CacheOutcome::kMiss: return false;
+        case strix::CacheState::kMiss: return false;
     }
 
     return false;
 }
+
+}  // namespace strix::rpc

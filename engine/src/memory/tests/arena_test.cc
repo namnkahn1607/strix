@@ -1,9 +1,9 @@
 // Unit tests for payload read/write operation in Memory Arena.
 //
-// These tests target the ring buffer chunking logic - specifically the
-// distinct code paths in WritePayload and ReadPayload:
+// Target the payload buffer chunking logic - specifically the distinct code
+// paths in payload reader and writer:
 //
-//   WritePayload paths:
+//   Write paths:
 //     [1] Sequential : header + data fit in one contiguous region.
 //     [2] Data wrap  : header fits, but data straddles the buffer boundary
 //                      (split into two memcpy calls).
@@ -11,13 +11,11 @@
 //                      the boundary - the expected behavior is to insert
 //                      padding and places the entire header at index 0.
 //
-//   ReadPayload paths:
+//   Read paths:
 //     [1] Sequential : data fits in one contiguous region.
 //     [2] Wrap       : data straddles the boundary (two memcpy calls).
-//
-// All configs have MAP_POPULATED disabled.
 
-#include "memory/memory_arena.h"
+#include "memory/arena.h"
 
 #include <gtest/gtest.h>
 
@@ -26,30 +24,24 @@
 
 #include "payload_header.h"
 
+using namespace strix::memory;
+
 namespace {
 
-inline constexpr size_t kSlots      = 4;
-inline constexpr size_t kBuf        = 256;  // 256 bytes
-inline constexpr size_t kHeaderSize = sizeof(PayloadHeader);
-inline constexpr size_t kNode       = 0;
+constexpr uint32_t kMaxSlots       = 4;
+constexpr uint32_t kNode           = 0;
+constexpr size_t   kPayloadBufSize = 256;
 
-// PayloadTestConfig specifies 4 slots, 256 bytes payload buffer with
-// `MAP_POPULATE` disabled.
-ArenaConfig PayloadTestConfig(const uint64_t start_point = 0) {
-    return ArenaConfig{
-        /*max_slots=*/kSlots, /*payload_buf_size=*/kBuf,
-        /*prefault=*/false, start_point
-    };
+ArenaConfig Config(uint64_t start_point = 0) {
+    return {kMaxSlots, kPayloadBufSize, /*prefault=*/false, start_point};
 }
 
-// GenPayload generates a deterministic payload of specified byte-size.
-std::string GenPayload(const size_t len) {
+// Generates a deterministic payload of specified byte-size.
+std::string GenPayload(size_t len) {
     std::string str(len, '\0');
     for (size_t i = 0; i < len; ++i) {
-        // Prime generators, avoid repetition.
-        str[i] = static_cast<char>((i * 37 + 13) % 251);
+        str[i] = static_cast<char>((i * 37 + 13) % 251);  // Prime generators.
     }
-
     return str;
 }
 
@@ -57,28 +49,30 @@ std::string GenPayload(const size_t len) {
 
 // -----------------------------------------------------------------------------
 // SequentialWriteRead
-// No payload wrapping involved
+// No payload wrapping involved.
 //
 // Layout after WritePayload(len=100) at write_head=0:
-//   [0..11]   = PayloadHeader
-//   [12..111] = 100 bytes of data
+//   [0..11]    = PayloadHeader
+//   [12..111]  = 100 bytes of data
 //   write_head = 112
 //
 // ReadPayload reads from text_index=12, length=100.
-// BUF - text_index = 244 >= 100 -> NON-WRAP.
+// BUF - text_index = 244 >= 100 -> NO data wrap.
 // -----------------------------------------------------------------------------
 TEST(MemoryArenaTest, SequentialWriteRead) {
-    MemoryArena arena{PayloadTestConfig(0)};
+    Arena arena{Config()};
 
-    const std::string in         = GenPayload(100);
-    const uint32_t    length     = static_cast<uint32_t>(in.size());
-    const auto        opt_offset = arena.WritePayload(
+    const std::string in     = GenPayload(100);
+    const uint32_t    length = static_cast<uint32_t>(in.size());
+
+    const auto opt_offset = arena.WritePayload(
         kNode, reinterpret_cast<const uint8_t*>(in.data()), length
     );
-    EXPECT_EQ(arena.GetWriteHead(), kHeaderSize + 100);
+    EXPECT_TRUE(opt_offset.has_value());
+    EXPECT_EQ(arena.GetWriteHead(), sizeof(PayloadHeader) + 100);
 
     std::string out;
-    arena.ReadPayload(*opt_offset, length, &out);
+    ArenaPrivateAccess::ReadPayload(arena, opt_offset.value(), length, &out);
     EXPECT_EQ(out, in);
 }
 
@@ -102,58 +96,60 @@ TEST(MemoryArenaTest, SequentialWriteRead) {
 //     chunk2 = 62 bytes from [0..61]
 // -----------------------------------------------------------------------------
 TEST(MemoryArenaTest, DataWrapAround) {
-    constexpr uint64_t kStart = kBuf - 50;
-    MemoryArena        arena{PayloadTestConfig(kStart)};
+    constexpr uint64_t kStart = kPayloadBufSize - 50;
+    Arena              arena{Config(kStart)};
 
-    const std::string in         = GenPayload(100);
-    const uint32_t    length     = static_cast<uint32_t>(in.size());
-    const auto        opt_offset = arena.WritePayload(
+    const std::string in     = GenPayload(100);
+    const uint32_t    length = static_cast<uint32_t>(in.size());
+
+    const auto opt_offset = arena.WritePayload(
         kNode, reinterpret_cast<const uint8_t*>(in.data()), length
     );
+    EXPECT_TRUE(opt_offset.has_value());
 
     std::string out;
-    arena.ReadPayload(*opt_offset, length, &out);
-    EXPECT_EQ(
-        out, in
-    ) << "data split across ring buffer boundary must reassemble correctly";
+    ArenaPrivateAccess::ReadPayload(arena, opt_offset.value(), length, &out);
+    EXPECT_EQ(out, in) << "Wrapped payload must reassemble correctly";
 }
 
 // -----------------------------------------------------------------------------
 // HeaderWrapPaddingInserted
-// Place write_head = read_tail = BUF - 8 = 248.
+// Place write_head = read_tail = kBuf - 8 = 248.
 //
 // WritePayload(len=100):
 //   AllocatePayload: actual_index = 248 & 255 = 248.
-//   BUF - actual_index = 256 - 248 = 8 < HEADER(12) -> INSERT PADDING.
+//   kBuf - actual_index = 256 - 248 = 8 < HEADER(12) -> INSERT PADDING.
 //   header_index = 256 & 255 = 0  (wraps to start of buffer).
 //   PayloadHeader written at [0..11].
 //   text_index = (0 + 12) & 255 = 12.
-//   BUF - 12 = 244 >= 100 -> NON-WRAP.
+//   kBuf - 12 = 244 >= 100 -> NON-WRAP.
 //   Data written at [12..111].
 //
 // ReadPayload(offset=256, 100):
 //   text_index = (256 + 12) & 255 = 12.
-//   BUF - 12 = 244 >= 100 -> NON-WRAP.
+//   kBuf - 12 = 244 >= 100 -> NON-WRAP.
 // -----------------------------------------------------------------------------
 TEST(MemoryArenaTest, HeaderWrapPaddingInserted) {
-    constexpr uint64_t kStart = kBuf - 8;
-    MemoryArena        arena{PayloadTestConfig(kStart)};
+    constexpr uint64_t kStart = kPayloadBufSize - 8;
+    Arena              arena{Config(kStart)};
 
-    const std::string in         = GenPayload(100);
-    const uint32_t    length     = static_cast<uint32_t>(in.size());
-    const auto        opt_offset = arena.WritePayload(
+    const std::string in     = GenPayload(100);
+    const uint32_t    length = static_cast<uint32_t>(in.size());
+
+    const auto opt_offset = arena.WritePayload(
         kNode, reinterpret_cast<const uint8_t*>(in.data()), length
     );
-    EXPECT_EQ(*opt_offset & (kBuf - 1), 0ULL)
-        << "header must start at physical index 0 after padding";
+    EXPECT_TRUE(opt_offset.has_value());
+    EXPECT_EQ(opt_offset.value() & (kPayloadBufSize - 1), 0)
+        << "Header must start at physical index 0 after padding";
 
     std::string out;
-    arena.ReadPayload(*opt_offset, length, &out);
-    EXPECT_EQ(out, in) << "header-wrapped payload must read back correctly";
+    ArenaPrivateAccess::ReadPayload(arena, opt_offset.value(), length, &out);
+    EXPECT_EQ(out, in) << "Header-wrapped payload must read back correctly";
 }
 
 // -----------------------------------------------------------------------------
-// ExhaustionThrows
+// ExhaustionWrite
 // GC never runs, so read_tail is pinned at start_point.
 // Write until used_space >= BUF.
 //
@@ -163,9 +159,10 @@ TEST(MemoryArenaTest, HeaderWrapPaddingInserted) {
 // -----------------------------------------------------------------------------
 TEST(MemoryArenaTest, ExhaustionThrows) {
     constexpr uint32_t kLen = 50;
-    MemoryArena        arena{PayloadTestConfig(0)};
-    const std::string  in   = GenPayload(kLen);
-    const auto*        data = reinterpret_cast<const uint8_t*>(in.data());
+    Arena              arena{Config()};
+
+    const std::string in   = GenPayload(kLen);
+    const auto*       data = reinterpret_cast<const uint8_t*>(in.data());
 
     for (int32_t i = 0; i < 4; ++i) {
         ASSERT_NO_THROW(arena.WritePayload(kNode, data, kLen))
@@ -182,7 +179,7 @@ TEST(MemoryArenaTest, ExhaustionThrows) {
 // Verifies write_head accounting across consecutive calls.
 // -----------------------------------------------------------------------------
 TEST(MemoryArenaTest, MultipleSequentialWrites) {
-    MemoryArena arena{PayloadTestConfig(0)};
+    Arena arena{Config(0)};
 
     const std::string in1 = GenPayload(20);
     const std::string in2 = GenPayload(30);
@@ -190,19 +187,24 @@ TEST(MemoryArenaTest, MultipleSequentialWrites) {
 
     const auto opt_offset1 =
         arena.WritePayload(0, reinterpret_cast<const uint8_t*>(in1.data()), 20);
+    EXPECT_TRUE(opt_offset1.has_value());
+
     const auto opt_offset2 =
         arena.WritePayload(1, reinterpret_cast<const uint8_t*>(in2.data()), 30);
+    EXPECT_TRUE(opt_offset2.has_value());
+
     const auto opt_offset3 =
         arena.WritePayload(2, reinterpret_cast<const uint8_t*>(in3.data()), 10);
+    EXPECT_TRUE(opt_offset3.has_value());
 
     std::string out;
 
-    arena.ReadPayload(*opt_offset1, 20, &out);
+    ArenaPrivateAccess::ReadPayload(arena, opt_offset1.value(), 20, &out);
     EXPECT_EQ(out, in1);
 
-    arena.ReadPayload(*opt_offset2, 30, &out);
+    ArenaPrivateAccess::ReadPayload(arena, opt_offset2.value(), 30, &out);
     EXPECT_EQ(out, in2);
 
-    arena.ReadPayload(*opt_offset3, 10, &out);
+    ArenaPrivateAccess::ReadPayload(arena, opt_offset3.value(), 10, &out);
     EXPECT_EQ(out, in3);
 }

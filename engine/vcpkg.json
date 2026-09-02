@@ -2,9 +2,10 @@
   "name": "strix-engine",
   "version-string": "1.0",
   "dependencies": [
+    "abseil",
+    "benchmark",
     "grpc",
-    "gtest",
-    "benchmark"
+    "gtest"
   ],
   "builtin-baseline": "cd61e1e26a038e82d6550a3ebbe0fbbfe7da78e3"
 }

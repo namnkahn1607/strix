@@ -1,5 +1,4 @@
-// Treiber Stack combined with tagging mechanism to avoid
-// ABA problem.
+// Treiber Stack + tagging technique to avoid ABA problem.
 
 #pragma once
 
@@ -8,15 +7,16 @@
 #include <memory>
 #include <stdexcept>
 
-// TaggedEntry packs a Treiber Stack top with a monotonic counter into a
-// single 8-byte word, so both fit in one CAS.
+namespace strix {
+
+// Packs a Treiber Stack top with monotonic counter, forming a 8-byte word.
 struct alignas(8) TaggedHead {
     uint32_t head_id;
 
-    // Monotonic counter increments on every stack push/pop.
+    // Monotonic counter increments on every push/pop.
+    uint32_t tag = 0;
     // Disambiguates a cycle back to the old `head_id`, hence resolving the ABA
     // problem of a plain Treiber Stack.
-    uint32_t tag = 0;
 };
 
 static_assert(
@@ -28,19 +28,15 @@ static_assert(
     "TaggedEntry CAS must be hardware lock-free"
 );
 
-// Compares 2 `TaggedHead` on invoking, each must have both `head_id` and `tag`
-// matched in order to produce equality.
 inline bool operator==(const TaggedHead& a, const TaggedHead& b) {
     return a.head_id == b.head_id && a.tag == b.tag;
 }
 
-// TreiberStack is a lock-free data structure that supports multiple concurrency
-// model of producers and consumers.
-//
-// Ownership: Contruct once. Assignment, copy, move semantics are prohibited.
+// Lock-free data structure supporting multiple concurrent model of
+// producers and consumers.
 class TreiberStack {
 public:
-    static constexpr uint32_t kEmpty = 0xFFFFFFFFU;
+    static constexpr uint32_t kEmpty = 0xFFFFFFFFu;
 
     explicit TreiberStack(uint32_t capacity) {
         if (capacity == 0) {
@@ -49,7 +45,7 @@ public:
             );
         }
 
-        free_head_.store({0U, 0U}, std::memory_order_relaxed);
+        free_head_.store({0, 0}, std::memory_order_relaxed);
 
         free_next_ = std::make_unique_for_overwrite<uint32_t[]>(capacity);
         for (uint32_t i = 0; i < capacity - 1; ++i) {
@@ -100,3 +96,5 @@ private:
     std::atomic<TaggedHead>     free_head_;
     std::unique_ptr<uint32_t[]> free_next_;
 };
+
+}  // namespace strix

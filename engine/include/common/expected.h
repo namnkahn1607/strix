@@ -1,15 +1,15 @@
-// A lightweight backport of std::expected<T, E> - a C++23 feature.
+// Lightweight backport of C++23's std::expected<T, E>.
 
 #pragma once
 
 #include <utility>
 #include <variant>
 
-// Expected<T, E> encodes success `T` or a predictable, non-fatal failure `E`
-// without exceptions.
-//
-// Use `Expected<T, E>` for errors that callers are expected to handle at the
-// call site (e.g. validation failures), not unrecoverable ones.
+namespace strix {
+
+// Encodes success `T` or a predictable, non-fatal failure `E`.
+// Use for errors that callers are expected to handle at the call-site (e.g.
+// validation failures), not unrecoverable ones.
 template <typename T, typename E>
 struct Expected {
     std::variant<T, E> data;
@@ -34,3 +34,5 @@ struct Expected {
         };
     }
 };
+
+}  // namespace strix

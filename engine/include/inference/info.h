@@ -1,11 +1,13 @@
-// Property constants of BERT Transformer all-MiniLM-L6-v2.
+// Property constants of BERT transformer all-MiniLM-L6-v2.
 
 #pragma once
 
-constexpr size_t kVectorDim = 384;
+namespace strix::inference {
 
-constexpr size_t kVectorMemsize = kVectorDim * sizeof(float);
+// Maximum word piece sequence length accepted by `all-MiniLM-L6-v2`.
+inline constexpr size_t kMaxTokens = 256;
 
-static_assert(
-    kVectorDim % 8 == 0, "Vector dimension must be AVX2-register aligned."
-);
+inline constexpr size_t kVectorDim     = 384;
+inline constexpr size_t kVectorMemsize = kVectorDim * sizeof(float);
+
+}  // namespace strix::inference

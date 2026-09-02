@@ -1,32 +1,29 @@
-// Text embedding pipeline declaration and its encoding failure enum.
+// Text embedding pipeline.
 
 #pragma once
 
 #include <onnxruntime_cxx_api.h>
 
 #include <optional>
-#include <span>
 #include <string>
 
-#include "info.h"
+#include "inference/simd_float_buf.h"
 
-// EncodeError lists all predictable, non-fatal encoding failures. Callers are
-// expected to translate these into gRPC status codes.
+namespace strix::inference {
+
+// Predictable, non-fatal encoding failures.
+// Callers are expected to map these into gRPC status codes.
 enum class EncodeError {
     kTokenLimitExceeded,  // Input exceeds the model's maximum token count.
-    kDegeneratedVector,   // Output vector is zero-norm; unusable for search.
+    kDegeneratedVector,   // Output vector is zero-norm; unusable for searching.
 };
 
-// SentenceEncoder owns 2 ORT sessions: a tokenizer and a transformer (BERT).
-// Both sessions are run sequentially to produce a 32-byte aligned embedding
-// vector for a given prompt.
+// Consists of 2 ORT sessions: a tokenizer and a BERT transformer.
+// Both sessions run sequentially to produce embedding vector of given prompt.
 //
-// Concurrency: Safe to call for inferencing from multiple threads. ORT sessions
-// are stateless per-run provided `Ort::SessionOptions` is not shared across
-// calls. `env_` and `options_` are read-only after construction.
-//
-// Ownership: construct once, pass by const reference to consumers.
-class SentenceEncoder {
+// Safe to invoke by multiple threads, as ORT sessions are stateless per-run
+// provided `Ort::SessionOptions` is not shared across calls.
+class SentenceEncoder final {
 public:
     explicit SentenceEncoder(const char* tok_path, const char* bert_path);
 
@@ -35,17 +32,14 @@ public:
     SentenceEncoder(SentenceEncoder&&)                 = delete;
     SentenceEncoder& operator=(SentenceEncoder&&)      = delete;
 
-    // Encode performs vectorization on a specified `prompt` string and writes
-    // result to `out` (`out` must be 32-byte aligned). Returns `EncodeError` on
-    // predictable failures.
-    // Throws `std::runtime_error` on session-level failures.
+    // Performs vectorization on a prompt string and writes the result vector
+    // values to `out`. Returns `EncodeError` on predictable failures, throws on
+    // session-level failures.
     std::optional<EncodeError> Encode(
-        const std::string& prompt, std::span<float, kVectorDim> out
+        const std::string& prompt, SimdFloatBuf& out
     ) const;
 
 private:
-    // InitOptions completes `Ort::SessionOptions` contruction before handling
-    // to `SentenEncoder` ctor to initialize any `Ort::Session`.
     static Ort::SessionOptions InitOptions();
 
     Ort::Env            env_;
@@ -54,3 +48,5 @@ private:
     mutable Ort::Session tok_session_;   // Tokenizer
     mutable Ort::Session bert_session_;  // Transformer
 };
+
+}  // namespace strix::inference

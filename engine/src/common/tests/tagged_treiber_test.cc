@@ -1,12 +1,10 @@
 // Unit tests for tagged Treiber Stack.
 //
 // Single-threaded cases ensure LIFO ordering, empty and boundary behavior.
-// Multi-threaded cases assert correctness under concurrent operations against 3
-// access model: multi-producers single consumer (MPSC), single-producer
-// multi-consumers (SPMC) and multi-producers multi-consumers (MPMC).
+// Multi-threaded cases assert correctness under concurrent operations against
+// 3 access models: MPSC, SPMC and MPMC.
 //
-// Encourage running under the advisory of ThreadSanitizer to catch specific
-// data race cases.
+// Run under ThreadSanitizer mode to catch specific data race cases.
 
 #include "common/tagged_treiber.h"
 
@@ -21,12 +19,14 @@
 #include <unordered_set>
 #include <vector>
 
+using namespace strix;
+
 TEST(TaggedTreiberSingleThread, ZeroCapacityThrows) {
-    EXPECT_THROW(TreiberStack(0), std::invalid_argument);
+    EXPECT_THROW(TreiberStack{0}, std::invalid_argument);
 }
 
 TEST(TaggedTreiberSingleThread, DrainsAllSlotsExactlyOnce) {
-    constexpr uint32_t kCapacity = 1'000;
+    constexpr uint32_t kCapacity = 1'000u;
     TreiberStack       stack(kCapacity);
 
     std::unordered_set<uint32_t> seen;
@@ -45,7 +45,7 @@ TEST(TaggedTreiberSingleThread, DrainsAllSlotsExactlyOnce) {
 TEST(TaggedTreiberSingleThread, PushPopIsLifo) {
     constexpr uint32_t kCapacity = 100;
 
-    TreiberStack stack(kCapacity);
+    TreiberStack stack{kCapacity};
     for (uint32_t i = 0; i < kCapacity; ++i) {
         stack.Pop();
     }
@@ -61,9 +61,10 @@ TEST(TaggedTreiberSingleThread, PushPopIsLifo) {
 }
 
 TEST(TaggedTreiberSingleThread, PushReusedSlotIsPoppableAgain) {
-    TreiberStack stack(2);
-    const auto   a = stack.Pop();
-    const auto   b = stack.Pop();
+    TreiberStack stack{2};
+
+    const auto a = stack.Pop();
+    const auto b = stack.Pop();
     ASSERT_NE(a, TreiberStack::kEmpty);
     ASSERT_NE(b, TreiberStack::kEmpty);
 
@@ -74,14 +75,14 @@ TEST(TaggedTreiberSingleThread, PushReusedSlotIsPoppableAgain) {
 
 namespace {
 
-// RunConcurrentPopOnlyDrain drains `TreiberStack` of `capacity` from
-// `num_threads` concurrent pop(s) with no push.
+// Multiple workers draining a tagged Treiber Stack instance with
+// concurrent pop(s) but no push.
 void RunConcurrentPopOnlyDrain(uint32_t capacity, uint32_t num_threads) {
     if (num_threads <= 0) {
         throw std::invalid_argument("Number of threads must be positive");
     }
 
-    TreiberStack stack(capacity);
+    TreiberStack stack{capacity};
 
     std::vector<std::vector<uint32_t>> per_thread_results(num_threads);
     std::barrier start_gate(static_cast<long>(num_threads));
@@ -120,43 +121,43 @@ void RunConcurrentPopOnlyDrain(uint32_t capacity, uint32_t num_threads) {
 }  // namespace
 
 TEST(TreiberStackConcurrency, TwoPopThreadsDrainExactlyOnce) {
-    RunConcurrentPopOnlyDrain(20'000U, 2);
+    RunConcurrentPopOnlyDrain(20'000u, 2);
 }
 
 TEST(TreiberStackConcurrency, ThreePopThreadsDrainExactlyOnce) {
-    RunConcurrentPopOnlyDrain(30'000U, 3);
+    RunConcurrentPopOnlyDrain(30'000u, 3);
 }
 
 TEST(TreiberStackConcurrency, FourPopThreadsDrainExactlyOnce) {
-    RunConcurrentPopOnlyDrain(40'000U, 4);
+    RunConcurrentPopOnlyDrain(40'000u, 4);
 }
 
 TEST(TreiberStackConcurrency, EightPopThreadsDrainExactlyOnce) {
-    RunConcurrentPopOnlyDrain(80'000U, 8);
+    RunConcurrentPopOnlyDrain(80'000u, 8);
 }
 
 // -----------------------------------------------------------------------------
 // ConcurrentPushAndPopMaintainsInvariant
-// Covers the multi-producers single consumer (MPSC) case: an ID must not be
-// checked out by more than 2 workers at the same time.
-// A stack that survives full contention of MPMC access model is safe under
-// weaker models such as SPMC or MPSC as well.
+// Covers the multi-producer multi-consumer case: an ID must not be checked out
+// by multiple workers at the same time.
+// A Treiber Stack that survives full contention of MPMC access model is safe
+// under weaker models such as SPMC or MPSC as well.
 // -----------------------------------------------------------------------------
 TEST(TreiberStackConcurrency, ConcurrentPushAndPopMaintainsInvariant) {
-    constexpr uint32_t kCapacity    = 20'000U;
+    constexpr uint32_t kCapacity    = 20'000u;
     constexpr uint32_t kNumThreads  = 8;
-    constexpr auto     kRunDuration = std::chrono::seconds(3);
+    constexpr auto     kRunDuration = std::chrono::seconds{3};
 
-    TreiberStack stack(kCapacity);
+    TreiberStack stack{kCapacity};
 
-    // `state[id] == 0` -> `id` currently sits free inside the stack.
-    // `state[id] == 1` -> `id` is being checked out by any thread.
+    // `state[id] == 0` -> Item currently sits free inside the stack.
+    // `state[id] == 1` -> Item is being checked out by any thread.
     std::vector<std::atomic<uint8_t>> state(kCapacity);
 
     std::atomic<bool>     stop{false};
     std::atomic<bool>     violation{false};
     std::atomic<uint64_t> total_ops{0};
-    std::barrier          start_gate(static_cast<long>(kNumThreads));
+    std::barrier          start_gate{static_cast<long>(kNumThreads)};
 
     auto worker = [&] {
         start_gate.arrive_and_wait();
@@ -174,7 +175,6 @@ TEST(TreiberStackConcurrency, ConcurrentPushAndPopMaintainsInvariant) {
                 violation.store(true, std::memory_order_relaxed);
             }
 
-            // Write ahead, publish later.
             state[id].store(0, std::memory_order_release);
             stack.Push(id);
 
@@ -195,8 +195,8 @@ TEST(TreiberStackConcurrency, ConcurrentPushAndPopMaintainsInvariant) {
     }
 
     ASSERT_FALSE(violation.load())
-        << "A worker popped an ID that was being checked out by another "
-           "worker; the stack handed out an ID twice concurrently.";
+        << "A worker got an ID that was being checked out by another worker; "
+           "the stack handed out an ID twice concurrently.";
     EXPECT_GT(total_ops.load(), 0U)
         << "No push/pop cycle completed in the run window; check for livelock "
            "in the CAS retry loop.";

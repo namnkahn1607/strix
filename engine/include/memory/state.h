@@ -2,29 +2,33 @@
 
 #pragma once
 
-// Maximum lifetime of a `kPending` node in seconds.
-// Nodes remaining `kPending` beyond this deadline are treated as expired/stale.
-inline constexpr uint32_t kPendingLifespan = 30;
+#include <chrono>
 
-// NodeState represents state machine lifecycle for a single node slot.
-// A state transition can only be achieved using compare-and-swap operation.
+namespace strix::memory {
+
+// Maximum lifetime of a PENDING node.
+// Crossing this deadline makes the node treated as expired/stale.
+inline constexpr std::chrono::seconds kPendingLifespan{30};
+
+// State machine lifecycle of a node slot.
 //
 // Valid transitions:
-//   - `kDead` -> `kPending`  : A worker acquired a `node_id` finished writing
-//                              its vector data; the slot is now searchable but
-//                              owns no payload (yet).
-//   - `kPending` -> `kReady` : payload committed; payload can now be
-//                              read/extract from this slot.
-//   - `kReady` -> `kDead`    : a `kCold` node being evicted by the GC; the slot
-//                              is then released back to `FreeList`.
+//   - `kDead` -> `kPending`  : A worker acquiring this node has finished
+//                              committing its vector data; the slot is now
+//                              searchable but owns no payload (yet).
+//   - `kPending` -> `kReady` : Payload committed and can now be read.
+//   - `kReady` -> `kDead`    : A COLD node being evicted by the GC; the slot
+//                              will then be released back to node ID Freelist.
 enum class NodeState : uint8_t {
     kDead    = 0,
     kPending = 1,
     kReady   = 2,
 };
 
-// EvictState represents CLOCK reference bit of a node slot.
+// CLOCK reference bit of a node slot.
 enum class EvictState : uint8_t {
-    kCold = 0,  // Evict.
-    kHot  = 1,  // Grant a "second chance".
+    kCold = 0,
+    kHot  = 1,
 };
+
+}  // namespace strix::memory

@@ -1,4 +1,4 @@
-// Text embedding pipeline implementation: ctor, double-session encoding.
+// Text embedding pipeline.
 
 #include "inference/sentence_encoder.h"
 
@@ -9,18 +9,13 @@
 #include <cmath>
 #include <cstring>
 #include <optional>
-#include <span>
 #include <stdexcept>
 #include <string>
 
 #include "inference/info.h"
+#include "inference/simd_float_buf.h"
 
-namespace {
-
-// Maximum word piece sequence length accepted by `all-MiniLM-L6-v2`.
-inline constexpr size_t kMaxTokens = 256;
-
-}  // namespace
+namespace strix::inference {
 
 Ort::SessionOptions SentenceEncoder::InitOptions() {
     Ort::SessionOptions options;
@@ -28,7 +23,7 @@ Ort::SessionOptions SentenceEncoder::InitOptions() {
     options.EnableOrtCustomOps();
     options.SetGraphOptimizationLevel(ORT_ENABLE_ALL);
 
-    // Single-threaded ORT execution. Avoid spawning too many threads, which
+    // Single-threaded ORT execution: avoid spawning too many threads, which
     // introduces unnecessary context-switch overhead.
     options.SetInterOpNumThreads(1);
     options.SetIntraOpNumThreads(1);
@@ -43,7 +38,7 @@ SentenceEncoder::SentenceEncoder(const char* tok_path, const char* bert_path)
     , bert_session_{env_, bert_path, options_} {}
 
 std::optional<EncodeError> SentenceEncoder::Encode(
-    const std::string& prompt, std::span<float, kVectorDim> out
+    const std::string& prompt, SimdFloatBuf& out
 ) const {
     const Ort::AllocatorWithDefaultOptions allocator;
 
@@ -115,7 +110,6 @@ std::optional<EncodeError> SentenceEncoder::Encode(
 
     // PHASE 5: Output shape validation
     // Expected shape: float[1, seq_length, kVectorDim].
-    // Rank or dimension mismatches indicate a unrecoverable error, throw.
 
     const Ort::Value& output_tensor = bert_outputs.front();
     const auto        output_shape =
@@ -134,11 +128,11 @@ std::optional<EncodeError> SentenceEncoder::Encode(
         );
     }
 
-    const auto vec_dim = static_cast<size_t>(output_shape[2]);
-    if (vec_dim != kVectorDim) {
+    const auto actual_dim = static_cast<size_t>(output_shape[2]);
+    if (actual_dim != kVectorDim) {
         throw std::runtime_error(
             "Transformer output dimension mismatch: expected " +
-            std::to_string(kVectorDim) + ", got " + std::to_string(vec_dim)
+            std::to_string(kVectorDim) + ", got " + std::to_string(actual_dim)
         );
     }
 
@@ -147,32 +141,36 @@ std::optional<EncodeError> SentenceEncoder::Encode(
     // across the sequence dimension.
 
     const float* __restrict__ src = output_tensor.GetTensorData<float>();
-    std::memset(out.data(), 0, vec_dim * sizeof(float));
+
+    float* dst = out.data();
+    std::memset(dst, 0, actual_dim * sizeof(float));
 
     const float inv_seq_len = 1.0f / static_cast<float>(seq_length);
     for (size_t i = 0; i < seq_length; ++i) {
-        for (size_t j = 0; j < vec_dim; ++j) {
-            out[j] += src[i * vec_dim + j] * inv_seq_len;
+        for (size_t j = 0; j < actual_dim; ++j) {
+            dst[j] += src[i * actual_dim + j] * inv_seq_len;
         }
     }
 
     // PHASE 7: Normalization
     // Scales ||out|| to 1.0, making dot product == cosine similarity.
-    // A near-zero norm indicates a degenerated vector.
 
     float sum_sq = 0.0f;
-    for (size_t i = 0; i < vec_dim; ++i) {
-        sum_sq += out[i] * out[i];
+    for (size_t i = 0; i < actual_dim; ++i) {
+        sum_sq += dst[i] * dst[i];
     }
 
     if (sum_sq < 1e-9f) {
+        // A near-zero norm indicates a degenerated vector.
         return EncodeError::kDegeneratedVector;
     }
 
     const float inv_norm = 1.0f / std::sqrt(sum_sq);
-    for (size_t i = 0; i < vec_dim; ++i) {
-        out[i] *= inv_norm;
+    for (size_t i = 0; i < actual_dim; ++i) {
+        dst[i] *= inv_norm;
     }
 
     return std::nullopt;
 }
+
+}  // namespace strix::inference
