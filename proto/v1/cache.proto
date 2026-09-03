@@ -19,7 +19,7 @@ message CheckCacheRequest {
 message CheckCacheResponse {
   CacheState check_state = 1;
   uint32 node_id = 2;
-  bytes cached_payload = 3;
+  bytes cached_payload = 3 /* [ctype = CORD] */;
 }
 
 message SetCacheRequest {
