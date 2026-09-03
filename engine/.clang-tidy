@@ -1,0 +1,27 @@
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  performance-*,
+  concurrency-mt-unsafe,
+  clang-analyzer-*
+
+WarningsAsErrors: >
+  bugprone-*,
+  performance-*
+
+HeaderFilterRegex: '^(include|src)/.*'
+
+FormatStyle: none
+
+CheckOptions:
+  - key: bugprone-narrowing-conversions.WarnOnIntegerNarrowingConversion
+    value: true
+  - key: bugprone-narrowing-conversions.WarnOnFloatingPointNarrowingConversion
+    value: true
+  - key: bugprone-narrowing-conversions.PedanticMode
+    value: true
+  - key: bugprone-reserved-identifier.AllowedIdentifiers
+    value: ''
+  - key: bugprone-sizeof-expression.WarnOnSizeOfIntegerExpression
+    value: false
