@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+find_package(absl CONFIG REQUIRED)
 find_package(Protobuf CONFIG REQUIRED)
 find_package(gRPC CONFIG REQUIRED)
 
@@ -39,13 +40,13 @@ add_library(engine_options INTERFACE)
 target_compile_options(engine_options INTERFACE
     -march=x86-64-v3
     -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wunreachable-code
-    -include "${CMAKE_CURRENT_SOURCE_DIR}/src/config/lockfree_invariants.h"
+    -include "${CMAKE_CURRENT_SOURCE_DIR}/src/misc/lockfree_invariants.h"
 )
 
 # ==============================================================================
 # 3. AUTO-GENERATE CONTRACTS
 # ==============================================================================
-set(PROTO_DIR "${STRIX_REPO_ROOT}/proto/strix/v1")
+set(PROTO_DIR "${STRIX_REPO_ROOT}/proto/v1")
 set(PROTO_FILE "${PROTO_DIR}/cache.proto")
 set(PROTO_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
@@ -74,7 +75,7 @@ add_custom_command(
         "${PROTO_FILE}"
         "${PROTOC_EXEC}"
         gRPC::grpc_cpp_plugin
-    COMMENT "Generating C++ gRPC stubs from strix.proto..."
+    COMMENT "Generating C++ gRPC stubs from cache.proto..."
 )
 
 # Package generated contracts into a static independent target
@@ -92,10 +93,10 @@ target_include_directories(engine_contract PUBLIC "${PROTO_GEN_DIR}")
 # ==============================================================================
 set(ENGINE_SOURCE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
-# Module 1: Common
-add_library(engine_common INTERFACE)
-target_include_directories(engine_common INTERFACE ${PUBLIC_HEADER_ROOT})
-target_link_libraries(engine_common INTERFACE engine_options)
+# Module 1: Base
+add_library(engine_base INTERFACE)
+target_include_directories(engine_base INTERFACE ${PUBLIC_HEADER_ROOT})
+target_link_libraries(engine_base INTERFACE engine_options)
 
 # Module 2: Inference
 add_library(engine_inference STATIC src/inference/sentence_encoder.cc)
@@ -103,13 +104,13 @@ target_include_directories(engine_inference
     PUBLIC ${PUBLIC_HEADER_ROOT}
     PRIVATE ${ENGINE_SOURCE_ROOT}/inference
 )
-target_link_libraries(engine_inference PRIVATE engine_options engine_common)
+target_link_libraries(engine_inference PRIVATE engine_options engine_base)
 target_link_libraries(engine_inference PUBLIC ONNXRuntime)
 
-# Module 3: Dot product (kernel)
-add_library(engine_dpkernel INTERFACE)
-target_include_directories(engine_dpkernel INTERFACE ${PUBLIC_HEADER_ROOT})
-target_link_libraries(engine_dpkernel INTERFACE engine_options engine_inference)
+# Module 3: ANN
+add_library(engine_ann INTERFACE)
+target_include_directories(engine_ann INTERFACE ${PUBLIC_HEADER_ROOT})
+target_link_libraries(engine_ann INTERFACE engine_options engine_inference)
 
 # Module 4: Worker
 add_library(engine_worker STATIC src/worker/identity.cc)
@@ -117,34 +118,40 @@ target_include_directories(engine_worker
     PUBLIC ${PUBLIC_HEADER_ROOT}
     PRIVATE ${ENGINE_SOURCE_ROOT}/worker
 )
-target_link_libraries(engine_worker PRIVATE engine_options engine_common)
+target_link_libraries(engine_worker PRIVATE
+    absl::log
+    engine_options
+    engine_base
+)
 
 # Module 5: Memory
-add_library(engine_memory STATIC src/memory/memory_arena.cc)
+add_library(engine_memory STATIC src/memory/arena.cc)
 target_include_directories(engine_memory
     PUBLIC ${PUBLIC_HEADER_ROOT}
     PRIVATE ${ENGINE_SOURCE_ROOT}/memory
 )
 target_link_libraries(engine_memory PRIVATE
+    absl::log
     engine_options
-    engine_common
+    engine_base
     engine_worker
 )
 
-# Module 6: Index
-add_library(engine_index STATIC
-    src/index/node_buf.cc
-    src/index/level1_ivf.cc
-    src/index/recalibration.cc
-    src/index/vector_index.cc
+# Module 6: Collection
+add_library(engine_collection STATIC
+    src/collection/collection.cc
+    src/collection/internal/node_buf.cc
+    src/collection/internal/ivf_table.cc
+    src/collection/internal/recalibration.cc
 )
-target_include_directories(engine_index
+target_include_directories(engine_collection
     PUBLIC ${PUBLIC_HEADER_ROOT}
-    PRIVATE ${ENGINE_SOURCE_ROOT}/index
+    PRIVATE ${ENGINE_SOURCE_ROOT}/collection
 )
-target_link_libraries(engine_index PRIVATE
+target_link_libraries(engine_collection PRIVATE
+    absl::log
     engine_options
-    engine_common
+    engine_base
     engine_memory
 )
 
@@ -156,10 +163,10 @@ target_include_directories(engine_service
 )
 target_link_libraries(engine_service PRIVATE
     engine_options
-    engine_common
+    engine_base
     engine_inference
     engine_memory
-    engine_index
+    engine_collection
     engine_contract
 )
 
@@ -169,12 +176,12 @@ target_link_libraries(engine_service PRIVATE
 add_executable(strix_engine src/main.cc)
 target_link_libraries(strix_engine PRIVATE
     engine_options
-    engine_common
+    engine_base
     engine_inference
-    engine_dpkernel
+    engine_ann
     engine_worker
     engine_memory
-    engine_index
+    engine_collection
     engine_service
     engine_contract
 )
@@ -206,39 +213,39 @@ function(add_unit_test target_name module_name)
 endfunction()
 
 # Dot product
-add_unit_test(avx2_kernel_test dot_product
-    SOURCES src/dot_product/tests/avx2_kernel_test.cc
-    LIBS engine_common engine_dpkernel
+add_unit_test(dot_product_test ann
+    SOURCES src/ann/dot_product_test.cc
+    LIBS engine_base engine_ann
 )
 
-# Inference model
-add_unit_test(inference_test inference
-    SOURCES src/inference/tests/inference_test.cc
-    LIBS engine_common engine_inference
+# Memory arena byte fetch/commit
+add_unit_test(arena_test memory
+    SOURCES src/memory/arena_test.cc
+    LIBS engine_base engine_memory
 )
 
 # Control block
 add_unit_test(control_block_test memory
-    SOURCES src/memory/tests/control_block_test.cc
-    LIBS engine_common engine_memory
+    SOURCES src/memory/control_block_test.cc
+    LIBS engine_base engine_memory
 )
 
-# Read/Write payload
-add_unit_test(memory_arena_test memory
-    SOURCES src/memory/tests/memory_arena_test.cc
-    LIBS engine_common engine_memory
+# Inference model
+add_unit_test(inference_test inference
+    SOURCES src/inference/inference_test.cc
+    LIBS engine_base engine_inference
 )
 
 # L0-tier node buffer
-add_unit_test(node_buf_test index
-    SOURCES src/index/tests/node_buf_test.cc
-    LIBS engine_common engine_index
+add_unit_test(node_buf_test collection
+    SOURCES src/collection/node_buf_test.cc
+    LIBS engine_base engine_collection
 )
 
 # Treiber stack
-add_unit_test(tagged_treiber_test common
-    SOURCES src/common/tests/tagged_treiber_test.cc
-    LIBS engine_common
+add_unit_test(tagged_treiber_test base
+    SOURCES src/base/tagged_treiber_test.cc
+    LIBS engine_base
 )
 
 # ==============================================================================
@@ -259,39 +266,27 @@ function(add_micro_bench target_name module_name)
 endfunction()
 
 # Dot product
-add_micro_bench(avx2_kernel_bench dot_product
-    SOURCES src/dot_product/bench/avx2_kernel_bench.cc
-    LIBS engine_options engine_common engine_dpkernel
+add_micro_bench(dot_product_bench ann
+    SOURCES src/ann/dot_product_bench.cc
+    LIBS engine_options engine_base engine_ann
 )
 
 # Inference model: Custom ops
 add_micro_bench(inference_bench inference
-    SOURCES src/inference/bench/inference_bench.cc
-    LIBS engine_options engine_common engine_inference
-)
-
-# Read/Write payload
-add_micro_bench(memory_arena_bench memory
-    SOURCES src/memory/bench/memory_arena_bench.cc
-    LIBS engine_options engine_common engine_memory
+    SOURCES src/inference/inference_bench.cc
+    LIBS absl::log engine_options engine_base engine_inference
 )
 
 # L0-tier node buffer
-add_micro_bench(node_buf_bench index
-    SOURCES src/index/bench/node_buf_bench.cc
-    LIBS engine_options engine_common engine_index
+add_micro_bench(node_buf_bench collection
+    SOURCES src/collection/node_buf_bench.cc
+    LIBS engine_options engine_base engine_collection
 )
 
-# Vector search
-add_micro_bench(vector_search_bench index
-    SOURCES src/index/bench/vector_search_bench.cc
-    LIBS engine_options engine_common engine_memory engine_index
-)
-
-# Treiber stack
-add_micro_bench(tagged_treiber_bench common
-    SOURCES src/common/bench/tagged_treiber_bench.cc
-    LIBS engine_common
+# Tagged treiber stack
+add_micro_bench(tagged_treiber_bench base
+    SOURCES src/base/tagged_treiber_bench.cc
+    LIBS engine_base
 )
 
 # ==============================================================================

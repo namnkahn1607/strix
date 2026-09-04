@@ -1,28 +1,25 @@
-// Author: namnkahn1607
-//
-// CacheServiceImpl: gRPC service handler for CheckCache and SetCache RPCs.
-// Orchestrates Embedder and MemoryArena to serve the semantic cache protocol.
+// RPC service handler.
 
 #pragma once
 
 #include <grpcpp/grpcpp.h>
 
-#include "index/vector_index.h"
-#include "inference/sentence_encoder.h"
+#include <chrono>
+
 #include "cache.grpc.pb.h"
 #include "cache.pb.h"
+#include "collection/collection.h"
+#include "collection/search.h"
+#include "inference/sentence_encoder.h"
 
-// `CacheServiceImpl`, gRPC service implementation for the Strix semantic cache.
-//
-// Responsibilities:
-//   - Validate incoming RPC fields.
-//   - Orchestrate Vectorization -> Vector search -> Payload read/write.
-//   - Translate results and errors into gRPC Status codes and response protos.
+namespace strix::rpc {
+
+// Strix semantic cache service.
 class CacheServiceImpl final : public strix::v1::CacheService::Service {
 public:
-    // `CacheServiceImpl` holds references to `Embedder` and `MemoryArena`.
     explicit CacheServiceImpl(
-        const SentenceEncoder& embedder, VectorIndex& index
+        const inference::SentenceEncoder& encoder,
+        collection::Collection&           collector
     );
 
     CacheServiceImpl(const CacheServiceImpl&)            = delete;
@@ -30,33 +27,33 @@ public:
     CacheServiceImpl(CacheServiceImpl&&)                 = delete;
     CacheServiceImpl& operator=(CacheServiceImpl&&)      = delete;
 
-    // `CheckCache()` encodes the request prompt, perform searching for a
-    // similar vector, and returns the cached payload if a match above
-    // the `kSimilarityThreshold` is found.
+    // Checks for cached payload for the requested prompt.
     grpc::Status CheckCache(
         grpc::ServerContext*                context,
         const strix::v1::CheckCacheRequest* request,
         strix::v1::CheckCacheResponse*      response
     ) override;
 
-    // `SetCache()` encodes the request prompt, writes the vector into a free
-    // slot, and commits the payload to the ring buffer.
+    // Sets new payload for a new entry in cache.
     grpc::Status SetCache(
         grpc::ServerContext* context, const strix::v1::SetCacheRequest* request,
         strix::v1::SetCacheResponse* response
     ) override;
 
 private:
-    const SentenceEncoder& encoder_;
-    VectorIndex&           index_;
+    using Clock     = std::chrono::steady_clock;
+    using TimePoint = Clock::time_point;
 
-    // `ProcessOutcome()` is used by `CheckCache` to populate from a raw search
-    // result `candidate` into the `response`.
-    // Returns true and fully presets `response` if `candidate` resolves to
-    // either `kHit` or `kPendingHit`; otherwise false and leaves `response` be
-    // untouched, delegating further decisions to the caller.
-    bool ProcessCandidate(
-        const SearchOutcome& candidate, uint64_t timestamp,
-        strix::v1::CheckCacheResponse* response
+    // Populates cache search result.
+    // Returns `true` and presets `response` if the evaluation produces either
+    // HIT or PENDING_HIT; otherwise leaves `response` untouched.
+    bool EvalSearchResult(
+        const collection::TopKResult<collection::kTopK>& search_res,
+        TimePoint now, strix::v1::CheckCacheResponse* response
     ) const;
+
+    const inference::SentenceEncoder& encoder_;
+    collection::Collection&           collector_;
 };
+
+}  // namespace strix::rpc

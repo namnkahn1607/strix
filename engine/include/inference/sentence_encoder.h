@@ -12,13 +12,12 @@
 namespace strix::inference {
 
 // Predictable, non-fatal encoding failures.
-// Callers are expected to map these into gRPC status codes.
 enum class EncodeError {
     kTokenLimitExceeded,  // Input exceeds the model's maximum token count.
     kDegeneratedVector,   // Output vector is zero-norm; unusable for searching.
 };
 
-// Consists of 2 ORT sessions: a tokenizer and a BERT transformer.
+// Has 2 ORT sessions: a tokenizer and a BERT transformer.
 // Both sessions run sequentially to produce embedding vector of given prompt.
 //
 // Safe to invoke by multiple threads, as ORT sessions are stateless per-run
@@ -32,15 +31,15 @@ public:
     SentenceEncoder(SentenceEncoder&&)                 = delete;
     SentenceEncoder& operator=(SentenceEncoder&&)      = delete;
 
-    // Performs vectorization on a prompt string and writes the result vector
-    // values to `out`. Returns `EncodeError` on predictable failures, throws on
+    // Vectorizes a prompt string to produce an embedding vector.
+    // Returns an `EncodeError` on predictable failures, otherwise throws on
     // session-level failures.
     std::optional<EncodeError> Encode(
         const std::string& prompt, SimdFloatBuf& out
     ) const;
 
 private:
-    static Ort::SessionOptions InitOptions();
+    static Ort::SessionOptions CustomizeOptions();
 
     Ort::Env            env_;
     Ort::SessionOptions options_;

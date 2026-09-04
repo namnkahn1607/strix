@@ -4,16 +4,15 @@
 
 #include <atomic>
 #include <cassert>
-#include <chrono>
 #include <functional>
 #include <memory>
 #include <optional>
 #include <string>
 
 #include "absl/log/check.h"
-#include "common/cache_state.h"
+#include "base/cache_state.h"
 #include "inference/info.h"
-#include "memory/arena_config.h"
+#include "memory/config.h"
 #include "memory/meta_node.h"
 #include "worker/identity.h"
 
@@ -29,7 +28,7 @@ class Arena final {
 public:
     using NodeFreedCallback = std::function<void(uint32_t)>;
 
-    explicit Arena(const ArenaConfig& config);
+    explicit Arena(const Config& config);
     ~Arena();
 
     Arena(const Arena&)            = delete;
@@ -37,15 +36,14 @@ public:
     Arena(Arena&&)                 = delete;
     Arena& operator=(Arena&&)      = delete;
 
-    // Reads payload of a node slot and returns corresponding `CacheOutcome`
-    // status. Asserts non-null payload buffer.
+    // Reads payload of node slot and returns corresponding `CacheState` status.
     // Only invoke after successfully establishing "hazard zone".
+    // Asserts non-null payload buffer.
     CacheState ReadPayload(
-        uint32_t node_id, uint8_t exp_ver, Clock::time_point curr_time,
-        std::string* out
+        uint32_t node_id, uint8_t exp_ver, TimePoint now, std::string* out
     ) const noexcept;
 
-    // Writes a `PayloadHeader` followed by a byte sequence into the buffer.
+    // Writes a header followed by byte sequence into the buffer.
     // The virtual offset of the written byte series is returned on success.
     // Asserts non-null payload buffer.
     std::optional<uint64_t> WritePayload(
@@ -55,7 +53,7 @@ public:
     // Triggers a worker that finds and evicts COLD READY nodes.
     // Operates until `shutdown_req` is set to `true`; must be launched on ONE
     // dedicated thread.
-    void RunGarbageCollector(const std::atomic<bool>& shutdown_req);
+    void StartGarbageCollector(const std::atomic<bool>& shutdown_req);
 
     // Registers the node ID eviction notification hook used by GC.
     // Wired ONCE during system init, before spawning the GC thread.
@@ -63,14 +61,10 @@ public:
         on_node_freed_ = std::move(cb);
     }
 
-    // Returns a reference to the `MetaNode` at `node_id`.
-    // Caller must ensure `node_id < max_slots`.
-    MetaNode& GetNode(uint32_t node_id) const noexcept {
+    MetaNode& GetMetaNode(uint32_t node_id) const noexcept {
         return metadata_[static_cast<size_t>(node_id)];
     }
 
-    // Returns a pointer to the first float of the vector at `node_id`.
-    // Caller must ensure `node_id < max_slots`.
     float* GetVector(uint32_t node_id) const noexcept {
         return vectors_ + static_cast<size_t>(node_id) * inference::kVectorDim;
     }
@@ -93,17 +87,18 @@ private:
         return offset & (payload_buf_size - 1);
     }
 
-    // Byte fetching kernel.
     void Read(uint64_t offset, uint32_t length, std::string* out)
-        const noexcept;
+        const noexcept;  // Byte fetching kernel
 
+    // Returns the virtual offset at which caller can begin writing.
     std::optional<uint64_t> TryAllocateSpace(uint32_t length) noexcept;
 
+    // Node is released back to Freelist in case `free` is set to `true`.
     void TryReclaimSpace(
-        uint32_t node_id, uint64_t tail, uint32_t total_len, bool release_node
+        uint32_t node_id, uint64_t tail, uint32_t total_len, bool free
     ) noexcept;
 
-    void SweepStalePending(Clock::time_point curr_time) noexcept;
+    void SweepStalePending(TimePoint now) noexcept;
 
     MetaNode* metadata_;  // Node slot array
     float*    vectors_;   // Vector array
@@ -122,8 +117,7 @@ private:
 // Grants user code (non-const) access to private fields of `Arena`.
 class ArenaPrivateAccess final {
 public:
-    // Writes bytes into the payload buffer to trigger pagefault. Asserts
-    // non-null payload buffer.
+    // Writes bytes into the payload buffer to trigger pagefault.
     // Only use when `Arena` was constructed with page prefault disabled.
     static void PrefaultBuffer(Arena& arena) noexcept {
         CHECK(arena.payload_buf_ != nullptr)
@@ -134,7 +128,6 @@ public:
     }
 
     // Mirrors the byte fetching kernel used by `Arena::ReadPayload()`.
-    // Asserts non-null payload buffer.
     static void ReadPayload(
         Arena& arena, uint64_t offset, uint32_t length, std::string* out
     ) noexcept {

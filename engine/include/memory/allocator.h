@@ -1,5 +1,4 @@
-// Aligned memory allocation/deallocation via mmap/munmap, scoped to
-// construction and destruction-time usage.
+// Aligned memory allocation/deallocation via mmap/munmap.
 
 #pragma once
 
@@ -17,10 +16,9 @@ namespace strix::memory {
 // system page size (typically 4 KiB on Linux x86-64).
 //
 // This is a construction-time utility only, it throws on `mmap` failure.
-//   1. Asserts `count > 0`. `nullptr` is never returned.
-//   2. Caller owns the returned memory lifetime and must pair with `Dealloc()`
+//   1. Caller owns the returned memory lifetime and must pair with `Dealloc()`
 //      using the exact type `T` and argument value `count`.
-//   3. In case `prefault` is set to `true`, the kernel prefaults all pages.
+//   2. In case `prefault` is set to `true`, the kernel prefaults all pages.
 template <typename T>
 T* Alloc(size_t count, bool prefault) {
     if (count == 0) {

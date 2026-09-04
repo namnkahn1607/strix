@@ -1,101 +1,103 @@
-// Author: namnkahn1607
-//
-// Orchestrator: initializes all subsystems, injects dependencies,
+// Data plane orchestrator: initializes all subsystems, injects dependencies,
 // and runs the shutdown event loop via epoll + signalfd.
 
 #include <grpcpp/resource_quota.h>
+#include <grpcpp/server_builder.h>
 #include <sys/epoll.h>
 #include <sys/signalfd.h>
 
+#include <chrono>
 #include <csignal>
+#include <cstdint>
+#include <memory>
 #include <thread>
 
-#include "index/avx2_kernel.h"
-#include "index/ivf_config.h"
-#include "index/vector_index.h"
+#include "collection/collection.h"
+#include "collection/config.h"
 #include "inference/sentence_encoder.h"
-#include "memory/arena_config.h"
-#include "memory/memory_arena.h"
+#include "inference/simd_float_buf.h"
+#include "memory/arena.h"
+#include "memory/config.h"
 #include "rpc/cache_service.h"
 #include "worker/identity.h"
 
+using namespace strix;
+
 namespace {
 
-// File descriptor index of the Death Pipe reader end.
-// The pipe is created by the Control plane and inherited by this process
-// on spawn. EOF on this signals that this process must shut down.
-inline constexpr uint32_t kPipeReaderFD = 3;
+const char* kServerAddress = "unix:///tmp/strix.sock";
+const char* kSockerPath    = "/tmp/strix.sock";
 
-// Vector Engine's graceful shutdown timeout in second(s).
-inline constexpr uint32_t kShutdownTimeout = 5;
+// File descriptor of the Death Pipe read-end.
+// Inherited by this process on spawn; an EOF signals shutdown.
+constexpr uint32_t kPipeReaderFD = 3;
 
-// `WarmupEngine()` drives the ONNX runtime and AVX2 dispatch through one full
-// execution path before the server starts accepting requests, eliminating JIT
-// initialization and cold-cache latency from the first real request.
-void WarmupEngine(const SentenceEncoder& encoder) {
-    constexpr uint32_t kWarmupRounds = 3;
-    const std::string  dummy_prompt  = "Hello, World!";
+// Graceful shutdown timeout.
+constexpr std::chrono::seconds kShutdownTimeout{5};
 
-    std::cout << "[Vector Engine] Warming up ONNX runtime...\n";
+// Drives the ONNX runtime through one full execution path before serving
+// prompt requests, eliminating JIT initialization and cold-cache latency.
+void WarmupONNX(const inference::SentenceEncoder& encoder) {
+    constexpr uint32_t kWarmupRounds = 10;
+    const std::string  kDummyPrompt  = "Hello, World!";
 
-    alignas(32) std::array<float, kVectorDim> dummy_buf;
+    inference::SimdFloatBuf dummy;
     for (uint32_t i = 0; i < kWarmupRounds; ++i) {
-        auto _ = encoder.Encode(dummy_prompt, dummy_buf);
+        (void)encoder.Encode(kDummyPrompt, dummy);
+        asm volatile("" : : "r,m"(dummy) : "memory");
     }
-
-    float scores[4] = {};
-    DotProductDiscreteBatch(
-        dummy_buf.data(), dummy_buf.data(), dummy_buf.data(), dummy_buf.data(),
-        dummy_buf.data(), scores
-    );
-
-    std::cout << "[Vector Engine] Warm-up completed.\n";
 }
 
-// `RunServer()` starts the gRPC server and GC background thread, then blocks on
-// the epoll event loop until a shutdown signal arrives (Death Pipe EOF or
-// SIGINT/SIGTERM).
-// `fd_sig` must be a `signalfd` created by `main()` after the signal mask is
-// set.
-void RunServer(
-    const SentenceEncoder& encoder, VectorIndex& index, MemoryArena& arena,
-    std::atomic<bool>& g_shutdown_req, int fd_sig
-) {
-    const std::string server_address{"unix:///tmp/strix.sock"};
-    unlink("/tmp/strix.sock");
-
-    CacheServiceImpl service(encoder, index);
-
-    grpc::ServerBuilder builder;
-    builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
-    builder.RegisterService(&service);
-
+void ConfigureServer(grpc::ServerBuilder& builder) {
     grpc::ResourceQuota quota;
-    quota.SetMaxThreads(kNumRPCWorkers);
-    builder.SetResourceQuota(quota);
+    quota.SetMaxThreads(worker::kNumRPCWorkers);
 
+    builder.AddListeningPort(kServerAddress, grpc::InsecureServerCredentials());
+    builder.SetResourceQuota(quota);
     builder.SetSyncServerOption(
         grpc::ServerBuilder::SyncServerOption::NUM_CQS, 1
     );
     builder.SetSyncServerOption(
-        grpc::ServerBuilder::SyncServerOption::MIN_POLLERS, kNumRPCWorkers
+        grpc::ServerBuilder::SyncServerOption::MIN_POLLERS,
+        worker::kNumRPCWorkers
     );
     builder.SetSyncServerOption(
-        grpc::ServerBuilder::SyncServerOption::MAX_POLLERS, kNumRPCWorkers
+        grpc::ServerBuilder::SyncServerOption::MAX_POLLERS,
+        worker::kNumRPCWorkers
     );
+}
+
+// Starts the gRPC server and GC background thread, then blocks on
+// the epoll event loop until a shutdown signal arrives (Death Pipe EOF or
+// SIGINT/SIGTERM).
+// `fd_sig` must be a `signalfd` created by `main()` after the signal mask is
+// set.
+void Run(
+    const inference::SentenceEncoder& encoder,
+    collection::Collection& collector, memory::Arena& arena,
+    std::atomic<bool>& shutdown_req, int fd_sig
+) {
+    unlink(kSockerPath);
+
+    rpc::CacheServiceImpl service(encoder, collector);
+
+    grpc::ServerBuilder builder;
+    ConfigureServer(builder);
+    builder.RegisterService(&service);
 
     const std::unique_ptr<grpc::Server> server(builder.BuildAndStart());
     if (!server) {
         throw std::runtime_error("Failed to start gRPC server");
     }
 
-    std::cout << "[Vector Engine] Listening on " << server_address << "\n";
+    std::cout << "[Data-plane] Listening on " << kServerAddress << "\n";
 
     std::thread gc_thread(
-        &MemoryArena::RunGarbageCollector, &arena, std::ref(g_shutdown_req)
+        &memory::Arena::StartGarbageCollector, &arena, std::ref(shutdown_req)
     );
     std::thread coord_thread(
-        &VectorIndex::RunCoordinator, &index, std::ref(g_shutdown_req)
+        &collection::Collection::StartCoordinator, &collector,
+        std::ref(shutdown_req)
     );
     std::thread grpc_thread([&]() {
         try {
@@ -103,11 +105,11 @@ void RunServer(
         } catch (const std::exception& e) {
             std::cerr << "[Vector Engine] FATAL: gRPC crashed: " << e.what()
                       << "\n";
-            g_shutdown_req.store(true, std::memory_order_release);
+            shutdown_req.store(true, std::memory_order_release);
         } catch (...) {
             std::cerr
                 << "[Vector Engine] FATAL: gRPC crashed with unknown error.\n";
-            g_shutdown_req.store(true, std::memory_order_release);
+            shutdown_req.store(true, std::memory_order_release);
         }
     });
 
@@ -162,7 +164,7 @@ void RunServer(
     close(fd_sig);
 
     // Graceful shutdown: close all subsystems, then join threads.
-    g_shutdown_req.store(true, std::memory_order_release);
+    shutdown_req.store(true, std::memory_order_release);
 
     const auto deadline = std::chrono::system_clock::now() +
                           std::chrono::seconds(kShutdownTimeout);
@@ -171,11 +173,9 @@ void RunServer(
     if (grpc_thread.joinable()) {
         grpc_thread.join();
     }
-
     if (gc_thread.joinable()) {
         gc_thread.join();
     }
-
     if (coord_thread.joinable()) {
         coord_thread.join();
     }
@@ -184,8 +184,10 @@ void RunServer(
 }  // namespace
 
 int main() {
+    // NOLINTBEGIN(concurrency-mt-unsafe)
     const char* tok_path  = std::getenv("TOKENIZER_PATH");
     const char* bert_path = std::getenv("TRANSFORMER_PATH");
+    // NOLINTEND(concurrency-mt-unsafe)
 
     if (tok_path == nullptr || bert_path == nullptr) {
         std::cerr
@@ -214,25 +216,27 @@ int main() {
     }
 
     try {
-        const SentenceEncoder encoder(tok_path, bert_path);
+        const inference::SentenceEncoder encoder(tok_path, bert_path);
         std::cout << "[Vector Engine] Initialized Inference Model.\n";
 
         const auto arena =
-            std::make_unique<MemoryArena>(ArenaConfig::Production());
+            std::make_unique<memory::Arena>(memory::Config::Standard());
         std::cout << "[Vector Engine] Initialized Memory Arena.\n";
 
-        VectorIndex indexer(*arena, kL0Capacity, IvfConfig::Production());
+        collection::Collection collector(
+            collection::Config::Standard(), *arena
+        );
         std::cout << "[Vector Engine] Initialized Vector Index.\n";
 
-        arena->SetNodeFreedCallback([&indexer](uint32_t node_id) {
-            indexer.ReleaseNode(node_id);
+        arena->SetNodeFreedCallback([&collector](uint32_t node_id) {
+            collector.ReleaseSlot(node_id);
         });
 
-        WarmupEngine(encoder);
+        WarmupONNX(encoder);
 
         std::cout << "[Vector Engine] Opening to gRPC...\n";
-        std::atomic<bool> g_shutdown_req{false};
-        RunServer(encoder, indexer, *arena, g_shutdown_req, fd_sig);
+        std::atomic<bool> shutdown_req{false};
+        Run(encoder, collector, *arena, shutdown_req, fd_sig);
         std::cout << "[Vector Engine] Closing...\n";
 
     } catch (const std::exception& e) {

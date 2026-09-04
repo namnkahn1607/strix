@@ -9,19 +9,19 @@
 
 namespace strix::memory {
 
-using Clock = std::chrono::steady_clock;
+using Clock     = std::chrono::steady_clock;
+using TimePoint = Clock::time_point;
 
 // The metadata node slot.
 struct alignas(64) MetaNode {
     // Atomically loads and decodes the control block.
-    // By default, an `std::memory_order_acquire` load is performed.
     ControlBlock LoadControl(
         std::memory_order order = std::memory_order_acquire
     ) const noexcept {
         return ControlBlock::Unpack(control_block.load(order));
     }
 
-    // Extracts only the version field of the control block word.
+    // Extracts only the version field.
     // Used on both sides of a seqlock-style version check.
     uint8_t LoadVersion(std::memory_order order = std::memory_order_acquire)
         const noexcept {
@@ -30,7 +30,7 @@ struct alignas(64) MetaNode {
         );
     }
 
-    // Extracts only the virtual offset field of the control block word.
+    // Extracts only the virtual offset field.
     uint64_t LoadOffset(std::memory_order order = std::memory_order_acquire)
         const noexcept {
         return static_cast<uint64_t>(
@@ -41,7 +41,7 @@ struct alignas(64) MetaNode {
     // Monotonic timestamp at which this node was acquired.
     // Stamped by the acquiring worker before publishing; used to identify
     // expired PENDING nodes.
-    std::atomic<Clock::time_point> created_at;
+    std::atomic<TimePoint> created_at;
 
     // The 64-bit control block word.
     // Any modification attempts must be done via compare-and-swap. Direct store
@@ -49,6 +49,6 @@ struct alignas(64) MetaNode {
     std::atomic<uint64_t> control_block;
 };
 
-static_assert(std::atomic<Clock::time_point>::is_always_lock_free);
+static_assert(std::atomic<TimePoint>::is_always_lock_free);
 
 }  // namespace strix::memory

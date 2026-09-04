@@ -4,7 +4,7 @@
 
 #include <absl/log/check.h>
 
-#include "common/tagged_treiber.h"
+#include "base/tagged_treiber.h"
 
 namespace strix::worker {
 

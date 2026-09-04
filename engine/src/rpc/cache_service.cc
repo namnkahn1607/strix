@@ -7,7 +7,9 @@
 #include <exception>
 #include <optional>
 
+#include "base/cache_state.h"
 #include "cache.pb.h"
+#include "collection/search.h"
 #include "inference/sentence_encoder.h"
 #include "inference/simd_float_buf.h"
 #include "memory/control_block.h"
@@ -15,12 +17,10 @@
 
 namespace strix::rpc {
 
-namespace mem = strix::memory;
-
 CacheServiceImpl::CacheServiceImpl(
-    const inf::SentenceEncoder& encoder, coll::VectorIndex& index
+    const inference::SentenceEncoder& encoder, collection::Collection& collector
 )
-    : encoder_(encoder), index_(index) {}
+    : encoder_(encoder), collector_(collector) {}
 
 grpc::Status CacheServiceImpl::CheckCache(
     [[maybe_unused]] grpc::ServerContext* context,
@@ -31,53 +31,32 @@ grpc::Status CacheServiceImpl::CheckCache(
 
     try {
         if (request->prompt().empty()) {
-            return {grpc::StatusCode::INVALID_ARGUMENT, "Prompt is empty"};
+            return {grpc::StatusCode::INVALID_ARGUMENT, "Empty prompt"};
         }
 
-        inf::SimdFloatBuf query_buf;
+        inference::SimdFloatBuf query_buf;
         if (auto encode_err = encoder_.Encode(request->prompt(), query_buf)) {
             switch (encode_err.value()) {
-                case inf::EncodeError::kTokenLimitExceeded:
+                case inference::EncodeError::kTokenLimitExceeded:
                     response->set_check_state(strix::v1::CACHE_STATE_REJECTED);
                     return grpc::Status::OK;
 
-                case inf::EncodeError::kDegeneratedVector:
+                case inference::EncodeError::kDegeneratedVector:
                     response->set_check_state(strix::v1::CACHE_STATE_REJECTED);
-                    return {
-                        grpc::StatusCode::INTERNAL,
-                        "Degenerate vector from model"
-                    };
+                    return {grpc::StatusCode::INTERNAL, "Degenerated vector"};
             }
         }
 
-        const float*      query     = query_buf.data();
-        Clock::time_point curr_time = Clock::now();
+        const float* query = query_buf.data();
+        TimePoint    now   = Clock::now();
 
-        const auto l0_result = index_.SearchL0(query);
-        if (l0_result.has_value()) {
-            if (Process(l0_result->primary, curr_time, response)) {
-                return grpc::Status::OK;
-            }
-
-            if (l0_result->secondary.has_value() &&
-                Process(*l0_result->secondary, curr_time, response)) {
-                return grpc::Status::OK;
-            }
+        const auto opt_search_res = collector_.Search(query);
+        if (opt_search_res.has_value() &&
+            EvalSearchResult(opt_search_res.value(), now, response)) {
+            return grpc::Status::OK;
         }
 
-        const auto l1_result = index_.SearchL1(query);
-        if (l1_result.has_value()) {
-            if (Process(l1_result->primary, curr_time, response)) {
-                return grpc::Status::OK;
-            }
-
-            if (l1_result->secondary.has_value() &&
-                Process(*l1_result->secondary, curr_time, response)) {
-                return grpc::Status::OK;
-            }
-        }
-
-        const auto opt_node_id = index_.AcquireNode(query, curr_time);
+        const auto opt_node_id = collector_.AcquireSlotFor(query, now);
         if (!opt_node_id.has_value()) {
             response->set_check_state(strix::v1::CACHE_STATE_REJECTED);
             return grpc::Status::OK;
@@ -111,11 +90,11 @@ grpc::Status CacheServiceImpl::SetCache(
         }
 
         const auto payload_len = static_cast<uint32_t>(payload.length());
-        if (payload_len > mem::kMaxPayloadLength) {
+        if (payload_len > memory::kMaxPayloadLength) {
             return {grpc::StatusCode::INVALID_ARGUMENT, "Oversized payload"};
         }
 
-        response->set_success(index_.Commit(
+        response->set_success(collector_.CommitEntry(
             node_id, reinterpret_cast<const uint8_t*>(payload.data()),
             payload_len
         ));
@@ -131,26 +110,26 @@ grpc::Status CacheServiceImpl::SetCache(
     }
 }
 
-bool CacheServiceImpl::Process(
-    coll::SearchOutcome candidate, const Clock::time_point curr_time,
+bool CacheServiceImpl::EvalSearchResult(
+    const collection::TopKResult<collection::kTopK>& search_res, TimePoint now,
     strix::v1::CheckCacheResponse* response
 ) const {
-    const auto outcome = index_.Fetch(
-        candidate.node_id, candidate.version, curr_time,
-        response->mutable_cached_payload()
-    );
+    for (uint32_t k = 0; k < search_res.count; ++k) {
+        const auto [node_id, ver] = search_res.records[k];
+        switch (collector_.FetchCache(
+            node_id, ver, now, response->mutable_cached_payload()
+        )) {
+            case CacheState::kHit:
+                response->set_check_state(strix::v1::CACHE_STATE_HIT);
+                return true;
 
-    switch (outcome) {
-        case strix::CacheState::kHit:
-            response->set_check_state(strix::v1::CACHE_STATE_HIT);
-            return true;
+            case CacheState::kPendingHit:
+                response->set_check_state(strix::v1::CACHE_STATE_PENDING);
+                response->set_node_id(node_id);
+                return true;
 
-        case strix::CacheState::kPendingHit:
-            response->set_check_state(strix::v1::CACHE_STATE_PENDING);
-            response->set_node_id(candidate.node_id);
-            return true;
-
-        case strix::CacheState::kMiss: return false;
+            case CacheState::kMiss: continue;
+        }
     }
 
     return false;

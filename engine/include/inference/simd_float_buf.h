@@ -1,15 +1,14 @@
-// Alignment 32 bytes float buffer.
-
 #pragma once
 
 #include <array>
 #include <span>
 
-#include "info.h"
+#include "inference/info.h"
 
 namespace strix::inference {
 
 // Abstract of 384-dimensional vector produced by `SentenceEncoder`.
+// The float buffer underlying has alignment 32 bytes.
 class alignas(32) SimdFloatBuf {
 public:
     std::span<float, kVectorDim>       view() noexcept { return buffer_; }

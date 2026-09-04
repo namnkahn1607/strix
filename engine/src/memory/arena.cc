@@ -1,13 +1,11 @@
-// Memory Arena implementation: ctor, dtor, payload read/write,
-// lock-free allocation, and garbage collection.
+// Memory arena.
 
 #include "memory/arena.h"
 
-#include <sys/mman.h>
-
 #include <atomic>
 #include <chrono>
-#include <cstdlib>
+#include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <exception>
 #include <memory>
@@ -17,20 +15,21 @@
 #include <thread>
 
 #include "absl/log/check.h"
-#include "ann/avx2_dot_product.h"
-#include "common/cache_state.h"
-#include "hazard_offset.h"
+#include "ann/dot_product.h"
+#include "base/cache_state.h"
 #include "inference/info.h"
+#include "internal/hazard_offset.h"
+#include "internal/payload_header.h"
 #include "memory/allocator.h"
+#include "memory/config.h"
 #include "memory/control_block.h"
 #include "memory/meta_node.h"
 #include "memory/state.h"
-#include "payload_header.h"
 #include "worker/identity.h"
 
 namespace strix::memory {
 
-Arena::Arena(const ArenaConfig& config)
+Arena::Arena(const Config& config)
     : max_slots{config.max_slots}
     , payload_buf_size{config.payload_buf_size}
     , write_head_{config.start_point}
@@ -76,21 +75,19 @@ Arena::~Arena() {
 }
 
 CacheState Arena::ReadPayload(
-    uint32_t node_id, uint8_t exp_ver, Clock::time_point curr_time,
-    std::string* out
+    uint32_t node_id, uint8_t exp_ver, TimePoint now, std::string* out
 ) const noexcept {
     CHECK(payload_buf_ != nullptr) << "A non-null payload buffer is required";
 
-    // Tolerate ONCE for the case of payload rescuing.
-    constexpr uint32_t kMaxReadAttempts = 2;
-
-    const uint32_t slot = worker::ThreadID();
-    MetaNode&      node = metadata_[node_id];
+    const auto slot = worker::ThreadID();
+    MetaNode&  node = metadata_[node_id];
 
     uint64_t     ctrl;
     ControlBlock cb;
 
-    uint32_t attempt = 1;
+    // Can tolerate ONCE.
+    constexpr uint32_t kMaxReadAttempts = 2;
+    uint32_t           attempt          = 1;
     while (true) {
         ctrl = node.control_block.load(std::memory_order_acquire);
         cb   = ControlBlock::Unpack(ctrl);
@@ -100,9 +97,8 @@ CacheState Arena::ReadPayload(
         }
         if (cb.state == NodeState::kPending) {
             const auto ts = node.created_at.load(std::memory_order_acquire);
-            return (curr_time - ts > kPendingLifespan)
-                       ? CacheState::kMiss
-                       : CacheState::kPendingHit;
+            return (now - ts > kPendingLifespan) ? CacheState::kMiss
+                                                 : CacheState::kPendingHit;
         }
 
         hazard_table_->Publish(slot, cb.virtual_offset, cb.length);
@@ -114,6 +110,7 @@ CacheState Arena::ReadPayload(
                 break;
             }
 
+            // Offset mismatch - likely caused by payload rescuing. Retry.
             hazard_table_->Clear(slot);
             if (++attempt > kMaxReadAttempts) {
                 return CacheState::kMiss;
@@ -212,7 +209,7 @@ std::optional<uint64_t> Arena::WritePayload(
     return header_offset;
 }
 
-void Arena::RunGarbageCollector(const std::atomic<bool>& shutdown_req) {
+void Arena::StartGarbageCollector(const std::atomic<bool>& shutdown_req) {
     CHECK(payload_buf_ != nullptr) << "A non-null payload buffer is required";
     CHECK(on_node_freed_ != nullptr) << "Freed node callback hasn't been wired";
 
@@ -366,8 +363,7 @@ void Arena::RunGarbageCollector(const std::atomic<bool>& shutdown_req) {
             NodeState::kReady, EvictState::kHot, ver, length, offset
         );
         const auto desired = ControlBlock::Pack(
-            NodeState::kReady, EvictState::kCold, ver, length,
-            rescued_offset
+            NodeState::kReady, EvictState::kCold, ver, length, rescued_offset
         );
         // This CAS shouldn't fail for the same reasons as [*].
         CHECK(node.control_block.compare_exchange_strong(

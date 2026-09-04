@@ -1,8 +1,7 @@
-// Compile-time assertions that guarantee lock-free primitives
-// on Linux x86-64.
+// Compile-time assertions that guarantee Linux x86-64 lock-free primitives.
 //
-// In case any fails, CAS-based code would silently degrade to
-// mutex-emulated atomics. Fail the build instead.
+// Prevent CAS-based operation to silently degrade to mutex-emulated atomics.
+// Fail the build instead.
 
 #pragma once
 

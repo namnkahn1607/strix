@@ -21,8 +21,8 @@ default:
 # Registry
 # Contain the NAME(s) (without suffix) of the bench & test suites.
 # ------------------------------------------------------------------------------
-bench_names := "avx2_kernel inference custom_ops node_buf tagged_treiber"
-test_names := "avx2_kernel inference control_block node_buf tagged_treiber"
+bench_names := "dot_product inference node_buf tagged_treiber"
+test_names := "dot_product arena control_block inference node_buf tagged_treiber"
 
 # ==============================================================================
 # General
