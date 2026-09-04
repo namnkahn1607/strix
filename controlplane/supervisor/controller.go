@@ -3,12 +3,12 @@ package supervisor
 import (
 	"context"
 	"fmt"
-	system "gateway/internal/sys"
 	"log/slog"
 	"os"
 	"os/exec"
 	"os/signal"
 	"strings"
+	system "strix/sys"
 	"syscall"
 	"time"
 )

@@ -3,10 +3,10 @@ package gateway
 import (
 	"context"
 	"crypto/sha256"
-	"gateway/internal/pb"
 	"io"
 	"log/slog"
 	"net/http"
+	"strix/pb"
 	"time"
 
 	"github.com/VictoriaMetrics/fastcache"

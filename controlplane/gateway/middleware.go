@@ -1,7 +1,7 @@
 package gateway
 
 import (
-	"gateway/internal/limit"
+	"strix/limits"
 	"net"
 	"net/http"
 	"strings"
@@ -10,10 +10,10 @@ import (
 var errTooManyIPReqs = []byte("429 Too Many Requests (IP Limit)\n")
 
 type Middleware struct {
-	ipLimiter *limit.RateLimiter
+	ipLimiter *limits.RateLimiter
 }
 
-func NewMiddleware(ipLimiter *limit.RateLimiter) *Middleware {
+func NewMiddleware(ipLimiter *limits.RateLimiter) *Middleware {
 	return &Middleware{ipLimiter: ipLimiter}
 }
 

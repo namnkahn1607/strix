@@ -2,8 +2,8 @@ package concurrent
 
 import (
 	"context"
-	"gateway/internal/pb"
 	"log/slog"
+	"strix/pb"
 	"sync"
 	"time"
 )

@@ -3,8 +3,8 @@ package supervisor
 import (
 	"context"
 	"fmt"
-	"gateway/internal/rpc"
-	"gateway/internal/supervisor/precache"
+	"strix/rpc"
+	"strix/supervisor/precache"
 	"log/slog"
 )
 

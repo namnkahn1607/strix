@@ -3,15 +3,16 @@ package gateway
 import (
 	"context"
 	"errors"
-	"gateway/internal/concurrent"
-	"gateway/internal/config"
-	"gateway/internal/limit"
-	"gateway/internal/llm"
-	"gateway/internal/rpc"
-	system "gateway/internal/sys"
+	"strix/concurrent"
+	"strix/config"
+	limit "strix/limits"
+
 	"io"
 	"log/slog"
 	"os"
+	"strix/llm"
+	"strix/rpc"
+	system "strix/sys"
 	"time"
 
 	"github.com/VictoriaMetrics/fastcache"

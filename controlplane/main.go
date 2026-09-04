@@ -1,9 +1,9 @@
 package main
 
 import (
-	"gateway/internal/cli"
-	"gateway/internal/gateway"
 	"os"
+	"strix/cli"
+	"strix/gateway"
 )
 
 func main() {

@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"gateway/internal/pb"
+	"strix/pb"
 	"log/slog"
 	"os"
 	"sync"

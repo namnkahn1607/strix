@@ -3,7 +3,7 @@ package rpc
 import (
 	"context"
 	"fmt"
-	"gateway/internal/pb"
+	"strix/pb"
 	"log/slog"
 	"time"
 

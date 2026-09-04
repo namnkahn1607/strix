@@ -1,11 +1,11 @@
 package gateway
 
 import (
-	"gateway/internal/concurrent"
-	"gateway/internal/limit"
-	"gateway/internal/llm"
-	"gateway/internal/pb"
 	"net/http"
+	"strix/concurrent"
+	"strix/limits"
+	"strix/llm"
+	"strix/pb"
 	"time"
 
 	"github.com/VictoriaMetrics/fastcache"
@@ -21,7 +21,7 @@ type Dependencies struct {
 	L0Cache    *fastcache.Cache
 	Pool       *concurrent.WorkerPool
 	HerdCtrl   *HerdController
-	IPLimiter  *limit.RateLimiter
+	IPLimiter  *limits.RateLimiter
 	DeadChan   <-chan struct{}
 	LLMClient  *llm.Client
 	PromptPath []string

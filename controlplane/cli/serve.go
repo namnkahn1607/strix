@@ -3,8 +3,8 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"gateway/internal/supervisor"
-	"gateway/internal/sys"
+	"strix/supervisor"
+	"strix/sys"
 	"log/slog"
 	"os"
 	"strconv"
