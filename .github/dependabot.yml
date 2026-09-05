@@ -1,7 +1,7 @@
 version: 2
 updates:
   - package-ecosystem: "gomod"
-    directory: "/gateway"
+    directory: "/controlplane"
     schedule:
       interval: "weekly"
     groups:
