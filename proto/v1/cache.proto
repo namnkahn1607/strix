@@ -2,14 +2,14 @@ syntax = "proto3";
 
 package strix.v1;
 
-option go_package = "gateway/internal/pb;pb";
+option go_package = "gateway/pb;pb";
 
 enum CacheState {
-  CACHE_STATE_UNSPECIFIED = 0;
-  CACHE_STATE_HIT = 1;
-  CACHE_STATE_MISS = 2;
-  CACHE_STATE_PENDING = 3;
-  CACHE_STATE_REJECTED = 4;
+  UNSPECIFIED = 0;
+  HIT = 1;
+  MISS = 2;
+  PENDING = 3;
+  REJECTED = 4;
 }
 
 message CheckCacheRequest {

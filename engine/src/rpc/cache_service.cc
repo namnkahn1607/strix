@@ -38,11 +38,11 @@ grpc::Status CacheServiceImpl::CheckCache(
         if (auto encode_err = encoder_.Encode(request->prompt(), query_buf)) {
             switch (encode_err.value()) {
                 case inference::EncodeError::kTokenLimitExceeded:
-                    response->set_check_state(strix::v1::CACHE_STATE_REJECTED);
+                    response->set_check_state(strix::v1::REJECTED);
                     return grpc::Status::OK;
 
                 case inference::EncodeError::kDegeneratedVector:
-                    response->set_check_state(strix::v1::CACHE_STATE_REJECTED);
+                    response->set_check_state(strix::v1::REJECTED);
                     return {grpc::StatusCode::INTERNAL, "Degenerated vector"};
             }
         }
@@ -58,11 +58,11 @@ grpc::Status CacheServiceImpl::CheckCache(
 
         const auto opt_node_id = collector_.AcquireSlotFor(query, now);
         if (!opt_node_id.has_value()) {
-            response->set_check_state(strix::v1::CACHE_STATE_REJECTED);
+            response->set_check_state(strix::v1::REJECTED);
             return grpc::Status::OK;
         }
 
-        response->set_check_state(strix::v1::CACHE_STATE_MISS);
+        response->set_check_state(strix::v1::MISS);
         response->set_node_id(opt_node_id.value());
         return grpc::Status::OK;
 
@@ -120,11 +120,11 @@ bool CacheServiceImpl::EvalSearchResult(
             node_id, ver, now, response->mutable_cached_payload()
         )) {
             case CacheState::kHit:
-                response->set_check_state(strix::v1::CACHE_STATE_HIT);
+                response->set_check_state(strix::v1::HIT);
                 return true;
 
             case CacheState::kPendingHit:
-                response->set_check_state(strix::v1::CACHE_STATE_PENDING);
+                response->set_check_state(strix::v1::PENDING);
                 response->set_node_id(node_id);
                 return true;
 
