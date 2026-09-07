@@ -1,13 +1,10 @@
 #!/usr/bin/env bash
 ################################################################################
-# This script installs a single vendored `protoc` binary shared by both Control
-# plane in gateway/ and Data plane in engine/.
+# Installs a vendored `protoc` binary.
 #
-# Fetch port version base on builtin-baseline hash commit in
-# strix/engine/vcpkg.json, install vendored `protoc` binary to that version, then
-# write the version tag onto strix/.protoc-version.
+# Fetches port version base on builtin-baseline commit hash at engine/vcpkg.json.
+# The version tag is written to .protoc-version afterwards.
 #
-# Output: strix/tools/protoc/
 # Usage: bash scripts/install/protoc.sh
 ################################################################################
 
