@@ -22,7 +22,7 @@ constexpr float kApprox4 = 1e-4f;
 float* AllocVecBuf(size_t num_vec) {
     constexpr uint32_t kAlign = 32;
 
-    auto* raw = _mm_malloc(num_vec * inference::kVectorDim, kAlign);
+    auto* raw = _mm_malloc(num_vec * inference::kVectorMemsize, kAlign);
     if (raw == nullptr) {
         throw std::bad_alloc();
     }
