@@ -2,10 +2,12 @@
 
 #include "rpc/cache_service.h"
 
+#include <absl/strings/cord.h>
 #include <grpcpp/support/status.h>
 
 #include <exception>
 #include <optional>
+#include <variant>
 
 #include "base/cache_state.h"
 #include "cache.pb.h"
@@ -110,26 +112,53 @@ grpc::Status CacheServiceImpl::SetCache(
     }
 }
 
+// template <class... Ts> struct overloaded : Ts... {
+//     using Ts::operator()...;
+// };
+// template <class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
+
 bool CacheServiceImpl::EvalSearchResult(
     const collection::TopKResult<collection::kTopK>& search_res, TimePoint now,
     strix::v1::CheckCacheResponse* response
 ) const {
     for (uint32_t k = 0; k < search_res.count; ++k) {
         const auto [node_id, ver] = search_res.records[k];
-        switch (collector_.FetchCache(
-            node_id, ver, now, response->mutable_cached_payload()
-        )) {
-            case CacheState::kHit:
-                response->set_check_state(strix::v1::HIT);
-                return true;
 
-            case CacheState::kPendingHit:
-                response->set_check_state(strix::v1::PENDING);
-                response->set_node_id(node_id);
-                return true;
-
-            case CacheState::kMiss: continue;
+        auto result = collector_.FetchCache(node_id, ver, now);
+        if (auto* res = std::get_if<absl::Cord>(&result)) {
+            response->set_check_state(strix::v1::HIT);
+            response->set_cached_payload(*res);
+            return true;
+        } else {
+            switch (std::get<MissReason>(result)) {
+                case MissReason::kMiss: continue;
+                case MissReason::kPendingHit:
+                    response->set_check_state(strix::v1::PENDING);
+                    response->set_node_id(node_id);
+                    return true;
+            }
         }
+
+        // bool should_return = std::visit(overloaded{
+        //     [&](absl::Cord&& cord) {
+        //         response->set_check_state(strix::v1::HIT);
+        //         response->set_cached_payload(cord);
+        //         return true;
+        //     },
+        //     [&](MissReason reason) {
+        //         if (reason == MissReason::kPendingHit) {
+        //             response->set_check_state(strix::v1::PENDING);
+        //             response->set_node_id(node_id);
+        //             return true;
+        //         }
+
+        //         return false;
+        //     }
+        // }, std::move(result));
+
+        // if (should_return) {
+        //     return true;
+        // }
     }
 
     return false;

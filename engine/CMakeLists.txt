@@ -132,6 +132,7 @@ target_include_directories(engine_memory
 )
 target_link_libraries(engine_memory PRIVATE
     absl::log
+    absl::cord
     engine_options
     engine_base
     engine_worker

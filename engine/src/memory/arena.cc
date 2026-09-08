@@ -7,7 +7,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <exception>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -18,6 +17,7 @@
 #include "ann/dot_product.h"
 #include "base/cache_state.h"
 #include "inference/info.h"
+#include "internal/buffer_pool.h"
 #include "internal/hazard_offset.h"
 #include "internal/payload_header.h"
 #include "memory/allocator.h"
@@ -34,7 +34,8 @@ Arena::Arena(const Config& config)
     , payload_buf_size{config.payload_buf_size}
     , write_head_{config.start_point}
     , read_tail_{config.start_point}
-    , hazard_table_{std::make_unique<HazardTable<worker::kNumRPCWorkers>>()} {
+    , hazard_table_{std::make_unique<HazardTable<worker::kNumRPCWorkers>>()}
+    , buf_pool_{std::make_unique<BufPool>(config.buf_pool_cap)} {
     if (!(max_slots != 0 && max_slots % ann::kBatchSize == 0)) {
         throw std::invalid_argument(
             "Arena slots must be non-zero and a multiple of " +
@@ -74,8 +75,8 @@ Arena::~Arena() {
     }
 }
 
-CacheState Arena::ReadPayload(
-    uint32_t node_id, uint8_t exp_ver, TimePoint now, std::string* out
+CacheLookUpResult Arena::ReadPayload(
+    uint32_t node_id, uint8_t exp_ver, TimePoint now
 ) const noexcept {
     CHECK(payload_buf_ != nullptr) << "A non-null payload buffer is required";
 
@@ -85,20 +86,21 @@ CacheState Arena::ReadPayload(
     uint64_t     ctrl;
     ControlBlock cb;
 
-    // Can tolerate ONCE.
+    // Can tolerate ONCE due to payload rescuing.
     constexpr uint32_t kMaxReadAttempts = 2;
-    uint32_t           attempt          = 1;
+
+    uint32_t attempt = 1;
     while (true) {
         ctrl = node.control_block.load(std::memory_order_acquire);
         cb   = ControlBlock::Unpack(ctrl);
 
         if (cb.version != exp_ver || cb.state == NodeState::kDead) {
-            return CacheState::kMiss;
+            return MissReason::kMiss;
         }
         if (cb.state == NodeState::kPending) {
             const auto ts = node.created_at.load(std::memory_order_acquire);
-            return (now - ts > kPendingLifespan) ? CacheState::kMiss
-                                                 : CacheState::kPendingHit;
+            return (now - ts > kPendingLifespan) ? MissReason::kMiss
+                                                 : MissReason::kPendingHit;
         }
 
         hazard_table_->Publish(slot, cb.virtual_offset, cb.length);
@@ -113,29 +115,30 @@ CacheState Arena::ReadPayload(
             // Offset mismatch - likely caused by payload rescuing. Retry.
             hazard_table_->Clear(slot);
             if (++attempt > kMaxReadAttempts) {
-                return CacheState::kMiss;
+                return MissReason::kMiss;
             }
             continue;
         }
 
         hazard_table_->Clear(slot);
-        return CacheState::kMiss;
+        return MissReason::kMiss;
     }
 
-    try {
-        out->resize(cb.length);
-    } catch (const std::exception&) {
+    uint32_t pool_id;
+    uint8_t* dst = buf_pool_->Acquire(&pool_id);
+    if (dst != nullptr) {
         hazard_table_->Clear(slot);
-        return CacheState::kMiss;
+        return MissReason::kMiss;
     }
 
-    Read(cb.virtual_offset, cb.length, out);
+    Read(cb.virtual_offset, cb.length, dst);
     hazard_table_->Clear(slot);
+    auto res = buf_pool_->Wrap(dst, pool_id, cb.length);
 
     if (exp_ver != node.LoadVersion()) {
-        // Node was evicted mid-read. Unreliable data retrieval.
-        out->clear();
-        return CacheState::kMiss;
+        // Node was evicted mid-read. Unreliable payload bytes read.
+        // Drop the wrapped Cord immediately.
+        return MissReason::kMiss;
     }
 
     auto       expected = ctrl;
@@ -149,7 +152,7 @@ CacheState Arena::ReadPayload(
         expected, desired, std::memory_order_release, std::memory_order_relaxed
     );
 
-    return CacheState::kHit;
+    return res;
 }
 
 std::optional<uint64_t> Arena::WritePayload(
@@ -375,16 +378,16 @@ void Arena::StartGarbageCollector(const std::atomic<bool>& shutdown_req) {
     }
 }
 
-void Arena::Read(uint64_t offset, uint32_t length, std::string* out)
+void Arena::Read(uint64_t offset, uint32_t length, uint8_t* out)
     const noexcept {
     const auto text_index = ActualIndex(offset + sizeof(PayloadHeader));
     if (payload_buf_size - text_index >= length) {
-        std::memcpy(out->data(), payload_buf_ + text_index, length);
+        std::memcpy(out, payload_buf_ + text_index, length);
     } else {
         const size_t chunk1 = payload_buf_size - text_index;
         const size_t chunk2 = length - chunk1;
-        std::memcpy(out->data(), payload_buf_ + text_index, chunk1);
-        std::memcpy(out->data() + chunk1, payload_buf_, chunk2);
+        std::memcpy(out, payload_buf_ + text_index, chunk1);
+        std::memcpy(out + chunk1, payload_buf_, chunk2);
     }
 }
 

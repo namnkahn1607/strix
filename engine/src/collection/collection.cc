@@ -67,10 +67,10 @@ Collection::Collection(const Config& config, memory::Arena& arena)
 
 Collection::~Collection() = default;
 
-CacheState Collection::FetchCache(
-    uint32_t node_id, uint8_t exp_ver, TimePoint now, std::string* out
+CacheLookUpResult Collection::FetchCache(
+    uint32_t node_id, uint8_t exp_ver, TimePoint now
 ) const noexcept {
-    return Inner()->arena_.ReadPayload(node_id, exp_ver, now, out);
+    return Inner()->arena_.ReadPayload(node_id, exp_ver, now);
 }
 
 bool Collection::CommitEntry(

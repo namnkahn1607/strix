@@ -30,8 +30,8 @@ public:
     Collection(Collection&&)                 = delete;
     Collection& operator=(Collection&&)      = delete;
 
-    CacheState FetchCache(
-        uint32_t node_id, uint8_t exp_ver, TimePoint now, std::string* out
+    CacheLookUpResult FetchCache(
+        uint32_t node_id, uint8_t exp_ver, TimePoint now
     ) const noexcept;
 
     bool CommitEntry(

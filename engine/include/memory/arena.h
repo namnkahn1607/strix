@@ -7,7 +7,6 @@
 #include <functional>
 #include <memory>
 #include <optional>
-#include <string>
 
 #include "absl/log/check.h"
 #include "base/cache_state.h"
@@ -21,6 +20,7 @@ namespace strix::memory {
 class ArenaPrivateAccess;
 template <size_t N>
 class HazardTable;
+class BufPool;
 
 // Primary memory regions: metadata & vector array, and a payload buffer.
 // Thread-safe as each API defines its own synchronization guarantees.
@@ -36,11 +36,11 @@ public:
     Arena(Arena&&)                 = delete;
     Arena& operator=(Arena&&)      = delete;
 
-    // Reads payload of node slot and returns corresponding `CacheState` status.
-    // Only invoke after successfully establishing "hazard zone".
-    // Asserts non-null payload buffer.
-    CacheState ReadPayload(
-        uint32_t node_id, uint8_t exp_ver, TimePoint now, std::string* out
+    // Reads payload of node slot. Returns an `absl::Cord` referencing to the
+    // read payload on hit or a `MissReason` otherwise. Only invoke after
+    // successfully establishing "hazard zone". Asserts non-null payload buffer.
+    CacheLookUpResult ReadPayload(
+        uint32_t node_id, uint8_t exp_ver, TimePoint now
     ) const noexcept;
 
     // Writes a header followed by byte sequence into the buffer.
@@ -87,7 +87,7 @@ private:
         return offset & (payload_buf_size - 1);
     }
 
-    void Read(uint64_t offset, uint32_t length, std::string* out)
+    void Read(uint64_t offset, uint32_t length, uint8_t* out)
         const noexcept;  // Byte fetching kernel
 
     // Returns the virtual offset at which caller can begin writing.
@@ -112,6 +112,9 @@ private:
 
     // Managing table of published hazard zones.
     std::unique_ptr<HazardTable<worker::kNumRPCWorkers>> hazard_table_;
+
+    // Backing store for zero-copy cache hits.
+    std::unique_ptr<BufPool> buf_pool_;
 };
 
 // Grants user code (non-const) access to private fields of `Arena`.
@@ -129,7 +132,7 @@ public:
 
     // Mirrors the byte fetching kernel used by `Arena::ReadPayload()`.
     static void ReadPayload(
-        Arena& arena, uint64_t offset, uint32_t length, std::string* out
+        Arena& arena, uint64_t offset, uint32_t length, uint8_t* out
     ) noexcept {
         CHECK(arena.payload_buf_ != nullptr)
             << "A non-null payload buffer is required";

@@ -67,11 +67,10 @@ void ConfigureServer(grpc::ServerBuilder& builder) {
     );
 }
 
-// Starts the gRPC server and GC background thread, then blocks on
-// the epoll event loop until a shutdown signal arrives (Death Pipe EOF or
-// SIGINT/SIGTERM).
-// `fd_sig` must be a `signalfd` created by `main()` after the signal mask is
-// set.
+// Starts the gRPC server and the background workers (GC, Coordinator), then
+// blocks on the epoll event loop until a shutdown signal arrives (Death Pipe
+// EOF or SIGINT/SIGTERM). `fd_sig` must be a `signalfd` created by `main()`
+// after the signal mask is set.
 void Run(
     const inference::SentenceEncoder& encoder,
     collection::Collection& collector, memory::Arena& arena,

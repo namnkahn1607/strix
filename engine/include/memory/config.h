@@ -21,6 +21,11 @@ struct Config {
     // Default: `0`.
     const uint64_t start_point = 0;
 
+    // Baseline capacity of buffer pool. Default: `64`.
+    // Estimate based on Little's Law: `W` is the amount of time pool
+    // buffer is acquired.
+    const uint32_t buf_pool_cap = 64;
+
     static Config Standard() {
         constexpr uint32_t kTotalSlots        = 1 << 19;         // 524'288
         constexpr size_t   kPayloadBufferSize = 0x100000000ull;  // 4 GiB
