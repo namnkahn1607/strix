@@ -19,10 +19,9 @@
 
 #include <gtest/gtest.h>
 
-#include <stdexcept>
-#include <string>
+#include <vector>
 
-#include "payload_header.h"
+#include "internal/payload_header.h"
 
 using namespace strix::memory;
 
@@ -37,12 +36,13 @@ Config Configure(uint64_t start_point = 0) {
 }
 
 // Generates a deterministic payload of specified byte-size.
-std::string GenPayload(size_t len) {
-    std::string str(len, '\0');
+std::vector<uint8_t> GenPayload(size_t len) {
+    std::vector<uint8_t> buf(len);
     for (size_t i = 0; i < len; ++i) {
-        str[i] = static_cast<char>((i * 37 + 13) % 251);  // Prime generators.
+        // Deterministic prime generators.
+        buf[i] = static_cast<uint8_t>((i * 37 + 13) % 251);
     }
-    return str;
+    return buf;
 }
 
 }  // namespace
@@ -60,19 +60,20 @@ std::string GenPayload(size_t len) {
 // BUF - text_index = 244 >= 100 -> NO data wrap.
 // -----------------------------------------------------------------------------
 TEST(MemoryArenaTest, SequentialWriteRead) {
-    Arena arena{Configure()};
+    constexpr uint32_t kLength = 100;
 
-    const std::string in     = GenPayload(100);
-    const uint32_t    length = static_cast<uint32_t>(in.size());
+    Arena      arena{Configure()};
+    const auto in = GenPayload(kLength);
 
-    const auto opt_offset = arena.WritePayload(
-        kNode, reinterpret_cast<const uint8_t*>(in.data()), length
-    );
-    EXPECT_TRUE(opt_offset.has_value());
+    const auto opt_offset =
+        ArenaPrivateAccess::WritePayload(arena, kNode, in.data(), kLength);
+    ASSERT_TRUE(opt_offset.has_value());
     EXPECT_EQ(arena.GetWriteHead(), sizeof(PayloadHeader) + 100);
 
-    std::string out;
-    ArenaPrivateAccess::ReadPayload(arena, opt_offset.value(), length, &out);
+    std::vector<uint8_t> out(kLength);
+    ArenaPrivateAccess::ReadPayload(
+        arena, opt_offset.value(), kLength, out.data()
+    );
     EXPECT_EQ(out, in);
 }
 
@@ -96,20 +97,21 @@ TEST(MemoryArenaTest, SequentialWriteRead) {
 //     chunk2 = 62 bytes from [0..61]
 // -----------------------------------------------------------------------------
 TEST(MemoryArenaTest, DataWrapAround) {
-    constexpr uint64_t kStart = kPayloadBufSize - 50;
-    Arena              arena{Config(kStart)};
+    constexpr uint32_t kLength = 100;
+    constexpr uint64_t kStart  = kPayloadBufSize - 50;
 
-    const std::string in     = GenPayload(100);
-    const uint32_t    length = static_cast<uint32_t>(in.size());
+    Arena      arena{Configure(kStart)};
+    const auto in = GenPayload(kLength);
 
-    const auto opt_offset = arena.WritePayload(
-        kNode, reinterpret_cast<const uint8_t*>(in.data()), length
+    const auto opt_offset =
+        ArenaPrivateAccess::WritePayload(arena, kNode, in.data(), kLength);
+    ASSERT_TRUE(opt_offset.has_value());
+
+    std::vector<uint8_t> out(kLength);
+    ArenaPrivateAccess::ReadPayload(
+        arena, opt_offset.value(), kLength, out.data()
     );
-    EXPECT_TRUE(opt_offset.has_value());
-
-    std::string out;
-    ArenaPrivateAccess::ReadPayload(arena, opt_offset.value(), length, &out);
-    EXPECT_EQ(out, in) << "Wrapped payload must reassemble correctly";
+    ASSERT_EQ(out, in) << "Wrapped payload must reassemble correctly";
 }
 
 // -----------------------------------------------------------------------------
@@ -130,22 +132,23 @@ TEST(MemoryArenaTest, DataWrapAround) {
 //   kBuf - 12 = 244 >= 100 -> NON-WRAP.
 // -----------------------------------------------------------------------------
 TEST(MemoryArenaTest, HeaderWrapPaddingInserted) {
-    constexpr uint64_t kStart = kPayloadBufSize - 8;
-    Arena              arena{Config(kStart)};
+    constexpr uint32_t kLength = 100;
+    constexpr uint64_t kStart  = kPayloadBufSize - 8;
 
-    const std::string in     = GenPayload(100);
-    const uint32_t    length = static_cast<uint32_t>(in.size());
+    Arena      arena{Configure(kStart)};
+    const auto in = GenPayload(kLength);
 
-    const auto opt_offset = arena.WritePayload(
-        kNode, reinterpret_cast<const uint8_t*>(in.data()), length
-    );
-    EXPECT_TRUE(opt_offset.has_value());
-    EXPECT_EQ(opt_offset.value() & (kPayloadBufSize - 1), 0)
+    const auto opt_offset =
+        ArenaPrivateAccess::WritePayload(arena, kNode, in.data(), kLength);
+    ASSERT_TRUE(opt_offset.has_value());
+    ASSERT_EQ(opt_offset.value() & (kPayloadBufSize - 1), 0)
         << "Header must start at physical index 0 after padding";
 
-    std::string out;
-    ArenaPrivateAccess::ReadPayload(arena, opt_offset.value(), length, &out);
-    EXPECT_EQ(out, in) << "Header-wrapped payload must read back correctly";
+    std::vector<uint8_t> out(kLength);
+    ArenaPrivateAccess::ReadPayload(
+        arena, opt_offset.value(), kLength, out.data()
+    );
+    ASSERT_EQ(out, in) << "Header-wrapped payload must read back correctly";
 }
 
 // -----------------------------------------------------------------------------
@@ -157,20 +160,24 @@ TEST(MemoryArenaTest, HeaderWrapPaddingInserted) {
 // With 4 writes consumes total of 4 * 62 = 248 bytes.
 // 5th write would need 62 more bytes: 248 + 62 = 310 > 256 -> THROW.
 // -----------------------------------------------------------------------------
-TEST(MemoryArenaTest, ExhaustionThrows) {
-    constexpr uint32_t kLen = 50;
-    Arena              arena{Configure()};
+TEST(MemoryArenaTest, ExhaustionReturnsNone) {
+    constexpr uint32_t kLength = 50;
 
-    const std::string in   = GenPayload(kLen);
-    const auto*       data = reinterpret_cast<const uint8_t*>(in.data());
+    Arena      arena{Configure()};
+    const auto in = GenPayload(kLength);
 
     for (int32_t i = 0; i < 4; ++i) {
-        ASSERT_NO_THROW(arena.WritePayload(kNode, data, kLen))
-            << "write " << i << " should succeed";
+        ASSERT_TRUE(
+            ArenaPrivateAccess::WritePayload(arena, kNode, in.data(), kLength)
+                .has_value()
+        ) << "write "
+          << i << " should succeed";
     }
 
-    EXPECT_THROW(arena.WritePayload(kNode, data, kLen), std::runtime_error)
-        << "5th write must throw when buffer is full";
+    ASSERT_FALSE(
+        ArenaPrivateAccess::WritePayload(arena, kNode, in.data(), kLength)
+            .has_value()
+    ) << "5th write must throw when buffer is full";
 }
 
 // -----------------------------------------------------------------------------
@@ -179,32 +186,42 @@ TEST(MemoryArenaTest, ExhaustionThrows) {
 // Verifies write_head accounting across consecutive calls.
 // -----------------------------------------------------------------------------
 TEST(MemoryArenaTest, MultipleSequentialWrites) {
-    Arena arena{Config(0)};
+    constexpr uint32_t kLen1 = 20;
+    constexpr uint32_t kLen2 = 30;
+    constexpr uint32_t kLen3 = 10;
 
-    const std::string in1 = GenPayload(20);
-    const std::string in2 = GenPayload(30);
-    const std::string in3 = GenPayload(10);
+    Arena      arena{Configure(0)};
+    const auto in1 = GenPayload(kLen1);
+    const auto in2 = GenPayload(kLen2);
+    const auto in3 = GenPayload(kLen3);
 
     const auto opt_offset1 =
-        arena.WritePayload(0, reinterpret_cast<const uint8_t*>(in1.data()), 20);
-    EXPECT_TRUE(opt_offset1.has_value());
+        ArenaPrivateAccess::WritePayload(arena, 0, in1.data(), kLen1);
+    ASSERT_TRUE(opt_offset1.has_value());
 
     const auto opt_offset2 =
-        arena.WritePayload(1, reinterpret_cast<const uint8_t*>(in2.data()), 30);
-    EXPECT_TRUE(opt_offset2.has_value());
+        ArenaPrivateAccess::WritePayload(arena, 1, in2.data(), kLen2);
+    ASSERT_TRUE(opt_offset2.has_value());
 
     const auto opt_offset3 =
-        arena.WritePayload(2, reinterpret_cast<const uint8_t*>(in3.data()), 10);
-    EXPECT_TRUE(opt_offset3.has_value());
+        ArenaPrivateAccess::WritePayload(arena, 2, in3.data(), kLen3);
+    ASSERT_TRUE(opt_offset3.has_value());
 
-    std::string out;
+    std::vector<uint8_t> out1(kLen1);
+    ArenaPrivateAccess::ReadPayload(
+        arena, opt_offset1.value(), kLen1, out1.data()
+    );
+    ASSERT_EQ(out1, in1);
 
-    ArenaPrivateAccess::ReadPayload(arena, opt_offset1.value(), 20, &out);
-    EXPECT_EQ(out, in1);
+    std::vector<uint8_t> out2(kLen2);
+    ArenaPrivateAccess::ReadPayload(
+        arena, opt_offset2.value(), kLen2, out2.data()
+    );
+    ASSERT_EQ(out2, in2);
 
-    ArenaPrivateAccess::ReadPayload(arena, opt_offset2.value(), 30, &out);
-    EXPECT_EQ(out, in2);
-
-    ArenaPrivateAccess::ReadPayload(arena, opt_offset3.value(), 10, &out);
-    EXPECT_EQ(out, in3);
+    std::vector<uint8_t> out3(kLen3);
+    ArenaPrivateAccess::ReadPayload(
+        arena, opt_offset3.value(), kLen3, out3.data()
+    );
+    ASSERT_EQ(out3, in3);
 }
