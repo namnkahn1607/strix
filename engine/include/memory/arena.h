@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <cassert>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -90,6 +91,10 @@ private:
     void Read(uint64_t offset, uint32_t length, uint8_t* out)
         const noexcept;  // Byte fetching kernel
 
+    std::optional<uint64_t> AllocAndWrite(
+        uint32_t node_id, const uint8_t* in, uint32_t length
+    ) noexcept;  // Byte committing kernel
+
     // Returns the virtual offset at which caller can begin writing.
     std::optional<uint64_t> TryAllocateSpace(uint32_t length) noexcept;
 
@@ -138,6 +143,16 @@ public:
             << "A non-null payload buffer is required";
 
         arena.Read(offset, length, out);
+    }
+
+    // Mirrors the byte commiting kernel used by `Arena::WritePayload()`.
+    static std::optional<uint64_t> WritePayload(
+        Arena& arena, uint32_t node_id, const uint8_t* in, uint32_t length
+    ) noexcept {
+        CHECK(arena.payload_buf_ != nullptr)
+            << "A non-null payload buffer is required";
+
+        return arena.AllocAndWrite(node_id, in, length);
     }
 };
 

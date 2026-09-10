@@ -36,7 +36,7 @@ Arena::Arena(const Config& config)
     , read_tail_{config.start_point}
     , hazard_table_{std::make_unique<HazardTable<worker::kNumRPCWorkers>>()}
     , buf_pool_{std::make_unique<BufPool>(config.buf_pool_cap)} {
-    if (!(max_slots != 0 && max_slots % ann::kBatchSize == 0)) {
+    if (max_slots == 0 || max_slots % ann::kBatchSize != 0) {
         throw std::invalid_argument(
             "Arena slots must be non-zero and a multiple of " +
             std::to_string(ann::kBatchSize)
@@ -45,6 +45,7 @@ Arena::Arena(const Config& config)
 
     metadata_ = Alloc<MetaNode>(max_slots, config.prefault);
     vectors_ = Alloc<float>(max_slots * inference::kVectorDim, config.prefault);
+    payload_buf_ = nullptr;
 
     if (payload_buf_size > 0) {
         if ((payload_buf_size & (payload_buf_size - 1)) != 0) {
@@ -126,7 +127,7 @@ CacheLookUpResult Arena::ReadPayload(
 
     uint32_t pool_id;
     uint8_t* dst = buf_pool_->Acquire(&pool_id);
-    if (dst != nullptr) {
+    if (dst == nullptr) {
         hazard_table_->Clear(slot);
         return MissReason::kMiss;
     }
@@ -170,28 +171,11 @@ std::optional<uint64_t> Arena::WritePayload(
         return std::nullopt;
     }
 
-    const auto opt_offset = TryAllocateSpace(length);
-    if (!opt_offset.has_value()) {
+    const auto opt_header_offset = AllocAndWrite(node_id, in, length);
+    if (!opt_header_offset.has_value()) {
         return std::nullopt;
     }
-
-    const uint64_t header_offset = opt_offset.value();
-    const uint64_t header_index  = ActualIndex(header_offset);
-
-    const PayloadHeader header{
-        PayloadHeader::kValidIdentifier, node_id, length
-    };
-    std::memcpy(payload_buf_ + header_index, &header, sizeof(PayloadHeader));
-
-    const auto text_index = ActualIndex(header_index + sizeof(PayloadHeader));
-    if (payload_buf_size - text_index >= length) {
-        std::memcpy(payload_buf_ + text_index, in, length);
-    } else {
-        const size_t chunk1 = payload_buf_size - text_index;
-        const size_t chunk2 = length - chunk1;
-        std::memcpy(payload_buf_ + text_index, in, chunk1);
-        std::memcpy(payload_buf_, in + chunk1, chunk2);
-    }
+    const auto header_offset = opt_header_offset.value();
 
     auto expected = ControlBlock::Pack(
         NodeState::kPending, EvictState::kCold, ver, old_len, old_off
@@ -389,6 +373,35 @@ void Arena::Read(uint64_t offset, uint32_t length, uint8_t* out)
         std::memcpy(out, payload_buf_ + text_index, chunk1);
         std::memcpy(out + chunk1, payload_buf_, chunk2);
     }
+}
+
+std::optional<uint64_t> Arena::AllocAndWrite(
+    uint32_t node_id, const uint8_t* in, uint32_t length
+) noexcept {
+    const auto opt_offset = TryAllocateSpace(length);
+    if (!opt_offset.has_value()) {
+        return std::nullopt;
+    }
+
+    const uint64_t header_offset = opt_offset.value();
+    const uint64_t header_index  = ActualIndex(header_offset);
+
+    const PayloadHeader header{
+        PayloadHeader::kValidIdentifier, node_id, length
+    };
+    std::memcpy(payload_buf_ + header_index, &header, sizeof(PayloadHeader));
+
+    const auto text_index = ActualIndex(header_index + sizeof(PayloadHeader));
+    if (payload_buf_size - text_index >= length) {
+        std::memcpy(payload_buf_ + text_index, in, length);
+    } else {
+        const size_t chunk1 = payload_buf_size - text_index;
+        const size_t chunk2 = length - chunk1;
+        std::memcpy(payload_buf_ + text_index, in, chunk1);
+        std::memcpy(payload_buf_, in + chunk1, chunk2);
+    };
+
+    return header_offset;
 }
 
 std::optional<uint64_t> Arena::TryAllocateSpace(uint32_t length) noexcept {
