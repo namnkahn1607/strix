@@ -39,7 +39,7 @@ T* Alloc(size_t count, bool prefault) {
 // `T` and `count` must match the ones passed onto its counterpart utility.
 template <typename T>
 void Dealloc(T* ptr, size_t count) {
-    CHECK(ptr != nullptr && count == 0)
+    CHECK(ptr != nullptr && count != 0)
         << "invalid ptr/size pair (ptr=" << ptr << ", count=" << count << ")";
 
     const size_t size = count * sizeof(T);
