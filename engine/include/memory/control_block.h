@@ -21,22 +21,8 @@ inline constexpr uint32_t kLengthShift    = 36;
 inline constexpr uint64_t kNodeStateMask     = 0x3;
 inline constexpr uint64_t kEvictStateMask    = 0x1;
 inline constexpr uint64_t kVersionMask       = 0xF;
-inline constexpr uint64_t kVirtualOffsetMask = 0xF'FFFF'FFFFFFFFull;
 inline constexpr uint32_t kMaxPayloadLength  = 0x1F'FFFFu;
-
-static_assert(
-    kEvictShift + 1 == kNodeStateShift,
-    "'evict' bit must sit below the 'state' field"
-);
-static_assert(
-    kVersionShift + 4 == kEvictShift,
-    "'version' field must occupy the 4-bit below the 'evict' bit"
-);
-static_assert(
-    kLengthShift + 21 == kVersionShift,
-    "'length' field must occupy the 21-bit sit below the 'version' field"
-);
-static_assert(kLengthShift == 36, "'virtual offset' must occupy bits [0, 36)");
+inline constexpr uint64_t kVirtualOffsetMask = 0xF'FFFF'FFFFull;
 
 // Advances a 4-bit version counter with wrap-around.
 // Use only after a successful node acquisition and the owner has finished
@@ -55,12 +41,14 @@ struct ControlBlock {
         NodeState state, EvictState ref, uint8_t ver, uint32_t length,
         uint64_t offset
     ) noexcept {
-        return (static_cast<uint64_t>(state) << kNodeStateShift) |
-               (static_cast<uint64_t>(ref) << kEvictShift) |
-               ((static_cast<uint64_t>(ver) & kVersionMask) << kVersionShift) |
-               (static_cast<uint64_t>(length & kMaxPayloadLength)
-                << kLengthShift) |
-               (offset & kVirtualOffsetMask);
+        auto state64 = static_cast<uint64_t>(state);
+        auto ref64   = static_cast<uint64_t>(ref);
+        auto ver64   = static_cast<uint64_t>(ver);
+        auto len64   = static_cast<uint64_t>(length & kMaxPayloadLength);
+        return ((state64 & kNodeStateMask) << kNodeStateShift) |
+               ((ref64 & kEvictStateMask) << kEvictShift) |
+               ((ver64 & kVersionMask) << kVersionShift) |
+               (len64 << kLengthShift) | (offset & kVirtualOffsetMask);
     }
 
     static ControlBlock Unpack(uint64_t ctrl) noexcept {
@@ -79,5 +67,27 @@ struct ControlBlock {
     uint32_t   length;          // Payload length in bytes (max 2 MiB - 1 byte).
     uint64_t   virtual_offset;  // Virtual buffer offset (max 64 GiB).
 };
+
+static_assert(
+    kEvictShift + 1 == kNodeStateShift,
+    "'evict' bit must sit below the 'state' field"
+);
+static_assert(
+    kVersionShift + 4 == kEvictShift,
+    "'version' field must occupy the 4-bit below the 'evict' bit"
+);
+static_assert(
+    kLengthShift + 21 == kVersionShift,
+    "'length' field must occupy the 21-bit sit below the 'version' field"
+);
+static_assert(kLengthShift == 36, "'virtual offset' must occupy bits [0, 36)");
+
+static_assert(
+    ((kNodeStateMask << kNodeStateShift) | (kEvictStateMask << kEvictShift) |
+     (kVersionMask << kVersionShift) |
+     (static_cast<uint64_t>(kMaxPayloadLength) << kLengthShift) |
+     kVirtualOffsetMask) == ~0ULL,
+    "Bit fields must form an exact partition of 64 bits"
+);
 
 }  // namespace strix::memory
