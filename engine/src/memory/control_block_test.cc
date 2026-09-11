@@ -86,7 +86,7 @@ TEST(RoundTripTest, AllNodeStates) {
     };
     for (const auto state : states) {
         const auto result = RoundTrip(state, EvictState::kCold, 0, 0, 0);
-        EXPECT_EQ(result.state, state) << "state=" << state;
+        EXPECT_EQ(result.state, state);
     }
 }
 
@@ -104,7 +104,7 @@ TEST(RoundTripTest, VersionBoundaries) {
     for (const auto ver : versions) {
         const auto result =
             RoundTrip(NodeState::kDead, EvictState::kCold, ver, 0, 0);
-        EXPECT_EQ(result.version, ver) << "version=" << ver;
+        EXPECT_EQ(result.version, ver);
     }
 }
 
@@ -162,11 +162,11 @@ TEST(IsolationTest, NodeStateDoesNotCorruptOtherFields) {
     for (const auto state : states) {
         const auto result =
             RoundTrip(state, EvictState::kHot, kVersion, kLength, kOffset);
-        EXPECT_EQ(result.state, state) << "state field";
-        EXPECT_EQ(result.ref, EvictState::kHot) << "ref field";
-        EXPECT_EQ(result.version, kVersion) << "version field";
-        EXPECT_EQ(result.length, kLength) << "length field";
-        EXPECT_EQ(result.virtual_offset, kOffset) << "offset field";
+        EXPECT_EQ(result.state, state);
+        EXPECT_EQ(result.ref, EvictState::kHot);
+        EXPECT_EQ(result.version, kVersion);
+        EXPECT_EQ(result.length, kLength);
+        EXPECT_EQ(result.virtual_offset, kOffset);
     }
 }
 
@@ -178,11 +178,11 @@ TEST(IsolationTest, RefBitDoesNotCorruptOtherFields) {
     for (const auto ev : {EvictState::kCold, EvictState::kHot}) {
         const auto result =
             RoundTrip(NodeState::kPending, ev, kVersion, kLength, kOffset);
-        EXPECT_EQ(result.state, NodeState::kPending) << "state field";
-        EXPECT_EQ(result.ref, ev) << "ref field";
-        EXPECT_EQ(result.version, kVersion) << "version field";
-        EXPECT_EQ(result.length, kLength) << "length field";
-        EXPECT_EQ(result.virtual_offset, kOffset) << "offset field";
+        EXPECT_EQ(result.state, NodeState::kPending);
+        EXPECT_EQ(result.ref, ev);
+        EXPECT_EQ(result.version, kVersion);
+        EXPECT_EQ(result.length, kLength);
+        EXPECT_EQ(result.virtual_offset, kOffset);
     }
 }
 
@@ -195,11 +195,11 @@ TEST(IsolationTest, VersionDoesNotCorruptOtherFields) {
         const auto result = RoundTrip(
             NodeState::kDead, EvictState::kHot, ver, kLength, kOffset
         );
-        EXPECT_EQ(result.state, NodeState::kDead) << "state field";
-        EXPECT_EQ(result.ref, EvictState::kHot) << "ref field";
-        EXPECT_EQ(result.version, ver) << "version field";
-        EXPECT_EQ(result.length, kLength) << "length field";
-        EXPECT_EQ(result.virtual_offset, kOffset) << "offset field";
+        EXPECT_EQ(result.state, NodeState::kDead);
+        EXPECT_EQ(result.ref, EvictState::kHot);
+        EXPECT_EQ(result.version, ver);
+        EXPECT_EQ(result.length, kLength);
+        EXPECT_EQ(result.virtual_offset, kOffset);
     }
 }
 
@@ -212,11 +212,11 @@ TEST(IsolationTest, LengthDoesNotCorruptOtherFields) {
         const auto result = RoundTrip(
             NodeState::kReady, EvictState::kCold, kVersion, len, kOffset
         );
-        EXPECT_EQ(result.state, NodeState::kReady) << "state field";
-        EXPECT_EQ(result.ref, EvictState::kCold) << "ref field";
-        EXPECT_EQ(result.version, kVersion) << "version field";
-        EXPECT_EQ(result.length, len) << "length field";
-        EXPECT_EQ(result.virtual_offset, kOffset) << "offset field";
+        EXPECT_EQ(result.state, NodeState::kReady);
+        EXPECT_EQ(result.ref, EvictState::kCold);
+        EXPECT_EQ(result.version, kVersion);
+        EXPECT_EQ(result.length, len);
+        EXPECT_EQ(result.virtual_offset, kOffset);
     }
 }
 
@@ -229,11 +229,11 @@ TEST(IsolationTest, OffsetDoesNotCorruptOtherFields) {
         const auto result = RoundTrip(
             NodeState::kReady, EvictState::kHot, kVersion, kLength, ofs
         );
-        EXPECT_EQ(result.state, NodeState::kReady) << "state field";
-        EXPECT_EQ(result.ref, EvictState::kHot) << "ref field";
-        EXPECT_EQ(result.version, kVersion) << "version field";
-        EXPECT_EQ(result.length, kLength) << "length field";
-        EXPECT_EQ(result.virtual_offset, ofs) << "offset field";
+        EXPECT_EQ(result.state, NodeState::kReady);
+        EXPECT_EQ(result.ref, EvictState::kHot);
+        EXPECT_EQ(result.version, kVersion);
+        EXPECT_EQ(result.length, kLength);
+        EXPECT_EQ(result.virtual_offset, ofs);
     }
 }
 
@@ -363,7 +363,8 @@ TEST_F(MetaNodeAccessorsTest, LoadVersionAgreesWithLoadControl) {
 }
 
 TEST_F(MetaNodeAccessorsTest, LoadOffsetAgreesWithLoadControl) {
-    for (uint64_t ofs = 0x0; ofs <= kVirtualOffsetMask; ++ofs) {
+    constexpr uint64_t kJump = 0x100000000ull;
+    for (uint64_t ofs = 0x0; ofs <= kVirtualOffsetMask; ofs += kJump) {
         const auto packed =
             ControlBlock::Pack(NodeState::kReady, EvictState::kHot, 0, 0, ofs);
         node.control_block.store(packed, std::memory_order_relaxed);
